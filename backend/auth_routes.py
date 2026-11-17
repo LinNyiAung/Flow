@@ -427,6 +427,13 @@ async def reset_password(request: ResetPasswordRequest):
     return {"message": "Password reset successfully. You can now log in."}
 
 
+@router.post("/renew-session")
+async def renew_session(current_user: dict = Depends(get_current_user)):
+    """Issue a fresh token with the full lifetime. get_current_user has already refused an expired or revoked token;
+    the new token carries the account's current password version. The device row is untouched: the app registers its
+    device again after renewing."""
+    return {"access_token": _issue_token(current_user), "token_type": "bearer"}
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current user info"""

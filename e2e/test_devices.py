@@ -24,6 +24,8 @@ Sections:
     (Task 5).
   password -- a password reset removes every device of the person; a password change keeps only the device whose token
     is sent as fcm_token (no token, or a blank one: removes all) (Task 5). Needs the stub server.
+  renewal -- POST /api/auth/renew-session: a fresh token with the full lifetime from now and the same uid and pwv, 
+    that works; an expired token and one issued before a password change get 401 (Task 7). Needs the stub server.
   admin -- the admin panel API: the user list and detail show device_count, the detail lists each device's created_at
     and last_seen_at, no token appears in either response, and "push enabled" counts a person with 2 devices once
     (Task 6). Needs the stub server.
@@ -682,10 +684,67 @@ def section_admin():
         db.admins.delete_many({"email": admin_email})
 
 
+def section_renewal():
+    import httpx
+    import jwt
+    from config import settings
+    from utils import create_access_token
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+
+    def decode(tok):
+        return jwt.decode(tok, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+    try:
+        A = register("Rena", "free")
+        if not A:
+            return
+        email = f"dv-rena-{tag}@example.com"
+        old = decode(A["token"])
+
+        # ---- the renewed token lasts the full lifetime from now
+        time.sleep(1.1)  # so the new exp is visibly later than the old one
+        r = c.post("/api/auth/renew-session", headers=A["h"])
+        body = r.json() if r.status_code == 200 else {}
+        new_tok = body.get("access_token")
+        check(r.status_code == 200 and body.get("token_type") == "bearer" and bool(new_tok),
+              "renewed token lasts 30 days from now: 200 with a bearer access_token", (r.status_code, r.text[:200]))
+        new = decode(new_tok) if new_tok else {}
+        want = datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        exp = datetime.fromtimestamp(new.get("exp", 0), UTC)
+        check(abs(exp - want) < timedelta(minutes=1) and new.get("exp", 0) > old["exp"]
+              and new.get("uid") == old["uid"] and new.get("pwv") == old["pwv"],
+              "renewed token lasts 30 days from now: new exp is now + lifetime and later than the old one; uid and pwv equal",
+              (new, old))
+
+        # ---- the renewed token works
+        r = c.get("/api/auth/me", headers={"Authorization": f"Bearer {new_tok}"})
+        check(r.status_code == 200, "renewed token works: GET /api/auth/me is 200", r.status_code)
+
+        # ---- an expired token is refused
+        expired = create_access_token(data={"sub": email, "uid": A["id"], "pwv": old["pwv"]},
+                                      expires_delta=timedelta(seconds=-1))
+        r = c.post("/api/auth/renew-session", headers={"Authorization": f"Bearer {expired}"})
+        check(r.status_code == 401, "expired token refused: 401", r.status_code)
+
+        # ---- a token issued before a password change is refused
+        r = c.put("/api/auth/change-password", headers=A["h"], json={
+            "current_password": "secret123", "new_password": "secret456", "confirm_password": "secret456"})
+        check(r.status_code == 200, "revoked token refused: the password change worked", (r.status_code, r.text[:200]))
+        r = c.post("/api/auth/renew-session", headers=A["h"])
+        check(r.status_code == 401, "revoked token refused: the pre-change token gets 401", r.status_code)
+        r = c.post("/api/auth/renew-session")
+        check(r.status_code in (401, 403), "no token refused", r.status_code)
+    finally:
+        _drop_people(made)
+
 SECTIONS = {"migration": section_migration, "register": section_register, "logout": section_logout,
             "dead_tokens": section_dead_tokens, "expired_session": section_expired_session,
             "reminder": section_reminder, "stale": section_stale, "password": section_password,
-            "admin": section_admin}
+            "admin": section_admin, "renewal": section_renewal}
 
 
 def main():
