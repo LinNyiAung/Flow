@@ -1,4 +1,5 @@
 import ipaddress
+import logging
 import re
 import threading
 import time
@@ -69,6 +70,7 @@ from ai_usage_models import AIUsageResponse, UserAIUsageStats, AIUsageStatsRespo
 from ai_usage_service import served_differs
 from config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
@@ -715,25 +717,29 @@ async def update_user_subscription(
 
     # Send a silent FCM data-only message to every signed-in device so the app refreshes instantly.
     # Blocking firebase call runs in a threadpool so the event loop isn't blocked.
-    tokens = await devices_db.active_tokens(user_id, datetime.now(UTC))
+    # The plan is already saved: a device read or clean-up that fails must not fail this call or skip the audit log.
     fcm_sent = False
-    if tokens:
-        result = await run_in_threadpool(
-            send_push,
-            tokens,
-            None,
-            None,
-            {
-                "type": "subscription_updated",
-                "subscription_type": subscription_data.subscription_type.value,
-            },
-        )
-        await devices_db.delete_tokens(result.get("unregistered") or [])
-        fcm_sent = result.get("success", 0) > 0  # at least one device got it
-        if fcm_sent:
-            print(f"✅ Subscription refresh FCM sent to user {user_id}")
-        else:
-            print(f"⚠️  Could not send FCM refresh to user {user_id} (tokens may be stale)")
+    try:
+        tokens = await devices_db.active_tokens(user_id, datetime.now(UTC))
+        if tokens:
+            result = await run_in_threadpool(
+                send_push,
+                tokens,
+                None,
+                None,
+                {
+                    "type": "subscription_updated",
+                    "subscription_type": subscription_data.subscription_type.value,
+                },
+            )
+            fcm_sent = result.get("success", 0) > 0  # at least one device got it
+            await devices_db.delete_tokens(result.get("unregistered") or [])
+            if fcm_sent:
+                print(f"✅ Subscription refresh FCM sent to user {user_id}")
+            else:
+                print(f"⚠️  Could not send FCM refresh to user {user_id} (tokens may be stale)")
+    except Exception as e:
+        logger.warning(f"Could not send subscription refresh push to user {user_id}: {e}")
     # ────────────────────────────────────────────────────────────────────────────
 
     await log_admin_action(
@@ -1005,7 +1011,13 @@ async def broadcast_notification(
 
         fcm_result = {"success": 0, "failure": 0}
         # Every signed-in device of every recipient (active_tokens_for lists each token once).
-        fcm_tokens = await devices_db.active_tokens_for(recipients, now)
+        # The notifications are already stored: a device read or clean-up that fails must not turn this into a 500
+        # (the admin would retry and every user would be notified twice).
+        try:
+            fcm_tokens = await devices_db.active_tokens_for(recipients, now)
+        except Exception as e:
+            logger.warning(f"Could not read device tokens for broadcast: {e}")
+            fcm_tokens = []
         if fcm_tokens:
             fcm_data = {
                 "type": notification_type,
@@ -1019,7 +1031,10 @@ async def broadcast_notification(
                 body=broadcast_data.message,
                 data=fcm_data
             )
-            await devices_db.delete_tokens(fcm_result.get("unregistered") or [])
+            try:
+                await devices_db.delete_tokens(fcm_result.get("unregistered") or [])
+            except Exception as e:
+                logger.warning(f"Could not remove dead device tokens after broadcast: {e}")
 
         await log_admin_action(
             admin_id=current_admin["_id"],

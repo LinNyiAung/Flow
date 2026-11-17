@@ -53,7 +53,7 @@ class CategoryBudgetIn(CategoryBudget):
     @field_validator("sub_category", mode="after")
     @classmethod
     def _blank_sub_is_none(cls, v: Optional[str]) -> Optional[str]:
-        return v if v and v.strip() else None
+        return v.strip() if v and v.strip() else None
 
 class BudgetCreate(BaseModel):
     name: str

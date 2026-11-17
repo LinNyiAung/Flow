@@ -221,6 +221,12 @@ def section_api():
         check(len(stored) == 2 and all(s["sub_category"] is None for s in stored),
               "blank sub is null: a blank sub_category is stored as NULL", stored)
 
+        r = create([{"main_category": MAIN1, "sub_category": f"  {SUB1}  ", "allocated_amount": 40}], total=40,
+                   name="BC padded")
+        padded = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and _lines(padded) == [(MAIN1, SUB1, 40)],
+              "blank sub is null: a padded sub_category is stripped", (r.status_code, r.text[:300]))
+
         # ---- GET round-trips
         if bid:
             got = c.get(f"/api/budgets/{bid}", headers=P["h"]).json()
@@ -310,6 +316,7 @@ def section_parity():
              {"main_category": MAIN1, "sub_category": SUB1, "allocated_amount": 100},
              {"main_category": MAIN2, "sub_category": SUB2, "allocated_amount": 50}]
     _ai_answer_split()  # in-process, no account needed
+    _rollover_context_labels()
     try:
         P = _register(c, tag, made, "Parity")
         if P is None:
@@ -397,6 +404,78 @@ def _ai_answer_split():
     want = [(MAIN1, SUB1), (MAIN1, None)]
     check(got == want, "AI answer split: 'Main - Sub' becomes (main, sub), a main matches case-insensitively, an "
                        "unknown main or sub is dropped", (got, want))
+
+    # A repeated line (same main and sub, however it is spelled) is kept once, the first one.
+    def item_amount(text, amount):
+        return {**item(text), "allocated_amount": amount}
+    answer = json.dumps({"categories": [item_amount(MAIN1, 300), item_amount(f"{MAIN1} - {SUB1}", 100),
+                                        item_amount("food & daily living", 999), item_amount(MAIN1, 5),
+                                        item_amount(f"{MAIN1} - {SUB1}", 7)], "reasoning": "r"})
+    try:
+        res = bs._parse_budget_answer(structure)(Completion(answer, 1, 1, "stop"))
+        got = [(x.main_category, x.sub_category, x.allocated_amount) for x in res["categories"]]
+    except Exception as e:  # noqa: BLE001
+        got = repr(e)[:300]
+    want = [(MAIN1, None, 300), (MAIN1, SUB1, 100)]
+    check(got == want, "AI answer split: a repeated line is dropped and the first one kept", (got, want))
+
+
+def _rollover_context_labels():
+    """The parent lines the AI sees in the rollover prompt carry one "Main" / "Main - Sub" text in main_category and no
+    sub_category key (in-process; the AI call is replaced by a capture)."""
+    import json
+    import budget_service as bs
+
+    parent = {
+        "start_date": datetime(2026, 1, 1, tzinfo=UTC), "end_date": datetime(2026, 1, 31, tzinfo=UTC),
+        "currency": "usd", "total_budget": 350.0, "total_spent": 100.0, "percentage_used": 28.0,
+        "category_budgets": [
+            {"main_category": MAIN1, "sub_category": None, "allocated_amount": 300.0, "spent_amount": 60.0},
+            {"main_category": MAIN1, "sub_category": SUB1, "allocated_amount": 100.0, "spent_amount": 40.0},
+            {"main_category": MAIN2, "allocated_amount": 50.0, "spent_amount": 10.0}]}
+    captured = {}
+
+    async def run():
+        from budget_models import BudgetPeriod
+        stubenv.patch_loaded_modules()
+
+        async def some_transactions(*a, **k):
+            return [{"amount": 1}]
+
+        async def owner_ok(*a, **k):
+            return True
+
+        async def book_row(*a, **k):
+            return {}
+
+        def capture_call(feature, system, user):
+            captured["user"] = user
+            return None
+
+        async def fail_run(*a, **k):
+            raise RuntimeError("no AI in this test")
+        saved = (bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets, bs.books_db.get_book_row,
+                 bs.books_db.spend_owner, bs._budget_call, bs._runner.run)
+        bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets = some_transactions, owner_ok
+        bs.books_db.get_book_row, bs.books_db.spend_owner = book_row, lambda row: {}
+        bs._budget_call, bs._runner.run = capture_call, fail_run
+        try:
+            return await bs._ai_category_budgets(
+                "bc-no-book", BudgetPeriod.MONTHLY, datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 2, 28, tzinfo=UTC),
+                parent)
+        finally:
+            (bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets, bs.books_db.get_book_row,
+             bs.books_db.spend_owner, bs._budget_call, bs._runner.run) = saved
+    try:
+        _backend_async(run)
+        text = captured["user"]
+        data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        got = [(x["main_category"], "sub_category" in x) for x in data["parent_budget_categories"]]
+    except Exception as e:  # noqa: BLE001
+        got = repr(e)[:300]
+    want = [(MAIN1, False), (f"{MAIN1} - {SUB1}", False), (MAIN2, False)]
+    check(got == want, "rollover context: each parent line is sent as its 'Main' / 'Main - Sub' text with no "
+                       "sub_category key", (got, want))
 
 
 def _rollover_keeps_sub(c, P):

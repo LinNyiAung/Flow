@@ -131,7 +131,18 @@ def _valid_budget_categories(raw_categories: List, categories_structure: List[Di
                 logger.warning(f"AI suggested invalid category '{main_cat}', skipping")
             else:
                 _append_valid_category(valid, {**cat, "main_category": match, "sub_category": None})
-    return valid
+
+    # A line repeating an earlier line's (main, sub) is dropped (the first stays), so it is never counted twice.
+    unique: List[CategoryBudget] = []
+    seen = set()
+    for line in valid:
+        key = allocation_key(line.model_dump())
+        if key in seen:
+            logger.warning(f"AI repeated category budget {allocation_label(line.model_dump())!r}, skipping")
+            continue
+        seen.add(key)
+        unique.append(line)
+    return unique
 
 
 def _parse_budget_answer(categories_structure: List[Dict]):
@@ -1334,7 +1345,11 @@ async def _ai_category_budgets(
         context = {
             "period_type": period.value,
             "days_in_period": days_in_period,
-            "parent_budget_categories": parent_budget["category_budgets"],
+            # Each line as the one "Main" / "Main - Sub" text the prompt asks the AI to answer in
+            "parent_budget_categories": [
+                {**{k: v for k, v in cat.items() if k != "sub_category"}, "main_category": allocation_label(cat)}
+                for cat in parent_budget["category_budgets"]
+            ],
             "actual_spending": category_spending,
             "total_allocated": parent_budget["total_budget"],
             "total_spent": parent_budget["total_spent"],
