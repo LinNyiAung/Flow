@@ -1253,8 +1253,10 @@ async def route_checks(t, h):
             return gid
 
         def edit_goal(gid):
-            with t.connect() as conn:  # what PUT /api/goals/{id} and a contribution write
-                conn.execute("UPDATE goals SET current_amount = 50, updated_at = now() WHERE id = %s", (gid,))
+            with t.connect() as conn:  # what a contribution writes (PUT /api/goals/{id} moves updated_at too)
+                conn.execute("INSERT INTO goal_entries (id, goal_id, kind, amount) VALUES (%s, %s, 'add', 50)",
+                             (str(uuid.uuid4()), gid))
+                conn.execute("UPDATE goals SET updated_at = now() WHERE id = %s", (gid,))
 
         def budget_stamp(bid):
             with t.connect() as conn:

@@ -15,6 +15,7 @@ from notification_service import (
     check_milestone_amount,
 )
 
+from sql import goal_entries as goal_entries_db
 from sql import goals as goals_db
 from sql import books as books_db
 
@@ -30,6 +31,11 @@ def to_cents(value) -> Decimal:
 
 def _money(value: Decimal) -> float:
     return float(value.quantize(_CENT, rounding=ROUND_HALF_UP))
+
+
+def _entry_member(book: Book) -> Optional[str]:
+    """Who a goal entry records: the acting member in a family book, nobody in a personal book."""
+    return book.member["id"] if book.is_family else None
 
 # ==================== FINANCIAL GOALS ====================
 
@@ -78,7 +84,6 @@ async def create_goal(
             "book_id": book.id,
             "name": goal_data.name,
             "target_amount": _money(target),
-            "current_amount": current_amount,
             "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
             "goal_type": goal_data.goal_type.value,
             "status": status_value.value,
@@ -89,6 +94,8 @@ async def create_goal(
         }
 
         await goals_db.insert_goal(new_goal)
+        if initial > 0:  # the goal's money is its entries: the initial contribution is the first one
+            await goal_entries_db.add_entry(goal_id, goal_entries_db.KIND_START, initial, _entry_member(book))
 
         # AI data stale (same transaction as the goal)
         await books_db.mark_ai_data_stale(book.id)
@@ -269,7 +276,7 @@ async def contribute_to_goal(
     contribution: GoalContribution = ...,
     book: Book = Depends(get_book)
 ):
-    """Add or reduce amount from a goal (serialized per book + optimistic guard)"""
+    """Add or reduce amount from a goal (serialized per book: one entry per call, written under the money lock)"""
     require_writable(book)
     amount = to_cents(contribution.amount)
     if amount < 0:
@@ -338,19 +345,13 @@ async def contribute_to_goal(
             new_status = GoalStatus.ACTIVE.value
             achieved_at = None
 
-        # --- ATOMIC WRITE (optimistic guard kept as a second line of defence) ---
-        updated = await goals_db.update_amount_if_unchanged(goal_id, original_amount, {
-            "current_amount": new_amount,
-            "status": new_status,
-            "updated_at": now,
-            "achieved_at": achieved_at,
-        })
-
-        if updated == 0:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Transaction failed due to concurrent modification. Please try again."
-            )
+        # --- WRITE (one transaction under the lock): the status, then the entry that moves the money ---
+        # The update comes first: it locks the goal row, so a goal deleted meanwhile is a 404 here rather than a
+        # foreign-key error on the entry.
+        if await goals_db.update_goal(goal_id, {"status": new_status, "updated_at": now, "achieved_at": achieved_at}) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+        kind = goal_entries_db.KIND_ADD if amount > 0 else goal_entries_db.KIND_WITHDRAW
+        await goal_entries_db.add_entry(goal_id, kind, amount, _entry_member(book))
 
         # AI data stale (same transaction as the contribution)
         await books_db.mark_ai_data_stale(book.id)

@@ -219,7 +219,6 @@ goals = Table(
     Column("goal_type", Text, nullable=False),
     Column("status", Text, nullable=False, server_default="active"),
     Column("target_amount", MONEY, nullable=False),
-    Column("current_amount", MONEY, nullable=False, server_default="0"),
     Column("currency", Text, nullable=False, server_default="usd"),
     Column("target_date", TS),
     Column("achieved_at", TS),
@@ -228,11 +227,28 @@ goals = Table(
     CheckConstraint("goal_type IN ('savings','debt_reduction','large_purchase')", name="goal_type"),
     CheckConstraint("status IN ('active','achieved')", name="status"),
     CheckConstraint("target_amount > 0 AND target_amount < 1e16", name="target_positive_finite"),
-    CheckConstraint("current_amount >= 0 AND current_amount < 1e16", name="current_non_negative_finite"),
     CheckConstraint(f"currency IN {CURRENCIES}", name="currency"),
 )
 Index("ix_goals_book_status_currency", goals.c.book_id, goals.c.status, goals.c.currency)
 Index("ix_goals_status_target_date", goals.c.status, goals.c.target_date)
+
+# A goal's money: one row per movement (the initial contribution, an Add, a Withdraw, or the balance carried over when
+# history began). What a goal holds is the sum of its entries; there is no stored total. Entries are never edited or
+# deleted on their own, only with their goal. added_by_member_id: the acting member in a family book, else NULL.
+goal_entries = Table(
+    "goal_entries", metadata,
+    Column("id", Text, primary_key=True),
+    Column("goal_id", Text, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False),
+    Column("kind", Text, nullable=False),
+    Column("amount", MONEY, nullable=False),  # signed: a withdraw is negative, every other kind positive
+    Column("added_by_member_id", Text, ForeignKey("family_members.id", ondelete="SET NULL")),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    CheckConstraint("kind IN ('start','add','withdraw','carried_over')", name="kind"),
+    CheckConstraint("(kind = 'withdraw' AND amount < 0) OR (kind <> 'withdraw' AND amount > 0)", name="amount_sign"),
+    CheckConstraint("amount > -1e16 AND amount < 1e16", name="amount_finite"),
+)
+Index("ix_goal_entries_goal_created", goal_entries.c.goal_id, goal_entries.c.created_at, goal_entries.c.id)
+Index("ix_goal_entries_added_by_member_id", goal_entries.c.added_by_member_id)  # the SET NULL FK's index
 
 budgets = Table(
     "budgets", metadata,
