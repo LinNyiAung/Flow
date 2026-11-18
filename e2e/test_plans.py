@@ -316,41 +316,42 @@ def stored_plans(conn):
 
 def period_checks():
     from plans import periods
-    check(periods.period_start("week", utc(2026, 11, 2, 23, 30)) == date(2026, 11, 2),
+    from tz_utils import default_zone  # a person without a saved zone (read again after SCHEDULER_TIMEZONE changes)
+    check(periods.period_start("week", utc(2026, 11, 2, 23, 30), default_zone()) == date(2026, 11, 2),
           "period_week_starts_monday_yangon: the week of 2026-11-03 06:00 Yangon starts on Monday 2026-11-02",
-          periods.period_start("week", utc(2026, 11, 2, 23, 30)))
-    check(periods.resets_at("week", utc(2026, 11, 2, 23, 30)) == utc(2026, 11, 8, 17, 30)
-          and periods.resets_at("week", utc(2026, 11, 2, 23, 30)).utcoffset() == timedelta(0),
+          periods.period_start("week", utc(2026, 11, 2, 23, 30), default_zone()))
+    check(periods.resets_at("week", utc(2026, 11, 2, 23, 30), default_zone()) == utc(2026, 11, 8, 17, 30)
+          and periods.resets_at("week", utc(2026, 11, 2, 23, 30), default_zone()).utcoffset() == timedelta(0),
           "period_week_starts_monday_yangon: that week resets at 2026-11-08T17:30:00Z (Monday 00:00 Yangon)",
-          periods.resets_at("week", utc(2026, 11, 2, 23, 30)))
+          periods.resets_at("week", utc(2026, 11, 2, 23, 30), default_zone()))
     # Sunday 23:59 Yangon is still the old week; Monday 00:00 Yangon starts the new one.
-    check(periods.period_start("week", utc(2026, 11, 8, 17, 29)) == date(2026, 11, 2)
-          and periods.period_start("week", utc(2026, 11, 8, 17, 30)) == date(2026, 11, 9),
+    check(periods.period_start("week", utc(2026, 11, 8, 17, 29), default_zone()) == date(2026, 11, 2)
+          and periods.period_start("week", utc(2026, 11, 8, 17, 30), default_zone()) == date(2026, 11, 9),
           "period_week_boundary: Sunday 23:59 Yangon is the old week, Monday 00:00 Yangon the new one")
     # Yangon is ahead of UTC, so late Sunday UTC is already Monday there.
-    check(periods.period_start("week", utc(2026, 11, 1, 20, 0)) == date(2026, 11, 2),
+    check(periods.period_start("week", utc(2026, 11, 1, 20, 0), default_zone()) == date(2026, 11, 2),
           "period_week_boundary: Sunday 20:00 UTC (Monday 02:30 Yangon) is already the Monday week")
-    check(periods.period_start("month", utc(2026, 11, 30, 18, 0)) == date(2026, 12, 1),
+    check(periods.period_start("month", utc(2026, 11, 30, 18, 0), default_zone()) == date(2026, 12, 1),
           "period_month_boundary: 2026-11-30 18:00 UTC (Yangon 00:30 on Dec 1) starts December",
-          periods.period_start("month", utc(2026, 11, 30, 18, 0)))
-    check(periods.period_start("month", utc(2026, 11, 30, 17, 29)) == date(2026, 11, 1),
+          periods.period_start("month", utc(2026, 11, 30, 18, 0), default_zone()))
+    check(periods.period_start("month", utc(2026, 11, 30, 17, 29), default_zone()) == date(2026, 11, 1),
           "period_month_boundary: 2026-11-30 17:29 UTC is still November")
-    check(periods.resets_at("month", utc(2026, 11, 2, 23, 30)) == utc(2026, 11, 30, 17, 30)
-          and periods.resets_at("month", utc(2026, 12, 20, 0, 0)) == utc(2026, 12, 31, 17, 30),
+    check(periods.resets_at("month", utc(2026, 11, 2, 23, 30), default_zone()) == utc(2026, 11, 30, 17, 30)
+          and periods.resets_at("month", utc(2026, 12, 20, 0, 0), default_zone()) == utc(2026, 12, 31, 17, 30),
           "period_month_boundary: a month resets at the next month's midnight in Yangon (December -> January rolls the year)",
-          (periods.resets_at("month", utc(2026, 11, 2, 23, 30)), periods.resets_at("month", utc(2026, 12, 20, 0, 0))))
-    check(periods.month_start_utc(utc(2026, 11, 2, 23, 30)) == utc(2026, 10, 31, 17, 30)
-          and periods.month_start_utc(utc(2026, 11, 30, 18, 0)) == utc(2026, 11, 30, 17, 30),
+          (periods.resets_at("month", utc(2026, 11, 2, 23, 30), default_zone()), periods.resets_at("month", utc(2026, 12, 20, 0, 0), default_zone())))
+    check(periods.month_start_utc(utc(2026, 11, 2, 23, 30), default_zone()) == utc(2026, 10, 31, 17, 30)
+          and periods.month_start_utc(utc(2026, 11, 30, 18, 0), default_zone()) == utc(2026, 11, 30, 17, 30),
           "period_month_start_utc: the month starts at Yangon midnight, expressed in UTC",
-          (periods.month_start_utc(utc(2026, 11, 2, 23, 30)), periods.month_start_utc(utc(2026, 11, 30, 18, 0))))
-    check(periods.period_start("week", datetime(2026, 11, 2, 23, 30)) == date(2026, 11, 2)
-          and periods.resets_at("week", datetime(2026, 11, 2, 23, 30)) == utc(2026, 11, 8, 17, 30),
+          (periods.month_start_utc(utc(2026, 11, 2, 23, 30), default_zone()), periods.month_start_utc(utc(2026, 11, 30, 18, 0), default_zone())))
+    check(periods.period_start("week", datetime(2026, 11, 2, 23, 30), default_zone()) == date(2026, 11, 2)
+          and periods.resets_at("week", datetime(2026, 11, 2, 23, 30), default_zone()) == utc(2026, 11, 8, 17, 30),
           "period_naive_is_utc: a naive datetime is read as UTC")
     old = os.environ.get("SCHEDULER_TIMEZONE")
     try:
         os.environ["SCHEDULER_TIMEZONE"] = "UTC"
-        check(periods.period_start("month", utc(2026, 11, 30, 18, 0)) == date(2026, 11, 1)
-              and periods.resets_at("week", utc(2026, 11, 2, 23, 30)) == utc(2026, 11, 9, 0, 0),
+        check(periods.period_start("month", utc(2026, 11, 30, 18, 0), default_zone()) == date(2026, 11, 1)
+              and periods.resets_at("week", utc(2026, 11, 2, 23, 30), default_zone()) == utc(2026, 11, 9, 0, 0),
               "period_uses_app_timezone: SCHEDULER_TIMEZONE changes the boundaries")
     finally:
         if old is None:
@@ -359,7 +360,7 @@ def period_checks():
             os.environ["SCHEDULER_TIMEZONE"] = old
     for fn in (periods.period_start, periods.resets_at):
         try:
-            fn("day", utc(2026, 11, 2))
+            fn("day", utc(2026, 11, 2), default_zone())
             ok = False
         except ValueError:
             ok = True

@@ -11,7 +11,7 @@ HTTP 403 (plan_feature_locked) or 429 (plan_limit_reached, plan_cost_cap) with t
 from datetime import date, datetime, timezone, tzinfo
 from typing import Any, Dict, Mapping, Optional
 
-from tz_utils import as_utc, default_zone
+from tz_utils import as_utc
 
 from .catalog import PAID_PLANS, PLANS
 
@@ -65,10 +65,10 @@ def format_day(day: date, lang: str) -> str:
     return day.strftime("%b %d, %Y").replace(" 0", " ")
 
 
-def format_date(when: datetime, lang: str, tz: Optional[tzinfo] = None) -> str:
-    """The local date of a moment in `tz` (the reader's zone; default the default zone), as the user reads it:
+def format_date(when: datetime, lang: str, tz: tzinfo) -> str:
+    """The local date of a moment in `tz` (the reader's zone), as the user reads it:
     "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
-    return format_day(when.astimezone(tz if tz is not None else default_zone()), lang)
+    return format_day(when.astimezone(tz), lang)
 
 
 class PlanError(Exception):
@@ -76,13 +76,15 @@ class PlanError(Exception):
 
     status: 403 for plan_feature_locked, 429 otherwise. resets_at: an aware UTC datetime (None for a locked feature).
     feature: a quota feature key, or None for a route that only needs a paid plan (utils.ensure_paid). tz: the zone
-    the message shows resets_at's date in (the zone of the counted person; default the default zone).
+    the message shows resets_at's date in (the zone of the counted person); required with resets_at.
     """
 
     def __init__(self, code: str, feature: Optional[str], *, resets_at: Optional[datetime] = None,
                  upgrade_available: bool = False, lang: str = "en", tz: Optional[tzinfo] = None):
         if code not in _STATUS:
             raise ValueError(f"Unknown plan error code '{code}'")
+        if resets_at is not None and tz is None:
+            raise ValueError("A PlanError with a reset time needs the zone its date is shown in")
         self.status = _STATUS[code]
         self.code = code
         self.feature = feature

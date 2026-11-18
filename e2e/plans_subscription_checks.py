@@ -45,6 +45,7 @@ async def run(t):
     import stubenv
     import subscription_service as ss
     from plans import catalog, periods, quota
+    from tz_utils import default_zone
     from sql import users as users_db
     stubenv.patch_loaded_modules()  # no real push; notifications are still stored
 
@@ -331,7 +332,7 @@ async def run(t):
         check(len(soon) == 1 and not notes(uid, "plan_ends_today"),
               "plan_reminder_3_days: a Plus plan ending in 2.5 days gets one 'plan ends soon' reminder", (sent, soon))
         check(soon and soon[0]["title"] == "Your Plus Plan Ends Soon"
-              and soon[0]["message"] == f"Your Toe Pwar Plus plan ends on {format_date(aware(ends), 'en')}. Renew before "
+              and soon[0]["message"] == f"Your Toe Pwar Plus plan ends on {format_date(aware(ends), 'en', default_zone())}. Renew before "
                                         "then to keep your AI allowances and Plus features.",
               "plan_reminder_3_days: the reminder is in English and names Plus and the end date", soon)
         check(row(uid, "plan_reminder_3d_for", "plan_reminder_last_for") == (ends, None),
@@ -349,7 +350,7 @@ async def run(t):
         check(len(last) == 1 and not notes(uid, "plan_ending_soon"),
               "plan_reminder_last_day: a Pro plan first seen in its last 24 hours gets only the 'ends today' reminder", last)
         check(last and last[0]["title"] == "Your Pro Plan Ends Within 24 Hours"
-              and last[0]["message"] == f"Your Toe Pwar Pro plan ends within 24 hours, on {format_date(aware(ends), 'en')}. "
+              and last[0]["message"] == f"Your Toe Pwar Pro plan ends within 24 hours, on {format_date(aware(ends), 'en', default_zone())}. "
                                         "Renew now to keep your AI allowances and Pro features.",
               "plan_reminder_last_day: the 'ends today' text names Pro and the end date", last)
         await ss.send_plan_renewal_reminders()
@@ -364,7 +365,7 @@ async def run(t):
         soon, last = notes(uid, "plan_ending_soon"), notes(uid, "plan_ends_today")
         check(len(soon) == 1 and len(last) == 1
               and all(MYANMAR.search(x["message"]) and MYANMAR.search(x["title"]) and "Plus" in x["message"]
-                      and format_date(aware(ends), "my") in x["message"] for x in soon + last),
+                      and format_date(aware(ends), "my", default_zone()) in x["message"] for x in soon + last),
               "plan_reminder_last_day: a Myanmar user gets one 'ends soon' then one 'ends today', both in Myanmar with "
               "the Burmese date", (len(soon), len(last)))
 
@@ -395,7 +396,7 @@ async def run(t):
         await ss.send_plan_renewal_reminders()
         soon = sorted(notes(uid, "plan_ending_soon"), key=lambda n: n["created_at"])
         stored_end = row(uid, "subscription_expires_at")[0]
-        check(len(soon) == 2 and format_date(aware(stored_end), "en") in soon[1]["message"]
+        check(len(soon) == 2 and format_date(aware(stored_end), "en", default_zone()) in soon[1]["message"]
               and row(uid, "plan_reminder_3d_for")[0] == stored_end and stored_end != first_end,
               "plan_reminder_extension: extended to a new end date within 3 days, one new reminder for the new date",
               (len(soon), [n["message"] for n in soon]))
@@ -448,7 +449,7 @@ async def run(t):
         check(abs(j.get("month_spend_usd", -1) - 0.04) < 1e-9 and j.get("cost_cap_usd") == 0.1 and j.get("cost_cap_reached") is False,
               "admin_usage_view: month spend 0.04 of the 0.10 Free cap, not reached", (j.get("month_spend_usd"), j.get("cost_cap_usd")))
         add_cost(uid, 0.07)
-        add_cost(uid, 9.0, periods.month_start_utc(datetime.now(UTC)) - timedelta(minutes=1))  # last month: not counted
+        add_cost(uid, 9.0, periods.month_start_utc(datetime.now(UTC), default_zone()) - timedelta(minutes=1))  # last month: not counted
         j = c.get(f"/api/admin/users/{uid}/usage", headers=MOD).json()
         check(abs(j.get("month_spend_usd", -1) - 0.11) < 1e-9 and j.get("cost_cap_reached") is True,
               "admin_usage_view: spend 0.11 reaches the cap; last month's spend is not counted", (j.get("month_spend_usd"), j.get("cost_cap_reached")))

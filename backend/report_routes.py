@@ -13,7 +13,7 @@ from report_models import (
     MultiCurrencyFinancialReport, ReportPeriod, ReportRequest
 )
 from models import Currency
-from tz_utils import as_calendar_date, day_bounds, default_zone, local_today
+from tz_utils import as_calendar_date, day_bounds, local_today
 from user_zones import user_zone
 
 from sql import transactions as transactions_db
@@ -24,19 +24,19 @@ router = APIRouter(prefix="/api/reports", tags=["transactions"])
 
 def calculate_report_dates(
     period: ReportPeriod,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-    tz: Optional[tzinfo] = None,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    tz: tzinfo,
     now: Optional[datetime] = None,
 ):
     """
     Calculate start and end dates based on period, as naive wall-clock bounds of whole days (transaction dates are
     local date-times with no timezone, so they compare directly).
 
-    Week/month/year are the ones containing today in `tz`, the person's zone (user_zones.user_zone; default the
-    default zone), at the instant `now` (default: now). Custom dates are calendar dates, first and last day included.
+    Week/month/year are the ones containing today in `tz`, the person's zone (user_zones.user_zone), at the instant
+    `now` (default: now). Custom dates are calendar dates, first and last day included.
     """
-    today = local_today(tz if tz is not None else default_zone(), now)
+    today = local_today(tz, now)
 
     if period == ReportPeriod.WEEK:
         monday = today - timedelta(days=today.weekday())

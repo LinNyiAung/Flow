@@ -485,8 +485,9 @@ async def run(t):
         check(got[3] == "done" and got[6] == admin_id and got[5] is not None and plan_request(rn_h) is None,
               "upgrade_request_renewal: the admin extending the same plan marks the renewal done", got)
         from plans.access import format_date
+        from tz_utils import default_zone
         got = activated(rn_uid)[told:]
-        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(new_end, 'en')}.",
+        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(new_end, 'en', default_zone())}.",
               "upgrade_request_renewal: and the user gets plan_activated with the new end date", got)
         row = listed(MOD, rn_uid, status="done")
         check(row is not None and row["is_renewal"] is False,
@@ -663,6 +664,7 @@ async def run(t):
 
         # ---- tell the user what happened: plan_activated and upgrade_request_declined notifications
         from plans.access import MONTHS_MY, format_date
+        from tz_utils import default_zone
 
         def notes(user_id, *types):
             found = db.notifications.find({"user_id": user_id, "type": {"$in": list(types)}})
@@ -691,7 +693,7 @@ async def run(t):
         n_uid, n_h = request_for("act-plus")
         check(set_plan(n_uid, "plus", ends), "setup: set Plus with an end date")
         got = notes(n_uid, "plan_activated")
-        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(ends, 'en')}."
+        check(len(got) == 1 and got[0]["message"] == f"Your Plus plan is now active. It runs until {format_date(ends, 'en', default_zone())}."
               and "Plus" in got[0]["title"] and got[0]["is_read"] is False,
               "plan_activated: Plus with an end date tells the user it is active and until when (English)", got)
         check(rows(n_uid)[0][3] == "done" and not notes(n_uid, "upgrade_request_declined"),
@@ -706,7 +708,7 @@ async def run(t):
         q_uid, _ = register("act-pro-dated")
         set_plan(q_uid, "pro", ends)
         got = notes(q_uid, "plan_activated")
-        check(len(got) == 1 and got[0]["message"] == f"Your Pro plan is now active. It runs until {format_date(ends, 'en')}.",
+        check(len(got) == 1 and got[0]["message"] == f"Your Pro plan is now active. It runs until {format_date(ends, 'en', default_zone())}.",
               "plan_activated: Pro with an end date, without a request", got)
         r_uid, _ = request_for("act-plus-life", "pro")
         set_plan(r_uid, "plus")
@@ -723,7 +725,7 @@ async def run(t):
         set_plan(m_uid, "plus", ends)
         got = notes(m_uid, "plan_activated")
         check(len(got) == 1 and MYANMAR.search(got[0]["title"]) and MYANMAR.search(got[0]["message"])
-              and format_date(ends, "my") in got[0]["message"] and MONTHS_MY[2] in got[0]["message"]
+              and format_date(ends, "my", default_zone()) in got[0]["message"] and MONTHS_MY[2] in got[0]["message"]
               and "Plus" in got[0]["message"] and "now active" not in got[0]["message"],
               "plan_activated: a Myanmar user gets Myanmar text with the Burmese month name", got)
         m2_uid, _ = register("act-my-life", "my")

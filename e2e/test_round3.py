@@ -51,7 +51,6 @@ n1 = db.notifications.count_documents(q)
 rec("renaming an over-budget budget re-sends threshold/exceeded alerts", n1 > n0, f"PUT {r.status_code}; alerts {n0} -> {n1}")
 
 # 2. exceeded budget ending soon gets no 'ending soon' alert
-import notification_service as ns  # noqa: E402
 stubenv.patch_loaded_modules()
 db.budgets.update_one({"_id": b["id"]}, {"$set": {"end_date": now + timedelta(days=2)}})
 db.notifications.delete_many({"user_id": uid, "type": {"$regex": "ending|end"}})

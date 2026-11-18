@@ -46,6 +46,7 @@ async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, default_body)."""
     import stubenv
     from plans import periods, store, voice_token
+    from tz_utils import default_zone
 
     check = t.check
     c = httpx.Client(base_url=BASE, timeout=120)
@@ -69,7 +70,7 @@ async def run(t):
         return c.put(f"/api/admin/users/{uid}/subscription", headers=AD, json=body).status_code == 200
 
     def used(uid, feature, period="month"):
-        start = periods.period_start(period, datetime.now(UTC))
+        start = periods.period_start(period, datetime.now(UTC), default_zone())
         with t.connect() as conn:
             row = conn.execute("SELECT used FROM usage_counters WHERE user_id = %s AND feature = %s AND period = %s "
                                "AND period_start = %s", (uid, feature, period, start)).fetchone()
@@ -81,7 +82,7 @@ async def run(t):
             for period in ("week", "month"):
                 conn.execute("INSERT INTO usage_counters (user_id, feature, period, period_start, used) VALUES (%s, %s, %s, %s, %s) "
                              "ON CONFLICT (user_id, feature, period, period_start) DO UPDATE SET used = EXCLUDED.used",
-                             (uid, feature, period, periods.period_start(period, now), n))
+                             (uid, feature, period, periods.period_start(period, now, default_zone()), n))
 
     def add_cost(uid, usd):
         with t.connect() as conn:

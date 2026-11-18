@@ -93,7 +93,6 @@ after2 = db.users.find_one({"email": e2}).get(vkey)
 rec("second resend within a minute is rate-limited", "PASS" if after2 == after else "INFO", "")
 
 # 5. budget 'now active' notification after the list view flipped status
-import notification_service as ns  # noqa: E402
 stubenv.patch_loaded_modules()
 email3, tok3, uid3 = new_user("budget")
 # Budget dates are calendar dates; "tomorrow" is on the default zone's calendar (a person without a zone).

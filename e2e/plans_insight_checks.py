@@ -512,7 +512,7 @@ async def run(t):
 
         # ---- next_insight_at: when the next insight arrives, from the scheduler's own cron fields
         import insight_schedule
-                tz = default_zone()
+        tz = default_zone()
 
         def local(*a):
             return datetime(*a, tzinfo=tz).astimezone(UTC)
@@ -591,10 +591,10 @@ async def run(t):
             await store.load()
             import main as backend_main
             from plans import quota
-                        user = db.users.find_one({"_id": nfid})
+            user = db.users.find_one({"_id": nfid})
             check(ok and quota.is_locked(user, "insight_monthly") and quota.is_locked(user, "insight_weekly"),
                   "next_insight_at: quota.is_locked sees the owner's lock on Free monthly (and Free weekly)")
-            check(backend_main._next_insight_at(user, "monthly") is None and backend_main._next_insight_at(user, "weekly") is None,
+            check(backend_main._next_insight_at(user, "monthly", tz) is None and backend_main._next_insight_at(user, "weekly", tz) is None,
                   "next_insight_at: _next_insight_at is None for a locked monthly (owner lock) and weekly (Free)")
             # the insight already stored this month is still shown (reading costs nothing), but it announces no next one
             r = get(nfh)

@@ -264,11 +264,11 @@ class FinancialDataProcessor:
     """Processes a book's financial data for RAG (a personal or a family book).
 
     tz: the zone of the "today" the data is labelled with (days remaining, "N days ago", this month): the person asking
-    for their chat and its cached documents, the book's zone for its insights; default the default zone."""
+    for their chat and its cached documents, the book's zone for its insights."""
 
-    def __init__(self, book_id: str, tz: Optional[tzinfo] = None):
+    def __init__(self, book_id: str, tz: tzinfo):
         self.book_id = book_id
-        self.tz = tz if tz is not None else default_zone()
+        self.tz = tz
 
 
     def ensure_utc_datetime(self, dt) -> datetime:

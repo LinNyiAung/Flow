@@ -44,7 +44,7 @@ from sql.categories import get_categories_doc
 from sql.db import transaction as db_transaction
 
 from category_matching import normalize_type, parse_positive_amount, snap_category
-from tz_utils import WallClock, as_calendar_date, as_wall_clock, default_zone, local_today
+from tz_utils import WallClock, as_calendar_date, as_wall_clock, local_today
 from user_zones import book_zone, user_zone
 from finite_utils import finite_amount_or_none, is_finite_number
 
@@ -128,7 +128,7 @@ def _extraction_currency(value, default: str) -> Currency:
 
 
 async def _build_extraction(
-    data: dict, default_currency: str, keep_invalid_amount: bool, today: Optional[date] = None
+    data: dict, default_currency: str, keep_invalid_amount: bool, *, today: date
 ) -> Optional[TransactionExtraction]:
     """
     Turn one model-produced transaction dict into a TransactionExtraction whose type and
@@ -137,7 +137,7 @@ async def _build_extraction(
 
     Amount <= 0 / missing: returns None (caller drops it) unless keep_invalid_amount, in
     which case amount=0 and confidence=0 are returned with a note in `reasoning`.
-    today: the person's today, the date when the model gave none (default: today in the default zone).
+    today: the person's today, the date when the model gave none.
     """
     if not isinstance(data, dict):
         return None
@@ -169,7 +169,7 @@ async def _build_extraction(
         type=tx_type,
         main_category=main,
         sub_category=sub,
-        date=_extraction_date(data.get("date"), today if today is not None else local_today(default_zone())),
+        date=_extraction_date(data.get("date"), today),
         description=data.get("description"),
         amount=amount,
         currency=_extraction_currency(data.get("currency"), default_currency),

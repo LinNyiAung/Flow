@@ -24,6 +24,7 @@ DETAIL_KEYS = {"code", "feature", "resets_at", "upgrade_available", "message"}
 async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, default_body)."""
     from plans import access, catalog, periods, quota, store
+    from tz_utils import default_zone
     from sql import users as users_db
 
     check = t.check
@@ -52,7 +53,7 @@ async def run(t):
         return r.status_code == 200
 
     def used(uid, feature, period, start=None):
-        start = start or periods.period_start(period, datetime.now(UTC))
+        start = start or periods.period_start(period, datetime.now(UTC), default_zone())
         with t.connect() as conn:
             row = conn.execute("SELECT used FROM usage_counters WHERE user_id = %s AND feature = %s AND period = %s "
                                "AND period_start = %s", (uid, feature, period, start)).fetchone()
@@ -65,7 +66,7 @@ async def run(t):
             for period in ("week", "month"):
                 conn.execute("INSERT INTO usage_counters (user_id, feature, period, period_start, used) VALUES (%s, %s, %s, %s, %s) "
                              "ON CONFLICT (user_id, feature, period, period_start) DO UPDATE SET used = EXCLUDED.used",
-                             (uid, feature, period, periods.period_start(period, now), n))
+                             (uid, feature, period, periods.period_start(period, now, default_zone()), n))
 
     def add_cost(uid, usd, at=None):
         with t.connect() as conn:
@@ -116,7 +117,7 @@ async def run(t):
         check(used(uid, "chat", "month") == 5, "reserve_counts_until_limit: the month row is counted too (for a plan change)",
               used(uid, "chat", "month"))
         sixth = await attempt(user, "chat")
-        want_reset = periods.resets_at("week", datetime.now(UTC))
+        want_reset = periods.resets_at("week", datetime.now(UTC), default_zone())
         check(is_err(sixth, 429, "plan_limit_reached", "chat") and sixth.resets_at == want_reset,
               "reserve_counts_until_limit: the sixth gives 429 plan_limit_reached, resets next Monday 00:00 app time", desc(sixth))
         d = sixth.detail() if isinstance(sixth, access.PlanError) else {}
@@ -162,7 +163,7 @@ async def run(t):
         # a release after the period boundary still decrements the rows the reservation counted
         last_week = datetime.now(UTC) - timedelta(days=7)
         r = await quota.reserve(user, "chat", now=last_week)
-        old_start = periods.period_start("week", last_week)
+        old_start = periods.period_start("week", last_week, default_zone())
         old_used = used(uid, "chat", "week", old_start)
         await r.release()
         check(old_used == 1 and used(uid, "chat", "week", old_start) == 0 and used(uid, "chat", "week") == 3,
@@ -246,7 +247,7 @@ async def run(t):
         user = await fresh(uid)
         add_cost(uid, 0.11)
         r = await attempt(user, "chat")
-        check(is_err(r, 429, "plan_cost_cap", "chat") and r.resets_at == periods.resets_at("month", datetime.now(UTC)),
+        check(is_err(r, 429, "plan_cost_cap", "chat") and r.resets_at == periods.resets_at("month", datetime.now(UTC), default_zone()),
               "cost_cap_blocks: Free spend 0.11 this month -> 429 plan_cost_cap, resets at the next month start", desc(r))
         check(used(uid, "chat", "week") == 0, "cost_cap_blocks: a refused reserve counts nothing")
         check(await quota.over_cost_cap(user) is True, "cost_cap_blocks: over_cost_cap is true")
@@ -258,7 +259,7 @@ async def run(t):
         d = r.detail() if isinstance(r, access.PlanError) else {}
         check("0.1" not in d.get("message", "") and "$" not in d.get("message", ""), "cost_cap_blocks: the message shows no cost or cap", d)
         uid2, _ = register("cap-old")
-        add_cost(uid2, 5.0, periods.month_start_utc(datetime.now(UTC)) - timedelta(minutes=1))
+        add_cost(uid2, 5.0, periods.month_start_utc(datetime.now(UTC), default_zone()) - timedelta(minutes=1))
         add_cost(uid2, 0.09)
         user2 = await fresh(uid2)
         r = await attempt(user2, "chat")
@@ -270,7 +271,7 @@ async def run(t):
         check(is_err(r, 429, "plan_cost_cap", "insight_weekly"), "cost_cap_blocks: an included feature is refused over the cap too", desc(r))
 
         # ---- reset_restores_cap
-        await quota.reset_usage(uid, "t3-admin")
+        await quota.reset_usage(uid, "t3-admin", tz=default_zone())
         user = await fresh(uid)
         r = await attempt(user, "chat")
         with t.connect() as conn:
@@ -348,7 +349,7 @@ async def run(t):
               "plan_status_shape: a new user is on free, not on a trial", j)
         chat = feats.get("chat", {})
         check(chat == {"mode": "counted", "limit": 5, "period": "week", "used": 0, "remaining": 5,
-                       "resets_at": periods.resets_at("week", datetime.now(UTC)).isoformat()},
+                       "resets_at": periods.resets_at("week", datetime.now(UTC), default_zone()).isoformat()},
               "plan_status_shape: Free chat is counted 5/week, 0 used, 5 left, resets next Monday", chat)
         check(all(v == {"mode": "locked", "limit": None, "period": None, "used": None, "remaining": None, "resets_at": None}
                   for f, v in feats.items() if f in ("chat_advanced", "insight_weekly", "insight_translation", "reports")),
@@ -397,10 +398,10 @@ async def run(t):
 
         # ---- limit_message_dates: Myanmar uses Burmese month names (not an ISO date); English keeps its short form
         dec1 = datetime(2026, 11, 30, 18, 0, tzinfo=UTC)  # Yangon midnight on Dec 1 is 17:30 UTC: this is 00:30 on Dec 1
-        check(access.format_date(dec1, "my") == "1 ဒီဇင်ဘာ 2026" and access.format_date(dec1, "en") == "Dec 1, 2026",
+        check(access.format_date(dec1, "my", default_zone()) == "1 ဒီဇင်ဘာ 2026" and access.format_date(dec1, "en", default_zone()) == "Dec 1, 2026",
               "limit_message_dates: 2026-11-30 18:00 UTC is 1 ဒီဇင်ဘာ 2026 / Dec 1, 2026 in the app timezone",
-              (access.format_date(dec1, "my"), access.format_date(dec1, "en")))
-        names = [access.format_date(datetime(2026, m, 15, 6, 0, tzinfo=UTC), "my").split()[1] for m in range(1, 13)]
+              (access.format_date(dec1, "my", default_zone()), access.format_date(dec1, "en", default_zone())))
+        names = [access.format_date(datetime(2026, m, 15, 6, 0, tzinfo=UTC), "my", default_zone()).split()[1] for m in range(1, 13)]
         check(names == ["ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မတ်", "ဧပြီ", "မေ", "ဇွန်", "ဇူလိုင်", "သြဂုတ်", "စက်တင်ဘာ", "အောက်တိုဘာ",
                         "နိုဝင်ဘာ", "ဒီဇင်ဘာ"],
               "limit_message_dates: all twelve Myanmar month names", names)
@@ -408,7 +409,7 @@ async def run(t):
         e = await attempt(await fresh(uid_my), "chat")
         msg = e.detail()["message"] if isinstance(e, access.PlanError) else ""
         check(msg and not re.search(r"\d{4}-\d{2}-\d{2}", msg) and any(m in msg for m in access.MONTHS_MY)
-              and access.format_date(e.resets_at, "my") in msg,
+              and access.format_date(e.resets_at, "my", default_zone()) in msg,
               "limit_message_dates: the Myanmar limit message names the month in Burmese", msg)
 
         # ---- the app-level handler renders PlanError as {"detail": {...}} with the PlanError's status

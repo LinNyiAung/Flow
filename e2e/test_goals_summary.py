@@ -78,7 +78,9 @@ def _uid(token):
 
 async def _ai_context(book_id):
     from ai_chatbot import FinancialDataProcessor, financial_chatbot
-    proc = FinancialDataProcessor(book_id)  # the assistant reads a book (the person's personal book), not a person
+    from tz_utils import default_zone
+    # the assistant reads a book (the person's personal book), not a person; this person has no saved zone
+    proc = FinancialDataProcessor(book_id, default_zone())
     docs = await proc.create_financial_documents()
     texts = {d.metadata.get("type"): d.page_content for d in docs}
     goals_list = await proc.get_user_goals()

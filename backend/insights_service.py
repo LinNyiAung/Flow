@@ -13,7 +13,7 @@ from sql import goals as goals_db
 from sql import insights as insights_db
 from sql import books as books_db
 from tz_utils import (
-    as_utc, default_zone, local_today, previous_week_range,
+    as_utc, local_today, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
     current_week_to_date_range, current_month_to_date_range,
 )
@@ -308,18 +308,15 @@ async def _call_insight_model(feature: str, system_prompt: str, context: str, la
     return c.text, t.provider, c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens
 
 
-async def generate_weekly_insight(book_id: str, notify: bool = False, background: bool = False,
-                                  tz: Optional[tzinfo] = None):
+async def generate_weekly_insight(book_id: str, notify: bool = False, background: bool = False, *, tz: tzinfo):
     """
     Generate the weekly insight of a book, on the "insight_weekly" provider chain. Its AI spend is the book's person's
     (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "weekly insights ready" notification. Off by default; the scheduled
-    all-books job sends exactly one notification per book. background: the scheduled job
-    (the runner retries a rate-limited provider before moving on). tz: the zone of the book's
-    week (on demand: user_zones.book_zone); default the default zone (the scheduled job).
+    book's job sends exactly one notification. background: the scheduled job (the runner retries a rate-limited
+    provider before moving on). tz: the zone of the book's week (user_zones.book_zone).
     """
-    tz = tz if tz is not None else default_zone()
     try:
         # Get date ranges
         week_start, week_end = get_week_date_range(tz)
@@ -1008,18 +1005,15 @@ def get_previous_month_date_range(tz: tzinfo):
     return month_before_previous_range(tz)
 
 
-async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False,
-                                   tz: Optional[tzinfo] = None):
+async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False, *, tz: tzinfo):
     """
     Generate the monthly insight of a book, on the "insight_monthly" provider chain. Its AI spend is the book's
     person's (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "monthly insights ready" notification. Off by default; the scheduled
-    all-books job sends exactly one notification per book. background: the scheduled job
-    (the runner retries a rate-limited provider before moving on). tz: the zone of the book's
-    month (on demand: user_zones.book_zone); default the default zone (the scheduled job).
+    book's job sends exactly one notification. background: the scheduled job (the runner retries a rate-limited
+    provider before moving on). tz: the zone of the book's month (user_zones.book_zone).
     """
-    tz = tz if tz is not None else default_zone()
     try:
         # Get date ranges
         month_start, month_end = get_month_date_range(tz)

@@ -317,10 +317,9 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
     }
 
 
-async def reset_usage(user_id: str, admin_id: str, now: Optional[datetime] = None,
-                      tz: Optional[tzinfo] = None) -> None:
-    """Admin "reset usage": delete this week's and this month's counters (in the user's zone `tz`, default the default
-    zone) and restart the cost-cap window from now.
+async def reset_usage(user_id: str, admin_id: str, now: Optional[datetime] = None, *, tz: tzinfo) -> None:
+    """Admin "reset usage": delete this week's and this month's counters (in the user's zone `tz`) and restart the
+    cost-cap window from now.
 
     ai_usage rows are never deleted (cost reports depend on them). The route writes the admin action log.
     """

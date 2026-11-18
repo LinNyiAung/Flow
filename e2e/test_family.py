@@ -2391,10 +2391,11 @@ def section_ai():
         # ---- the context, in-process ----
         async def context():
             from ai_chatbot import FinancialDataProcessor
-            p = FinancialDataProcessor(book)
+            from tz_utils import default_zone  # nobody here has a saved zone
+            p = FinancialDataProcessor(book, default_zone())
             docs = "\n".join(d.page_content for d in await p.create_financial_documents())
             family = await p.get_family_context()
-            personal = await FinancialDataProcessor(M["book"]).get_family_context()
+            personal = await FinancialDataProcessor(M["book"], default_zone()).get_family_context()
             return docs, family, personal
         try:
             docs, family, personal = _backend_async(context)
@@ -2586,6 +2587,7 @@ def section_ai():
         # ---- the family insight prompt: the family's name and the owner's currency ----
         async def insight_contexts():
             import insights_service as ins
+            from tz_utils import default_zone  # the owner has no saved zone
             seen = []
             orig = ins._call_insight_model
 
@@ -2594,8 +2596,8 @@ def section_ai():
                 return "## Fake family insight", "gemini", 1, 1, 2
             ins._call_insight_model = fake_call
             try:
-                await ins.generate_weekly_insight(book)
-                await ins.generate_monthly_insight(book)
+                await ins.generate_weekly_insight(book, tz=default_zone())
+                await ins.generate_monthly_insight(book, tz=default_zone())
             finally:
                 ins._call_insight_model = orig
             return seen

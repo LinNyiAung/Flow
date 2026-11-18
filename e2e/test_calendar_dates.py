@@ -673,8 +673,8 @@ def section_today():
             out = {
                 "week_start": (periods.period_start("week", PINNED, TOKYO), periods.period_start("week", PINNED, YANGON)),
                 "week_reset": (periods.resets_at("week", PINNED, TOKYO), periods.resets_at("week", PINNED, YANGON)),
-                "report": (calculate_report_dates(ReportPeriod.WEEK, tz=TOKYO, now=PINNED)[0],
-                           calculate_report_dates(ReportPeriod.WEEK, tz=YANGON, now=PINNED)[0]),
+                "report": (calculate_report_dates(ReportPeriod.WEEK, None, None, TOKYO, now=PINNED)[0],
+                           calculate_report_dates(ReportPeriod.WEEK, None, None, YANGON, now=PINNED)[0]),
                 "midnight": (local_midnight_utc(date(2026, 11, 30), TOKYO), local_midnight_utc(date(2026, 11, 23), YANGON)),
             }
             return out
