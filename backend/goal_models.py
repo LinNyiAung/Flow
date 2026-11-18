@@ -1,9 +1,10 @@
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 from models import AddedBy, Currency, FiniteAmount, NonNegativeAmount, PositiveAmount
+from tz_utils import CalendarDate
 
 class GoalType(str, Enum):
     SAVINGS = "savings"
@@ -17,7 +18,7 @@ class GoalStatus(str, Enum):
 class GoalCreate(BaseModel):
     name: str
     target_amount: PositiveAmount
-    target_date: Optional[datetime] = None
+    target_date: Optional[CalendarDate] = None
     goal_type: GoalType
     initial_contribution: Optional[NonNegativeAmount] = 0.0
     currency: Currency = Currency.USD  # NEW
@@ -30,7 +31,7 @@ class GoalCreate(BaseModel):
 class GoalUpdate(BaseModel):
     name: Optional[str] = None
     target_amount: Optional[PositiveAmount] = None
-    target_date: Optional[datetime] = None
+    target_date: Optional[CalendarDate] = None
     goal_type: Optional[GoalType] = None
 
 class GoalContribution(BaseModel):
@@ -49,7 +50,7 @@ class GoalResponse(BaseModel):
     name: str
     target_amount: float
     current_amount: float
-    target_date: Optional[datetime]
+    target_date: Optional[date]
     goal_type: GoalType
     status: GoalStatus
     progress_percentage: float

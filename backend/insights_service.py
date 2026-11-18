@@ -15,7 +15,7 @@ from sql import insights as insights_db
 from sql import books as books_db
 from sql import users as users_db
 from tz_utils import (
-    app_today, app_wall_clock_now, as_utc, get_app_timezone, previous_week_range,
+    as_utc, default_zone, local_today, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
     current_week_to_date_range, current_month_to_date_range,
 )
@@ -37,17 +37,17 @@ def get_week_date_range():
     """
     Start/end of the most recent COMPLETE Monday-Sunday week.
 
-    "Today" is evaluated in the app/scheduler timezone (SCHEDULER_TIMEZONE, default
-    Asia/Yangon) so the Monday 05:00 job (which is still Sunday in UTC) reviews the week
-    that just ended, not the week before it. Boundaries are returned as UTC-labelled
-    calendar-day bounds, matching how transaction dates are stored.
+    "Today" is evaluated in the default zone (SCHEDULER_TIMEZONE, default Asia/Yangon) so the
+    Monday 05:00 job (which is still Sunday in UTC) reviews the week that just ended, not the
+    week before it. Boundaries are naive wall-clock day bounds, compared directly with the
+    transaction dates.
     """
-    return previous_week_range()
+    return previous_week_range(default_zone())
 
 
 def get_previous_week_date_range():
     """Start/end of the week BEFORE the most recent complete week (for comparison)."""
-    return week_before_previous_range()
+    return week_before_previous_range(default_zone())
 
 
 # What effective_plan and quota.over_cost_cap read from a user (plus "_id", which list_fields always selects).
@@ -208,29 +208,28 @@ async def book_has_insight_data(book_id: str, insight_type: str = "weekly") -> b
     stale stored statuses). Used to replace a stored placeholder insight once real data exists.
     """
     if insight_type == "monthly":
-        ranges = (get_month_date_range(), current_month_to_date_range())
+        ranges = (get_month_date_range(), current_month_to_date_range(default_zone()))
     else:
-        ranges = (get_week_date_range(), current_week_to_date_range())
+        ranges = (get_week_date_range(), current_week_to_date_range(default_zone()))
 
     for start, end in ranges:
         if await transactions_db.has_transactions_between(book_id, start, end):
             return True
     if await goals_db.user_has_goals(book_id):
         return True
-    # Cheap pre-check (any budget whose window contains now) before the refreshing lookup.
-    wall_now = app_wall_clock_now()
-    if not await budgets_db.has_budget_containing(book_id, wall_now):
+    # Cheap pre-check (any budget running today) before the refreshing lookup.
+    if not await budgets_db.has_budget_containing(book_id, local_today(default_zone())):
         return False
     return len(await get_running_budgets(book_id)) > 0
 
 
 async def _todays_placeholder(book_id: str, insight_type: str):
-    """The latest stored insight for the type if it is a placeholder generated today (app timezone)."""
+    """The latest stored insight for the type if it is a placeholder generated today (default zone)."""
     latest = await latest_valid_insight(book_id, insight_type)
     if not latest or not latest.get("is_placeholder") or not latest.get("generated_at"):
         return None
-    generated_on = as_utc(latest["generated_at"]).astimezone(get_app_timezone()).date()
-    return latest if generated_on == app_today() else None
+    generated_on = local_today(default_zone(), as_utc(latest["generated_at"]))
+    return latest if generated_on == local_today(default_zone()) else None
 
 
 # Output token limits per answering provider, as before for OpenAI and Gemini (Gemini 2.5 "thinking"
@@ -339,7 +338,7 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
             # placeholder: (1) a user with transactions in the CURRENT (incomplete) week gets
             # a period-to-date insight; (2) a returning user with real insight history keeps
             # seeing their latest real insight (no placeholder is stored over it).
-            ptd_start, ptd_end = current_week_to_date_range()
+            ptd_start, ptd_end = current_week_to_date_range(default_zone())
             ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
                 logger.info(f"ℹ️  No activity last week for book {book_id}; generating week-to-date insight")
@@ -403,8 +402,8 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
-                "week_start": week_start,
-                "week_end": week_end,
+                "week_start": week_start.date(),
+                "week_end": week_end.date(),
                 "insight_type": "weekly",
                 # No AI call: stored under the feature's current main provider.
                 "ai_provider": _ai_settings.resolve("insight_weekly").main.provider,
@@ -452,8 +451,8 @@ Start by adding your first transaction or creating a financial goal. The more da
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,
-            "week_start": week_start,
-            "week_end": week_end,
+            "week_start": week_start.date(),
+            "week_end": week_end.date(),
             "insight_type": "weekly",
             "ai_provider": ai_provider,
             "expires_at": None,
@@ -674,7 +673,7 @@ def _build_weekly_context(
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {app_today().strftime('%A, %B %d, %Y')}
+TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')}
 
 REPORT PERIOD: CURRENT WEEK TO DATE (WEEK STILL IN PROGRESS): {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (today)
 NOTE: The last complete week had no transactions, so this report covers the current week so far.
@@ -689,7 +688,7 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {app_today().strftime('%A, %B %d, %Y')} (Monday Morning)
+TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')} (Monday Morning)
 
 LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
@@ -1046,14 +1045,14 @@ async def translate_insight_to_myanmar(
 def get_month_date_range():
     """
     Start/end of the most recent COMPLETE calendar month, with "today" evaluated in the
-    app/scheduler timezone (see get_week_date_range).
+    default zone (see get_week_date_range).
     """
-    return previous_month_range()
+    return previous_month_range(default_zone())
 
 
 def get_previous_month_date_range():
     """Start/end of the month BEFORE the most recent complete month (for comparison)."""
-    return month_before_previous_range()
+    return month_before_previous_range(default_zone())
 
 
 async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False):
@@ -1095,7 +1094,7 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
         if not has_activity:
             # Nothing in the last complete month: month-to-date insight if the current month
             # has transactions, else keep the latest real insight (no placeholder over history).
-            ptd_start, ptd_end = current_month_to_date_range()
+            ptd_start, ptd_end = current_month_to_date_range(default_zone())
             ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
                 logger.info(f"ℹ️  No activity last month for book {book_id}; generating month-to-date insight")
@@ -1160,8 +1159,8 @@ Start by adding your first transaction or creating a financial goal. The more da
                 "content": placeholder_content,
                 "content_mm": None,
                 "generated_at": now,
-                "month_start": month_start,
-                "month_end": month_end,
+                "month_start": month_start.date(),
+                "month_end": month_end.date(),
                 "insight_type": "monthly",
                 # No AI call: stored under the feature's current main provider.
                 "ai_provider": _ai_settings.resolve("insight_monthly").main.provider,
@@ -1209,8 +1208,8 @@ Start by adding your first transaction or creating a financial goal. The more da
             "content": insights_content,
             "content_mm": None,
             "generated_at": now,
-            "month_start": month_start,
-            "month_end": month_end,
+            "month_start": month_start.date(),
+            "month_end": month_end.date(),
             "insight_type": "monthly",
             "ai_provider": ai_provider,
             "expires_at": None,
@@ -1366,7 +1365,7 @@ def _build_monthly_context(
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {app_today().strftime('%A, %B %d, %Y')}
+TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')}
 
 REPORT PERIOD: CURRENT MONTH TO DATE (MONTH STILL IN PROGRESS): {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')} (today)
 NOTE: The last complete month had no transactions, so this report covers the current month so far.
@@ -1381,7 +1380,7 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {app_today().strftime('%A, %B %d, %Y')} (1st of the Month)
+TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')} (1st of the Month)
 
 LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
 

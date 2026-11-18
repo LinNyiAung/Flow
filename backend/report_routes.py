@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, UTC
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
@@ -13,6 +13,7 @@ from report_models import (
     MultiCurrencyFinancialReport, ReportPeriod, ReportRequest
 )
 from models import Currency
+from tz_utils import as_calendar_date, day_bounds
 
 from sql import transactions as transactions_db
 from sql import goals as goals_db
@@ -22,21 +23,20 @@ router = APIRouter(prefix="/api/reports", tags=["transactions"])
 
 def calculate_report_dates(
     period: ReportPeriod,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     timezone_offset: int = 0,
 ):
     """
-    Calculate start and end dates based on period.
+    Calculate start and end dates based on period, as naive wall-clock bounds (transaction dates are local date-times
+    with no timezone, so they compare directly).
 
     timezone_offset: minutes EAST of UTC (Flutter's DateTime.timeZoneOffset.inMinutes).
-    Week/month/year boundaries are computed in the user's local time and expressed in the
-    stored convention (local wall-clock time tagged as UTC), i.e. "now" is shifted by the
-    offset and the resulting wall-clock boundaries are NOT converted back to real UTC.
-    Custom dates are sent by the client already in that convention (DateTime.utc(y, m, d)).
+    Week/month/year boundaries are computed in the user's local time: "now" is the UTC clock shifted by the offset.
+    Custom dates are calendar dates, first and last day included.
     """
     offset = max(-840, min(840, int(timezone_offset or 0)))
-    now = datetime.now(UTC) + timedelta(minutes=offset)  # local wall clock, tagged UTC
+    now = (datetime.now(UTC) + timedelta(minutes=offset)).replace(tzinfo=None)  # the user's wall clock
 
     if period == ReportPeriod.WEEK:
         start = now - timedelta(days=now.weekday())
@@ -57,16 +57,7 @@ def calculate_report_dates(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Start date and end date are required for custom period"
             )
-        if start_date.tzinfo is None:
-            start = start_date.replace(tzinfo=UTC, hour=0, minute=0, second=0, microsecond=0)
-        else:
-            start = start_date.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-
-        if end_date.tzinfo is None:
-            end = end_date.replace(tzinfo=UTC, hour=23, minute=59, second=59, microsecond=999999)
-        else:
-            end = end_date.astimezone(UTC).replace(hour=23, minute=59, second=59, microsecond=999999)
-
+        start, end = day_bounds(as_calendar_date(start_date), as_calendar_date(end_date))
         if end < start:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

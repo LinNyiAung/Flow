@@ -3,8 +3,9 @@
 Conventions (see docs/postgres-migration-plan.md):
 - Primary keys are TEXT and keep the existing ids (uuid strings, "{parent}:{YYYYMMDD}").
 - Money is NUMERIC (exact); AI cost NUMERIC(12,6).
-- Wall-clock dates (transaction date, budget start/end, goal target date) keep today's
-  meaning: local time stored with a UTC label, in timestamptz. Instants are real UTC.
+- Transaction dates are the local date and time the person picked, with no timezone (timestamp without time zone).
+  Calendar dates (budget start/end, goal target date, recurrence end and pointer, insight bounds) are DATE; a budget's
+  end date is its inclusive last day. Instants are real UTC (timestamptz).
 - Statuses/types are TEXT + CHECK constraints rather than Postgres enum types.
 - user_id foreign keys cascade on delete, so deleting a user is one atomic operation.
 - Book data (transactions, budgets, goals, insights, custom insights) is keyed by book_id -> books.id, never by a
@@ -25,6 +26,7 @@ metadata = MetaData(naming_convention={
 })
 
 TS = DateTime(timezone=True)
+WALL_CLOCK = DateTime(timezone=False)  # a local date and time, with no timezone
 MONEY = Numeric(18, 2)
 CURRENCIES = "('usd','mmk','thb')"
 
@@ -64,6 +66,7 @@ users = Table(
     Column("has_claimed_free_trial", Boolean, nullable=False, server_default=text("false")),
     Column("default_currency", Text, nullable=False, server_default="usd"),
     Column("language", Text, nullable=False, server_default="en"),
+    Column("timezone", Text),  # the person's IANA zone, read from their phone; NULL: the default zone (tz_utils)
     Column("is_verified", Boolean, nullable=False, server_default=text("false")),
     Column("verified_at", TS),
     Column("verified_via", Text),
@@ -109,7 +112,7 @@ transactions = Table(
     Column("sub_category", Text, nullable=False),
     Column("amount", MONEY, nullable=False),
     Column("currency", Text, nullable=False, server_default="usd"),
-    Column("date", TS, nullable=False),
+    Column("date", WALL_CLOCK, nullable=False),
     Column("description", Text),
     Column("recurrence_enabled", Boolean, nullable=False, server_default=text("false")),
     Column("recurrence_frequency", Text),
@@ -117,8 +120,8 @@ transactions = Table(
     Column("recurrence_day_of_month", SmallInteger),
     Column("recurrence_month", SmallInteger),
     Column("recurrence_day_of_year", SmallInteger),
-    Column("recurrence_end_date", TS),
-    Column("recurrence_last_created_date", TS),
+    Column("recurrence_end_date", Date),
+    Column("recurrence_last_created_date", Date),  # the date of the last occurrence handled
     Column("parent_transaction_id", Text, ForeignKey("transactions.id", ondelete="SET NULL")),
     # Family book: who recorded it, and the id shared by the two legs of a transfer between books.
     Column("added_by_member_id", Text, ForeignKey("family_members.id", ondelete="SET NULL")),
@@ -220,7 +223,7 @@ goals = Table(
     Column("status", Text, nullable=False, server_default="active"),
     Column("target_amount", MONEY, nullable=False),
     Column("currency", Text, nullable=False, server_default="usd"),
-    Column("target_date", TS),
+    Column("target_date", Date),
     Column("achieved_at", TS),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
@@ -258,8 +261,8 @@ budgets = Table(
     Column("description", Text),
     Column("period", Text, nullable=False),
     Column("currency", Text, nullable=False, server_default="usd"),
-    Column("start_date", TS, nullable=False),
-    Column("end_date", TS, nullable=False),
+    Column("start_date", Date, nullable=False),
+    Column("end_date", Date, nullable=False),  # the inclusive last day
     Column("total_budget", MONEY, nullable=False),
     Column("total_spent", MONEY, nullable=False, server_default="0"),
     Column("remaining_budget", MONEY, nullable=False, server_default="0"),
@@ -344,6 +347,17 @@ notification_preferences = Table(
     Column("updated_at", TS, nullable=False, server_default=func.now()),
 )
 
+# Scheduled jobs that run at a local time (09:00 reminders, the 00:30 rollover, ...): one row per job, subject (a person
+# or a book) and local date it ran for. A run first claims its row, so it runs at most once per local day; a failed
+# run deletes its claim so the next tick retries.
+local_job_runs = Table(
+    "local_job_runs", metadata,
+    Column("job", Text, primary_key=True),
+    Column("subject_id", Text, primary_key=True),
+    Column("local_date", Date, primary_key=True),
+    Column("claimed_at", TS, nullable=False, server_default=func.now()),
+)
+
 insights = Table(
     "insights", metadata,
     Column("id", Text, primary_key=True),
@@ -354,10 +368,10 @@ insights = Table(
     Column("content_mm", Text),
     Column("is_placeholder", Boolean, nullable=False, server_default=text("false")),
     Column("is_period_to_date", Boolean),
-    Column("week_start", TS),
-    Column("week_end", TS),
-    Column("month_start", TS),
-    Column("month_end", TS),
+    Column("week_start", Date),
+    Column("week_end", Date),
+    Column("month_start", Date),
+    Column("month_end", Date),
     Column("input_tokens", Integer),
     Column("output_tokens", Integer),
     Column("total_tokens", Integer),

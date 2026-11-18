@@ -20,7 +20,7 @@ database transaction as the status change, so a shutdown can lose only the notic
 import asyncio
 import logging
 import re
-from datetime import date, datetime, time, timedelta, UTC
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from insights_service import (
@@ -35,7 +35,7 @@ from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import plans as plans_db
 from sql.db import transaction
-from tz_utils import app_today, as_utc, day_bounds_utc, get_app_timezone, utc_now
+from tz_utils import as_calendar_date, day_bounds, default_zone, local_midnight_utc, local_today, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +146,8 @@ async def compute_figures(book_id: str, start: date, end: date) -> dict:
     transactions in the range (sorted by code). Stored with the report; the same figures go into the AI context and onto
     the app's cards."""
     prev_start, prev_end = previous_period(start, end)
-    current = await get_financial_summary(book_id, *day_bounds_utc(start, end))
-    previous = await get_financial_summary(book_id, *day_bounds_utc(prev_start, prev_end))
+    current = await get_financial_summary(book_id, *day_bounds(start, end))
+    previous = await get_financial_summary(book_id, *day_bounds(prev_start, prev_end))
     prev_by_currency = {s["_id"]: s for s in previous["summary"]}
     top_by_currency = {c["_id"]: c["top_items"] for c in current["categories"]}
 
@@ -218,7 +218,7 @@ def _prompt_safe(instruction: str) -> str:
 def _latest_budgets(budgets: list) -> list:
     """At most MAX_CONTEXT_BUDGETS budgets, the latest start dates first (ties keep the given order)."""
     def started(b):
-        return as_utc(b.get("start_date")) or datetime.min.replace(tzinfo=UTC)
+        return as_calendar_date(b.get("start_date")) or date.min
     return sorted(budgets, key=started, reverse=True)[:MAX_CONTEXT_BUDGETS]
 
 
@@ -262,7 +262,7 @@ PREVIOUS PERIOD (same length, for comparison): {prev_start.strftime('%B %d, %Y')
 
     goals_budgets = goals_budgets_context(goals, _latest_budgets(budgets), money=_money)
     if goals_budgets:
-        as_of = (today or app_today()).strftime('%B %d, %Y')
+        as_of = (today or local_today(default_zone())).strftime('%B %d, %Y')
         context += (f"\n\n=== GOALS AND BUDGETS AS OF TODAY ({as_of}) ===\n"
                     "These are today's figures, not figures for the report period: a goal shows its progress now, and "
                     "a budget's spending covers its own whole budget period. Do not present them as belonging to the "
@@ -383,7 +383,7 @@ async def run_report(report_id: str) -> dict | None:
         # counts toward the family owner's cost cap and shows in the family's admin row.
         user = await insight_profile(book_id) or {}
         goals = await goals_db.list_goals(book_id)
-        budgets = await budgets_db.budgets_overlapping(book_id, *day_bounds_utc(start, end))
+        budgets = await budgets_db.budgets_overlapping(book_id, start, end)
         context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
         asker = await _asker(row)
         result = await asyncio.wait_for(
@@ -460,14 +460,12 @@ async def fail_stuck_reports(now: datetime | None = None) -> int:
 # ---------------------------------------------------------------- the daily attempt window
 
 def attempts_window_start(now: datetime) -> datetime:
-    """Midnight today in the app timezone, in UTC: failed / refused attempts since then count towards the daily limit."""
-    tz = get_app_timezone()
-    local_day = now.astimezone(tz).date()
-    return datetime.combine(local_day, time.min, tzinfo=tz).astimezone(UTC)
+    """Midnight today in the default zone, in UTC: failed / refused attempts since then count towards the daily limit."""
+    tz = default_zone()
+    return local_midnight_utc(local_today(tz, now), tz)
 
 
 def attempts_reset_at(now: datetime) -> datetime:
-    """The next midnight in the app timezone, in UTC: when the daily attempt limit starts again."""
-    tz = get_app_timezone()
-    local_day = now.astimezone(tz).date()
-    return datetime.combine(local_day + timedelta(days=1), time.min, tzinfo=tz).astimezone(UTC)
+    """The next midnight in the default zone, in UTC: when the daily attempt limit starts again."""
+    tz = default_zone()
+    return local_midnight_utc(local_today(tz, now) + timedelta(days=1), tz)

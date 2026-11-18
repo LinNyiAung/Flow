@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-YANGON = timezone(timedelta(hours=6, minutes=30))
+YANGON = timezone(timedelta(hours=6, minutes=30))  # the account's clock: dates are sent as Yangon local time
 
 # Amounts are in kyat; other currencies are converted with these rough rates.
 MMK_PER_UNIT = {"mmk": 1, "usd": 4200, "thb": 120}
@@ -96,11 +96,12 @@ def known_categories(api_url, token):
 
 
 def _when(year, month, day, now):
-    """A realistic local time on that day, or None if it is in the future."""
+    """A realistic local time on that day (naive: sent with no offset, as the app does), or None if it is in the
+    future."""
     hour = random.randint(7, 21)
     minute = random.randint(0, 59)
     try:
-        at = datetime(year, month, day, hour, minute, tzinfo=YANGON)
+        at = datetime(year, month, day, hour, minute)
     except ValueError:
         return None
     return at if at <= now else None
@@ -202,7 +203,7 @@ def main():
     token, user = login(api_url)
     currency = args.currency or (user.get("default_currency") or "mmk").lower()
     known = known_categories(api_url, token)
-    plan, skipped = build_plan(args.months, currency, known, datetime.now(YANGON))
+    plan, skipped = build_plan(args.months, currency, known, datetime.now(YANGON).replace(tzinfo=None))
 
     inflow = sum(t["amount"] for t in plan if t["type"] == "inflow")
     outflow = sum(t["amount"] for t in plan if t["type"] == "outflow")

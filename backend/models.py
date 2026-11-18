@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import Enum
 
 from recurrence_models import TransactionRecurrence
+from tz_utils import WallClock
 
 class TransactionType(str, Enum):
     INFLOW = "inflow"
@@ -142,7 +143,7 @@ class TransactionCreate(BaseModel):
     type: TransactionType
     main_category: str
     sub_category: str
-    date: datetime
+    date: WallClock  # the local date and time picked on the phone (an offset sent with it is dropped, not applied)
     description: Optional[str] = None
     recurrence: Optional[TransactionRecurrence] = None
     amount: PositiveAmount
@@ -154,7 +155,7 @@ class TransactionUpdate(BaseModel):
     type: Optional[TransactionType] = None
     main_category: Optional[str] = None
     sub_category: Optional[str] = None
-    date: Optional[datetime] = None
+    date: Optional[WallClock] = None
     description: Optional[str] = None
     recurrence: Optional[TransactionRecurrence] = None
     amount: Optional[PositiveAmount] = None
@@ -175,7 +176,7 @@ class TransactionResponse(BaseModel):
     type: TransactionType
     main_category: str
     sub_category: str
-    date: datetime
+    date: WallClock
     description: Optional[str]
     recurrence: Optional[TransactionRecurrence] = None
     parent_transaction_id: Optional[str] = None
@@ -197,7 +198,7 @@ class TransactionExtraction(BaseModel):
     type: str
     main_category: str
     sub_category: str
-    date: datetime
+    date: WallClock
     description: Optional[str] = None
     amount: float
     currency: Currency = Currency.USD  # NEW

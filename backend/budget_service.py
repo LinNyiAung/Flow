@@ -1,13 +1,13 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 import statistics
 import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
-from tz_utils import app_wall_clock_now
+from tz_utils import as_calendar_date, day_bounds, default_zone, local_now, local_today
 from plans import quota
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
@@ -187,7 +187,7 @@ class BudgetAnalyzer:
     # [FIX] Changed to async def
     async def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:
         """Analyze user's spending patterns over the last N months for specific currency"""
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=months * 30)
+        cutoff_date = local_now(default_zone()) - timedelta(days=months * 30)
 
         transactions = await transactions_db.find_transactions(
             self.book_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
@@ -257,52 +257,36 @@ class BudgetAnalyzer:
             "total_expenses": sum(data["total_spent"] for data in category_stats.values())
         }
 
-    def calculate_period_dates(self, period: BudgetPeriod, start_date: datetime, end_date: Optional[datetime] = None):
-        """Calculate end date based on period type"""
+    def calculate_period_dates(self, period: BudgetPeriod, start_date: date, end_date: Optional[date] = None):
+        """(first day, inclusive last day) of a budget period starting on start_date (a datetime counts as its date)."""
+        start_date = as_calendar_date(start_date)
         if period == BudgetPeriod.CUSTOM:
             if not end_date:
                 raise ValueError("end_date is required for custom period")
-            return start_date, end_date
-
-        # Ensure start_date is timezone-aware
-        if start_date.tzinfo is None:
-            start_date = start_date.replace(tzinfo=timezone.utc)
+            return start_date, as_calendar_date(end_date)
 
         if period == BudgetPeriod.WEEKLY:
-            # Calculate the start of the week (Monday)
-            days_since_monday = start_date.weekday()  # Monday is 0, Sunday is 6
-            week_start = start_date - timedelta(days=days_since_monday)
-            week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # End is Sunday (6 days after Monday)
-            week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-            return week_start, week_end
+            # Monday to Sunday of the start date's week
+            week_start = start_date - timedelta(days=start_date.weekday())  # Monday is 0, Sunday is 6
+            return week_start, week_start + timedelta(days=6)
 
         elif period == BudgetPeriod.MONTHLY:
-            # Use the selected start date as-is (don't force to 1st of month)
-            month_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # End of month calculation
+            # From the selected start date (not forced to the 1st) to the last day of its month
             if start_date.month == 12:
-                month_end = start_date.replace(month=12, day=31, hour=23, minute=59, second=59)
+                month_end = start_date.replace(day=31)
             else:
-                next_month = start_date.replace(month=start_date.month + 1, day=1)
-                month_end = (next_month - timedelta(days=1)).replace(hour=23, minute=59, second=59)
-
-            return month_start, month_end
+                month_end = start_date.replace(month=start_date.month + 1, day=1) - timedelta(days=1)
+            return start_date, month_end
 
         elif period == BudgetPeriod.YEARLY:
-            # Use the selected start date as-is (don't force to Jan 1)
-            year_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            # End of year: December 31 at 23:59:59
-            year_end = start_date.replace(month=12, day=31, hour=23, minute=59, second=59)
-            return year_start, year_end
+            # From the selected start date (not forced to Jan 1) to December 31
+            return start_date, start_date.replace(month=12, day=31)
 
     async def generate_ai_suggestions(
         self,
         period: BudgetPeriod,
-        start_date: datetime,
-        end_date: Optional[datetime] = None,
+        start_date: date,
+        end_date: Optional[date] = None,
         analysis_months: int = 3,
         include_categories: Optional[List[str]] = None,
         user_context: Optional[str] = None,
@@ -607,8 +591,10 @@ REMEMBER:
         }
 
 
-def _aware(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+def _window(start_date, end_date) -> Dict[str, datetime]:
+    """date_from / date_to of the transactions dated within a budget's days (its end date included)."""
+    date_from, date_to = day_bounds(as_calendar_date(start_date), as_calendar_date(end_date))
+    return {"date_from": date_from, "date_to": date_to}
 
 
 def calculate_budget_status(
@@ -620,24 +606,21 @@ def calculate_budget_status(
     """
     Calculate the current status of a budget.
 
-    current_date is a real instant (e.g. datetime.now(UTC)); it is converted to the app
-    timezone's wall clock before comparing with the stored (wall-clock, UTC-tagged)
-    start/end dates.
+    current_date is a real instant (e.g. datetime.now(UTC)); its date in the default zone ("today") is compared with
+    the budget's start date and inclusive end date.
 
     total_budget / total_spent override the (possibly stale) values stored in `budget`;
     callers that just recomputed spending must pass the fresh totals. Category
     `is_exceeded` flags are read from budget["category_budgets"], so update them first.
     """
-    current_date = app_wall_clock_now(_aware(current_date))
-    start_date = _aware(budget["start_date"])
-    end_date = _aware(budget["end_date"])
+    today = local_today(default_zone(), current_date)
 
     # Check if budget hasn't started yet
-    if current_date < start_date:
+    if today < as_calendar_date(budget["start_date"]):
         return BudgetStatus.UPCOMING
 
-    # Check if budget period has ended
-    if current_date > end_date:
+    # Check if budget period has ended (its end date is its last day)
+    if today > as_calendar_date(budget["end_date"]):
         return BudgetStatus.COMPLETED
 
     if total_budget is None:
@@ -657,12 +640,12 @@ def calculate_budget_status(
 
 
 def is_budget_active(budget: Dict, current_date: datetime) -> bool:
-    """Check if a budget is currently active (within its date range, inclusive).
+    """Check if a budget is running today: start_date <= today <= end_date.
 
-    current_date is a real instant; compared as app-timezone wall clock (see calculate_budget_status).
+    current_date is a real instant; "today" is its date in the default zone (see calculate_budget_status).
     """
-    current_date = app_wall_clock_now(_aware(current_date))
-    return _aware(budget["start_date"]) <= current_date <= _aware(budget["end_date"])
+    today = local_today(default_zone(), current_date)
+    return as_calendar_date(budget["start_date"]) <= today <= as_calendar_date(budget["end_date"])
 
 
 def derive_budget_state(budget: Dict, current_date: Optional[datetime] = None) -> Dict:
@@ -731,8 +714,8 @@ async def get_running_budgets(
     recompute=True recalculates spend for every candidate (chatbot: fresh numbers),
     otherwise only budgets whose stored status/is_active are stale are recomputed.
     """
-    wall_now = app_wall_clock_now()
-    candidates = await budgets_db.budgets_overlapping(book_id, wall_now, wall_now, currency)
+    today = local_today(default_zone())
+    candidates = await budgets_db.budgets_overlapping(book_id, today, today, currency)
 
     running: List[Dict] = []
     for budget in candidates:
@@ -797,7 +780,7 @@ async def update_budget_spent_amounts(
                 {"_id": {"main": r["main_category"], "sub": r["sub_category"]}, "total_amount": r["total"]}
                 for r in await transactions_db.category_totals(
                     book_id, type_="outflow", currency=budget_currency,
-                    date_from=budget["start_date"], date_to=budget["end_date"],
+                    **_window(budget["start_date"], budget["end_date"]),
                 )
             ]
 
@@ -997,11 +980,11 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
     the marker existed), so each series only costs its latest budget per run. The child
     check is an indexed (book_id, parent_budget_id) lookup, never a collection scan.
     """
-    wall_now = app_wall_clock_now()
+    today = local_today(default_zone())
     stats = {"candidates": 0, "created": 0, "skipped": 0, "not_created": 0, "failed": 0, "already_rolled_over": 0}
 
     try:
-        unmarked = await budgets_db.rollover_candidates(wall_now)
+        unmarked = await budgets_db.rollover_candidates(today)
     except Exception as e:
         logger.error(f"Budget rollover job: failed to load candidates: {e}")
         return stats
@@ -1054,13 +1037,9 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
 
 
 async def update_relevant_budgets(book_id: str, transaction_date: datetime, transaction_currency: str):
-    """Update only budgets that are affected by the transaction"""
-    if transaction_date.tzinfo is None:
-        transaction_date = transaction_date.replace(tzinfo=timezone.utc)
-
-    relevant_budgets = await budgets_db.budgets_overlapping(
-        book_id, transaction_date, transaction_date, transaction_currency
-    )
+    """Update only budgets that are affected by the transaction (those running on its date)"""
+    day = as_calendar_date(transaction_date)
+    relevant_budgets = await budgets_db.budgets_overlapping(book_id, day, day, transaction_currency)
 
     for budget in relevant_budgets:
         # [FIX] Added await
@@ -1068,8 +1047,8 @@ async def update_relevant_budgets(book_id: str, transaction_date: datetime, tran
 
 
 async def update_budgets_in_range(book_id: str, start: datetime, end: datetime, currency: str):
-    """Recompute every budget (of `currency`) whose period overlaps [start, end]."""
-    start, end = _aware(start), _aware(end)
+    """Recompute every budget (of `currency`) whose days overlap the days of [start, end]."""
+    start, end = as_calendar_date(start), as_calendar_date(end)
     if end < start:
         start, end = end, start
     for budget in await budgets_db.budgets_overlapping(book_id, start, end, currency):
@@ -1113,40 +1092,37 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     book_id = budget["book_id"]
     currency = budget.get("currency", "usd")
     period = BudgetPeriod(budget["period"])
-    old_start = _aware(budget["start_date"])
-    old_end = _aware(budget["end_date"])
+    old_start = as_calendar_date(budget["start_date"])
+    old_end = as_calendar_date(budget["end_date"])
 
-    # Next period starts at the beginning of the day after the parent's end date
-    # (end_date is typically 23:59:59, so "+1 day" alone would land on 23:59:59).
-    next_start_date = (old_end + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Next period starts the day after the parent's last day.
+    next_start_date = old_end + timedelta(days=1)
 
     # Compute the real next period BEFORE any expensive work.
     analyzer = BudgetAnalyzer(book_id)
 
-    def _period_after(start: datetime):
-        if period == BudgetPeriod.CUSTOM:
+    def _period_after(start: date):
+        if period == BudgetPeriod.CUSTOM:  # the same number of days, (end - start).days + 1
             return start, start + (old_end - old_start)
         return analyzer.calculate_period_dates(period, start, None)
 
     try:
         new_start, new_end = _period_after(next_start_date)
         # If the user was away for several periods, jump straight to the period containing
-        # "now" instead of creating (and paying AI for) every missed period one by one.
-        now_check = app_wall_clock_now()
+        # today instead of creating (and paying AI for) every missed period one by one.
+        today = local_today(default_zone())
         for _ in range(1000):
-            if _aware(new_end) >= now_check:
+            if new_end >= today:
                 break
-            following = (_aware(new_end) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            new_start, new_end = _period_after(following)
+            new_start, new_end = _period_after(new_end + timedelta(days=1))
     except Exception as e:
         logger.error(f"Auto-create: cannot compute next period for budget {budget_id}: {e}")
         return None
 
     # Duplicate check BEFORE calling OpenAI: any child of this parent, or a budget of the
     # same name/period/currency starting on the same day, means it was already created.
-    day_start = new_start.replace(hour=0, minute=0, second=0, microsecond=0)
     existing = await budgets_db.find_existing_next(
-        book_id, budget_id, budget["name"], budget["period"], currency, day_start, day_start + timedelta(days=1)
+        book_id, budget_id, budget["name"], budget["period"], currency, new_start
     )
     if existing:
         if existing.get("parent_budget_id") == budget_id:
@@ -1192,7 +1168,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         is_active = is_budget_active(window, now)
         status_value = (
             BudgetStatus.ACTIVE if is_active
-            else (BudgetStatus.UPCOMING if app_wall_clock_now(now) < _aware(new_start) else BudgetStatus.COMPLETED)
+            else (BudgetStatus.UPCOMING if local_today(default_zone(), now) < new_start else BudgetStatus.COMPLETED)
         ).value
 
         new_budget = {
@@ -1271,8 +1247,8 @@ async def _owner_gets_ai_budgets(book_id: str) -> bool:
 async def _generate_ai_category_budgets(
     book_id: str,
     period: BudgetPeriod,
-    start_date: datetime,
-    end_date: datetime,
+    start_date: date,
+    end_date: date,
     parent_budget: Dict
 ) -> List[CategoryBudget]:
     """Generate AI-based category budgets"""
@@ -1282,8 +1258,8 @@ async def _generate_ai_category_budgets(
 async def _ai_category_budgets(
     book_id: str,
     period: BudgetPeriod,
-    start_date: datetime,
-    end_date: datetime,
+    start_date: date,
+    end_date: date,
     parent_budget: Dict
 ) -> Tuple[List[CategoryBudget], bool]:
     """The next budget's categories and whether the AI produced them (False for every non-AI result: no data to
@@ -1317,7 +1293,7 @@ async def _ai_category_budgets(
 
     transactions = await transactions_db.find_transactions(
         book_id, type_="outflow", currency=parent_budget.get("currency", "usd"),
-        date_from=parent_start, date_to=parent_end, include_transfers=False,
+        **_window(parent_start, parent_end), include_transfers=False,
     )
 
     if not transactions:

@@ -1,20 +1,17 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Any, Optional, List, Dict
-from datetime import datetime, timezone
+from datetime import date, datetime
 from enum import Enum
 
 from models import Currency, NonNegativeAmount
+from tz_utils import CalendarDate
 
 
-def _as_utc(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
-
-
-def _validate_period_dates(period, start_date: datetime, end_date: Optional[datetime]):
-    """Shared validation for budget create / AI-suggest requests."""
+def _validate_period_dates(period, start_date: date, end_date: Optional[date]):
+    """Shared validation for budget create / AI-suggest requests (end_date is the inclusive last day)."""
     if period == BudgetPeriod.CUSTOM and end_date is None:
         raise ValueError("end_date is required for custom budgets")
-    if end_date is not None and _as_utc(end_date) < _as_utc(start_date):
+    if end_date is not None and end_date < start_date:
         raise ValueError("end_date must be on or after start_date")
 
 class BudgetPeriod(str, Enum):
@@ -58,8 +55,8 @@ class CategoryBudgetIn(CategoryBudget):
 class BudgetCreate(BaseModel):
     name: str
     period: BudgetPeriod
-    start_date: datetime
-    end_date: Optional[datetime] = None
+    start_date: CalendarDate
+    end_date: Optional[CalendarDate] = None  # the inclusive last day
     category_budgets: List[CategoryBudgetIn]
     total_budget: NonNegativeAmount
     description: Optional[str] = None
@@ -89,8 +86,8 @@ class BudgetResponse(BaseModel):
     book_id: str
     name: str
     period: BudgetPeriod
-    start_date: datetime
-    end_date: datetime
+    start_date: date
+    end_date: date  # the inclusive last day
     category_budgets: List[CategoryBudget]
     total_budget: float
     total_spent: float
@@ -119,8 +116,8 @@ class BudgetSummary(BaseModel):
 
 class AIBudgetRequest(BaseModel):
     period: BudgetPeriod
-    start_date: datetime
-    end_date: Optional[datetime] = None
+    start_date: CalendarDate
+    end_date: Optional[CalendarDate] = None  # the inclusive last day
     name: Optional[str] = None
     description: Optional[str] = None
     include_categories: Optional[List[str]] = None
@@ -141,8 +138,8 @@ class AIBudgetRequest(BaseModel):
 class AIBudgetSuggestion(BaseModel):
     suggested_name: str
     period: BudgetPeriod
-    start_date: datetime
-    end_date: datetime
+    start_date: date
+    end_date: date  # the inclusive last day
     category_budgets: List[CategoryBudget]
     total_budget: float
     reasoning: str

@@ -25,7 +25,9 @@ from sql import families as families_db
 from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import users as users_db
-from tz_utils import app_today, app_wall_clock_now, current_month_to_date_range, days_until, stored_calendar_date
+from tz_utils import (
+    as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, default_zone, local_now, local_today,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,8 +50,8 @@ def ensure_utc_datetime(dt) -> datetime:
 
 
 def get_date_only(dt: datetime) -> str:
-    """Extract date string in YYYY-MM-DD format"""
-    return ensure_utc_datetime(dt).strftime("%Y-%m-%d")
+    """A transaction date's day in YYYY-MM-DD format (no timezone conversion)"""
+    return as_calendar_date(dt).isoformat()
 
 
 class ChatServiceError(Exception):
@@ -138,8 +140,8 @@ class BookVectorStoreCache:
 
     @staticmethod
     def _today_key() -> str:
-        # Calendar day in the app timezone (same "today" the documents' labels use).
-        return app_today().isoformat()
+        # Calendar day in the default zone (same "today" the documents' labels use).
+        return local_today(default_zone()).isoformat()
 
     def _lock_for(self, book_id: str) -> asyncio.Lock:
         return self._locks[hash(book_id) % len(self._locks)]
@@ -268,7 +270,7 @@ class FinancialDataProcessor:
         Defaults to last 90 days or max 500 items to prevent OOM.
         """
         # 1. Apply Date Filter (Default 90 days)
-        cutoff_date = app_wall_clock_now() - timedelta(days=days_back) if days_back else None
+        cutoff_date = local_now(default_zone()) - timedelta(days=days_back) if days_back else None
 
         try:
             transactions = await transactions_db.find_transactions(
@@ -342,8 +344,8 @@ class FinancialDataProcessor:
                     "total_transactions": stat["count"],
                     "avg_transaction_amount": stat["total_amount_sum"] / stat["count"] if stat["count"] > 0 else 0,
                     "date_range": {
-                        "from": ensure_utc_datetime(stat["min_date"]).isoformat() if stat["min_date"] else None,
-                        "to": ensure_utc_datetime(stat["max_date"]).isoformat() if stat["max_date"] else None
+                        "from": as_wall_clock(stat["min_date"]).isoformat() if stat["min_date"] else None,
+                        "to": as_wall_clock(stat["max_date"]).isoformat() if stat["max_date"] else None
                     },
                     "top_inflow_categories": {},
                     "top_outflow_categories": {}
@@ -391,7 +393,7 @@ class FinancialDataProcessor:
             return ""
         members = await families_db.list_members(family["id"])
         names = {m["id"]: m["display_name"] for m in members}
-        date_from, date_to = current_month_to_date_range()
+        date_from, date_to = current_month_to_date_range(default_zone())
 
         def label(m: Dict[str, Any]) -> str:
             if m["kind"] == "placeholder":
@@ -485,8 +487,8 @@ class FinancialDataProcessor:
                         goals_text += f"Progress: {progress:.1f}%\n"
 
                         if g.get("target_date"):
-                            target_date = ensure_utc_datetime(g["target_date"])
-                            days_remaining = days_until(target_date, app_today())
+                            target_date = as_calendar_date(g["target_date"])
+                            days_remaining = days_until(target_date, local_today(default_zone()))
                             goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
                             goals_text += f"Days Remaining: {days_remaining}\n"
 
@@ -549,9 +551,9 @@ class FinancialDataProcessor:
 
                 budgets_text += f"📊 ACTIVE {currency_name} BUDGETS:\n\n"
                 for idx, b in enumerate(curr_budgets, 1):
-                    start_date = ensure_utc_datetime(b["start_date"])
-                    end_date = ensure_utc_datetime(b["end_date"])
-                    days_remaining = days_until(end_date, app_today())
+                    start_date = as_calendar_date(b["start_date"])
+                    end_date = as_calendar_date(b["end_date"])
+                    days_remaining = days_until(end_date, local_today(default_zone()))
                     days_total = (end_date - start_date).days + 1
 
                     budgets_text += f"──── Budget #{idx}: {b['name']} ────\n"
@@ -606,8 +608,8 @@ class FinancialDataProcessor:
         chronological_text += "When asked about 'latest', 'recent', 'last', or 'newest' - Transaction #1 is the MOST RECENT.\n\n"
 
         for idx, t in enumerate(transactions[:25], 1):
-            date_obj = ensure_utc_datetime(t["date"])
-            days_ago = (app_today() - stored_calendar_date(date_obj)).days
+            date_obj = as_wall_clock(t["date"])
+            days_ago = (local_today(default_zone()) - date_obj.date()).days
 
             currency = t.get("currency", "usd")
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
@@ -705,11 +707,11 @@ class FinancialDataProcessor:
             goal_text += f"Progress: {progress:.1f}%\n\n"
 
             if goal.get("target_date"):
-                target_date = ensure_utc_datetime(goal["target_date"])
+                target_date = as_calendar_date(goal["target_date"])
                 goal_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
 
                 if goal["status"] == "active":
-                    days_remaining = days_until(target_date, app_today())
+                    days_remaining = days_until(target_date, local_today(default_zone()))
                     goal_text += f"Days Remaining: {days_remaining}\n"
 
                     if days_remaining > 0 and remaining > 0:
@@ -751,9 +753,9 @@ class FinancialDataProcessor:
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
 
-            start_date = ensure_utc_datetime(budget["start_date"])
-            end_date = ensure_utc_datetime(budget["end_date"])
-            days_remaining = days_until(end_date, app_today())
+            start_date = as_calendar_date(budget["start_date"])
+            end_date = as_calendar_date(budget["end_date"])
+            days_remaining = days_until(end_date, local_today(default_zone()))
             days_total = (end_date - start_date).days + 1
             days_elapsed = days_total - days_remaining
 
@@ -833,15 +835,15 @@ class FinancialDataProcessor:
                 transactions_by_date[date_str] = []
             transactions_by_date[date_str].append(t)
 
-        recent_cutoff = app_wall_clock_now() - timedelta(days=30)
+        recent_cutoff = local_now(default_zone()) - timedelta(days=30)
 
         for date_str, daily_transactions in sorted(transactions_by_date.items(), reverse=True)[:30]:
-            date_obj = ensure_utc_datetime(daily_transactions[0]["date"])
+            date_obj = as_wall_clock(daily_transactions[0]["date"])
 
             if date_obj < recent_cutoff:
                 continue
 
-            days_ago = (app_today() - stored_calendar_date(date_obj)).days
+            days_ago = (local_today(default_zone()) - date_obj.date()).days
 
             # Group by currency
             currency_totals = {}
@@ -917,7 +919,7 @@ class FinancialDataProcessor:
                 category_text += "Recent Examples:\n"
 
                 for t in data['transactions'][:5]:
-                    date_obj = ensure_utc_datetime(t["date"])
+                    date_obj = as_wall_clock(t["date"])
                     category_text += f"  • {date_obj.strftime('%b %d, %Y')}: {currency_symbol}{t['amount']:,.2f}"
                     if t.get("description"):
                         category_text += f" - {t['description']}"
@@ -1445,8 +1447,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     history_text += f"\n{role}: {msg.get('content', '')}"
 
             # Get today's date
-            # "Today" for the user is the app-timezone calendar date, not the UTC one.
-            today = app_wall_clock_now().strftime("%A, %B %d, %Y")
+            # "Today" for the user is the default zone's calendar date, not the UTC one.
+            today = local_now(default_zone()).strftime("%A, %B %d, %Y")
 
             # Build prompts with response style
             system_prompt = self._build_system_prompt(today, response_style, family=bool(family_text))

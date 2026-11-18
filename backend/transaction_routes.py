@@ -6,7 +6,7 @@ import uuid
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, UTC, timezone
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Dict, List, Optional, Set, Tuple
 import logging
@@ -44,7 +44,7 @@ from sql.categories import get_categories_doc
 from sql.db import transaction as db_transaction
 
 from category_matching import normalize_type, parse_positive_amount, snap_category
-from tz_utils import app_today
+from tz_utils import WallClock, as_calendar_date, as_wall_clock, default_zone, local_today
 from finite_utils import finite_amount_or_none, is_finite_number
 
 
@@ -55,11 +55,6 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
 # ==================== HELPERS ====================
-
-def _as_utc(dt: datetime) -> datetime:
-    """Naive datetimes are treated as UTC (app convention: local wall-clock tagged as UTC)."""
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
-
 
 # --- Category validation (categories cached in memory per transaction type) ---
 _CATEGORY_CACHE_TTL_SECONDS = 300
@@ -115,13 +110,11 @@ def _safe_confidence(value) -> float:
 
 
 def _extraction_date(value) -> datetime:
-    """Model-produced date (YYYY-MM-DD) as a UTC-tagged wall-clock datetime; today if unusable."""
+    """Model-produced date (YYYY-MM-DD) as a wall-clock datetime at 00:00; today if unusable."""
     try:
-        parsed = datetime.fromisoformat(str(value).strip()[:10])
-        return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+        return as_wall_clock(as_calendar_date(str(value).strip()[:10]))
     except (TypeError, ValueError):
-        today = app_today()
-        return datetime(today.year, today.month, today.day, tzinfo=UTC)
+        return as_wall_clock(local_today(default_zone()))
 
 
 def _extraction_currency(value, default: str) -> Currency:
@@ -308,7 +301,7 @@ def _new_recurrence_doc(rec: Optional[TransactionRecurrence], tx_date: datetime)
     return {
         "enabled": rec.enabled,
         "config": rec.config.model_dump() if rec.config else None,
-        "last_created_date": tx_date if rec.enabled else None,
+        "last_created_date": tx_date.date() if rec.enabled else None,
         "parent_transaction_id": None,
     }
 
@@ -463,7 +456,7 @@ async def create_transaction(
 
     transaction_id = str(uuid.uuid4())
     now = datetime.now(UTC)
-    tx_date = _as_utc(transaction_data.date)
+    tx_date = transaction_data.date  # the local date and time, no timezone
 
     new_transaction = {
         "_id": transaction_id,
@@ -525,17 +518,15 @@ async def get_transactions(
     limit: int = Query(default=50, ge=1, le=10000),
     skip: int = Query(default=0, ge=0),
     transaction_type: Optional[TransactionType] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: Optional[WallClock] = None,
+    end_date: Optional[WallClock] = None,
     currency: Optional[Currency] = None
 ):
-    """Get user transactions with filters"""
-    if start_date:
-        start_date = _as_utc(start_date)
+    """Get user transactions with filters. start_date / end_date are local date-times or dates, compared directly with
+    the transactions' dates (an offset sent with them is dropped, not applied)."""
     if end_date:
-        end_date = _as_utc(end_date)
-        # Date-only semantics only when the client sent exactly midnight (e.g. "2025-01-31");
-        # precise timestamps are respected as-is.
+        # Date-only semantics when the client sent a date or exactly midnight (e.g. "2025-01-31"): that whole day is
+        # included. Precise timestamps are respected as-is.
         if (end_date.hour, end_date.minute, end_date.second, end_date.microsecond) == (0, 0, 0, 0):
             end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
@@ -702,9 +693,6 @@ async def update_transaction(
     if isinstance(update_data.get("description"), str) and not update_data["description"].strip():
         update_data["description"] = None
 
-    if "date" in update_data:
-        update_data["date"] = _as_utc(update_data["date"])
-
     new_type = update_data.get("type", transaction["type"])
     new_main = update_data.get("main_category", transaction["main_category"])
     new_sub = update_data.get("sub_category", transaction["sub_category"])
@@ -736,7 +724,7 @@ async def update_transaction(
         }
         if new_rec["enabled"]:
             # Never schedule occurrences before the transaction's own date.
-            candidates = [_as_utc(d) for d in (new_rec["last_created_date"], new_date) if d]
+            candidates = [as_calendar_date(d) for d in (new_rec["last_created_date"], new_date) if d]
             pointer = max(candidates)
             was_enabled = bool(existing_rec.get("enabled"))
             schedule_changed = (
@@ -746,18 +734,18 @@ async def update_transaction(
             if (not was_enabled or schedule_changed) and incoming.config:
                 # Re-enabled (disabled -> enabled) or rescheduled (frequency/day changed):
                 # don't back-fill the past. Every occurrence up to and including today
-                # (app timezone) counts as handled, so the job only creates from the next
+                # (default zone) counts as handled, so the job only creates from the next
                 # occurrence after today. An unchanged enabled recurrence keeps its pointer.
                 try:
-                    pointer = rearmed_recurrence_pointer(pointer, incoming.config, app_today())
+                    pointer = rearmed_recurrence_pointer(pointer, incoming.config, local_today(default_zone()))
                 except Exception as e:
                     logger.warning(f"Could not fast-forward recurrence pointer for {transaction_id}: {e}")
             new_rec["last_created_date"] = pointer
         update_data["recurrence"] = new_rec
     elif "date" in update_data and existing_rec.get("enabled"):
         last = existing_rec.get("last_created_date")
-        if not last or _as_utc(last) < new_date:
-            update_data["recurrence.last_created_date"] = new_date
+        if not last or as_calendar_date(last) < new_date.date():
+            update_data["recurrence.last_created_date"] = new_date.date()
 
     money_changed = (
         new_type != transaction["type"]
@@ -783,8 +771,8 @@ async def update_transaction(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
 
     # Recalculate budgets for BOTH the old and the new (date, currency).
-    old_key = (_as_utc(transaction["date"]), transaction.get("currency", "usd"))
-    new_key = (_as_utc(new_date), new_currency)
+    old_key = (transaction["date"], transaction.get("currency", "usd"))
+    new_key = (new_date, new_currency)
     for budget_date, budget_currency in {old_key, new_key}:
         background_tasks.add_task(
             update_relevant_budgets,
@@ -830,7 +818,7 @@ async def delete_transaction(
     background_tasks.add_task(
         update_relevant_budgets,
         book.id,
-        _as_utc(transaction["date"]),
+        transaction["date"],
         transaction.get("currency", "usd")
     )
 
@@ -953,7 +941,7 @@ RULES:
 1. Determine if it's 'inflow' (income) or 'outflow' (expense)
 2. Select the most appropriate main_category and sub_category from the list above
 3. Extract the amount as a positive number
-4. Determine the date (default to today if not specified: {app_today().isoformat()})
+4. Determine the date (default to today if not specified: {local_today(default_zone()).isoformat()})
 5. Extract any description/notes
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Carefully analyze the text for currency indicators
@@ -1044,7 +1032,7 @@ RULES:
    - Determine if it's 'inflow' (income) or 'outflow' (expense)
    - Select the most appropriate main_category and sub_category from the list above
    - Extract the amount as a positive number
-   - Determine the date (default to today if not specified: {app_today().isoformat()})
+   - Determine the date (default to today if not specified: {local_today(default_zone()).isoformat()})
    - Extract any description/notes
    - CURRENCY DETECTION (VERY IMPORTANT):
      * Carefully analyze the text for currency indicators for EACH transaction
@@ -1158,7 +1146,7 @@ async def batch_create_transactions(
         transaction_id = str(uuid.uuid4())
         if item_for_whom:
             tags.append((transaction_id, item_for_whom))
-        tx_date = _as_utc(transaction_data.date)
+        tx_date = transaction_data.date  # the local date and time, no timezone
 
         doc = {
             "_id": transaction_id,
@@ -1297,7 +1285,7 @@ RULES:
 1. Identify if it's 'inflow' or 'outflow' (receipts are usually outflow)
 2. Select the most appropriate category from the list above based on merchant/items
 3. Extract the total amount
-4. Extract the date from receipt (default to today if not visible: {app_today().isoformat()})
+4. Extract the date from receipt (default to today if not visible: {local_today(default_zone()).isoformat()})
 5. Create a brief description including merchant name
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Look CAREFULLY at the receipt for currency indicators

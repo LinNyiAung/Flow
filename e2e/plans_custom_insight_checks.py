@@ -474,7 +474,7 @@ async def generation_checks(t, h):
     from ai_providers import health
     from ai_providers.runner import RunResult
     from ai_providers.types import Completion, Target
-    from tz_utils import app_today, get_app_timezone
+    from tz_utils import default_zone, local_today
 
     check = t.check
     try:
@@ -508,7 +508,7 @@ async def generation_checks(t, h):
             return RunResult(text, Target(provider="claude", model="claude-sonnet-5-5"), None, Completion(text, 7, 3, finish))
         return fake
 
-    today = app_today()
+    today = local_today(default_zone())
     start, end = today - timedelta(days=29), today
     uid, uh = h.register("gen")
 
@@ -584,7 +584,7 @@ async def generation_checks(t, h):
               "generation_constants: presets, marker, 7 days, 300 characters, 5 a day, 20 minutes")
         check(stubenv.OFF_TOPIC_TEXT == cis.OFF_TOPIC_MARKER, "stub_marker_matches")
 
-        tz = get_app_timezone()
+        tz = default_zone()
         noon = datetime(2026, 11, 4, 12, 0, tzinfo=tz)
         check(cis.attempts_window_start(noon) == datetime(2026, 11, 4, tzinfo=tz).astimezone(UTC)
               and cis.attempts_reset_at(noon) == datetime(2026, 11, 5, tzinfo=tz).astimezone(UTC)
@@ -1044,13 +1044,13 @@ async def route_checks(t, h):
     from plans import periods
     from ai_providers import health
     from sql import custom_insights as ci
-    from tz_utils import app_today
+    from tz_utils import default_zone, local_today
 
     import custom_insights_service as cis
 
     check = t.check
     c = h.c
-    today = app_today()
+    today = local_today(default_zone())
     plan_error = plans_insight_checks.plan_error
 
     def ai_calls():

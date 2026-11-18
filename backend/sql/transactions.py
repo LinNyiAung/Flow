@@ -3,7 +3,7 @@
 Amounts are exact NUMERIC and always finite and positive (database CHECK), so the
 NaN/infinity filters the MongoDB code needed are gone. Sums are exact and returned as float.
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import case, delete, distinct, exists, func, insert, select, update
@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
 from sql.docs import money, recurrence_columns, transaction_doc, transaction_row
 from sql.tables import books, transactions as t
+from tz_utils import as_calendar_date, as_wall_clock
 
 # A transfer between a personal wallet and the family wallet is a pair of rows with a transfer_id. It only moves money
 # between two balances, so it is never income or spending: every aggregate below leaves it out (the balance adds
@@ -29,6 +30,16 @@ def _plain(value: Any) -> Any:
     return getattr(value, "value", value)  # str enums (type, currency, frequency) -> str
 
 
+def _wall(value: Optional[datetime]) -> Optional[datetime]:
+    """A bound on transaction dates (local date-times, no timezone) as a naive datetime: an aware value keeps its clock
+    fields. A plain date is refused: as a bound it would mean its 00:00 (use tz_utils.day_bounds for whole days)."""
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise TypeError(f"transaction dates are bounded by date-times, not {value!r}")
+    return value.replace(tzinfo=None)
+
+
 def _row(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {k: _plain(v) for k, v in transaction_row(doc).items()}
 
@@ -40,9 +51,12 @@ def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
         if key == "recurrence":
             values.update({k: _plain(v) for k, v in recurrence_columns(value).items()})
         elif key in _RECURRENCE_FIELDS:
-            values[_RECURRENCE_FIELDS[key]] = value
+            column = _RECURRENCE_FIELDS[key]
+            values[column] = as_calendar_date(value) if column == "recurrence_last_created_date" else value
         elif key == "amount":
             values["amount"] = money(value)
+        elif key == "date":
+            values["date"] = as_wall_clock(value)
         else:
             values["id" if key == "_id" else key] = _plain(value)
     return values
@@ -69,8 +83,10 @@ async def update_transaction(transaction_id: str, book_id: str, fields: Dict[str
     return transaction_doc(await write_returning(stmt))
 
 
-async def set_recurrence_pointer(transaction_id: str, last_created: datetime) -> None:
-    await execute(update(t).where(t.c.id == transaction_id).values(recurrence_last_created_date=last_created))
+async def set_recurrence_pointer(transaction_id: str, last_created: date) -> None:
+    """Move a recurring parent's pointer to the date of the last occurrence handled."""
+    await execute(update(t).where(t.c.id == transaction_id)
+                  .values(recurrence_last_created_date=as_calendar_date(last_created)))
 
 
 async def disable_recurrence(transaction_id: str, book_id: Optional[str] = None) -> bool:
@@ -113,11 +129,11 @@ def _filtered(stmt, book_id: Optional[str], type_: Optional[str], currency: Opti
     if currency is not None:
         stmt = stmt.where(t.c.currency == currency)
     if date_from is not None:
-        stmt = stmt.where(t.c.date >= date_from)
+        stmt = stmt.where(t.c.date >= _wall(date_from))
     if date_to is not None:
-        stmt = stmt.where(t.c.date <= date_to)
+        stmt = stmt.where(t.c.date <= _wall(date_to))
     if date_before is not None:
-        stmt = stmt.where(t.c.date < date_before)
+        stmt = stmt.where(t.c.date < _wall(date_before))
     return stmt
 
 
@@ -145,20 +161,21 @@ async def recurring_parents() -> List[Dict[str, Any]]:
 async def child_exists_between(book_id: str, parent_id: str, start: datetime, end: datetime) -> bool:
     """True if an auto-created child of parent_id is dated within [start, end]."""
     return bool(await fetch_value(select(exists().where(
-        t.c.book_id == book_id, t.c.parent_transaction_id == parent_id, t.c.date >= start, t.c.date <= end))))
+        t.c.book_id == book_id, t.c.parent_transaction_id == parent_id,
+        t.c.date >= _wall(start), t.c.date <= _wall(end)))))
 
 
 async def has_transactions_between(book_id: str, start: datetime, end: datetime) -> bool:
     """True when an income or spending entry (not a transfer) is dated within [start, end]."""
     return bool(await fetch_value(select(exists().where(
-        t.c.book_id == book_id, t.c.date >= start, t.c.date <= end, NOT_TRANSFER))))
+        t.c.book_id == book_id, t.c.date >= _wall(start), t.c.date <= _wall(end), NOT_TRANSFER))))
 
 
 async def changed_since(book_id: str, start: datetime, end: datetime, since: datetime) -> bool:
     """True when an income or spending entry (not a transfer) dated within [start, end] was created or edited after
     `since`."""
     return bool(await fetch_value(select(exists().where(
-        t.c.book_id == book_id, t.c.date >= start, t.c.date <= end, NOT_TRANSFER,
+        t.c.book_id == book_id, t.c.date >= _wall(start), t.c.date <= _wall(end), NOT_TRANSFER,
         (t.c.created_at > since) | (t.c.updated_at > since)))))
 
 

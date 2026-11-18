@@ -16,7 +16,7 @@ import binascii
 import logging
 import re
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -31,7 +31,7 @@ from sql import budgets as budgets_db
 from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import transactions as transactions_db
-from tz_utils import app_today, as_utc, day_bounds_utc, utc_now
+from tz_utils import CalendarDate, as_utc, day_bounds, default_zone, local_today, utc_now
 from families.book import Book, get_book, require_admin, require_writable
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,8 @@ router = APIRouter(prefix="/api/custom-insights", tags=["custom insights"])
 class CustomInsightCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start_date: date
-    end_date: date
+    start_date: CalendarDate  # first and last day, inclusive
+    end_date: CalendarDate
     preset: Optional[Literal[tuple(cis.PRESETS)]] = None  # the service's own preset keys
     instruction: Optional[str] = None
 
@@ -137,7 +137,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction",
                      message_key="custom_insight_instruction_chars_msg")
     try:
-        cis.validate_range(data.start_date, data.end_date, app_today())
+        cis.validate_range(data.start_date, data.end_date, local_today(default_zone()))
     except cis.RangeError:
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_range")
 
@@ -155,12 +155,11 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
         # goals" report is about the goals and budgets themselves, so for it a goal created or edited since, or a budget
         # overlapping the range created since, makes it stale too. Budget edits are not seen (budgets.updated_at also
         # moves on every spend recompute), nor are deleted goals or budgets.
-        start_utc, end_utc = day_bounds_utc(data.start_date, data.end_date)
         since = match["created_at"]
-        changed = await transactions_db.changed_since(book_id, start_utc, end_utc, since)
+        changed = await transactions_db.changed_since(book_id, *day_bounds(data.start_date, data.end_date), since)
         if not changed and data.preset == GOALS_BUDGETS_PRESET:
             changed = (await goals_db.changed_since(book_id, since)
-                       or await budgets_db.created_since(book_id, start_utc, end_utc, since))
+                       or await budgets_db.created_since(book_id, data.start_date, data.end_date, since))
         if not changed and match.get("figures") == figures:
             return {"report": _detail(match), "reused": True}  # 200: nothing reserved, nothing started
 

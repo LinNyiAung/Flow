@@ -4,10 +4,12 @@ The rest of the backend was written against MongoDB documents ("_id", a nested
 "recurrence" dict, an embedded "category_budgets" list, ...). These helpers keep that
 shape so business logic stays unchanged while storage moves to normalized tables.
 Money comes back as float (what the code and API expect) and is written as exact
-NUMERIC.
+NUMERIC. Transaction dates are written as naive wall-clock datetimes and calendar dates as dates (tz_utils).
 """
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional
+
+from tz_utils import as_calendar_date, as_wall_clock
 
 _CENT = Decimal("0.01")
 
@@ -78,8 +80,8 @@ def recurrence_columns(recurrence: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "recurrence_day_of_month": config.get("day_of_month"),
         "recurrence_month": config.get("month"),
         "recurrence_day_of_year": config.get("day_of_year"),
-        "recurrence_end_date": config.get("end_date"),
-        "recurrence_last_created_date": recurrence.get("last_created_date"),
+        "recurrence_end_date": as_calendar_date(config.get("end_date")),
+        "recurrence_last_created_date": as_calendar_date(recurrence.get("last_created_date")),
         "parent_transaction_id": recurrence.get("parent_transaction_id"),
     }
 
@@ -87,6 +89,8 @@ def recurrence_columns(recurrence: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 def transaction_row(doc: Dict[str, Any]) -> Dict[str, Any]:
     row = {("id" if k == "_id" else k): v for k, v in doc.items() if k != "recurrence"}
     row["amount"] = money(row.get("amount"))
+    if "date" in row:
+        row["date"] = as_wall_clock(row["date"])
     row.update(recurrence_columns(doc.get("recurrence")))
     return row
 
@@ -118,6 +122,9 @@ def budget_row(doc: Dict[str, Any]) -> Dict[str, Any]:
     for key in _BUDGET_MONEY:
         if key in row:
             row[key] = money(row[key])
+    for key in ("start_date", "end_date"):
+        if key in row:
+            row[key] = as_calendar_date(row[key])
     if row.get("percentage_used") is not None:
         row["percentage_used"] = Decimal(str(round(float(row["percentage_used"]), 2)))
     return row
@@ -142,6 +149,7 @@ def allocation_rows(budget_id: str, category_budgets: Iterable[Any]) -> List[Dic
 
 # ---------------------------------------------------------------- insights
 _TOKEN_COLUMNS = ("input_tokens", "output_tokens", "total_tokens")
+_INSIGHT_BOUNDS = ("week_start", "week_end", "month_start", "month_end")  # calendar dates
 
 
 def insight_doc(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -155,6 +163,9 @@ def insight_doc(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def insight_row(doc: Dict[str, Any]) -> Dict[str, Any]:
     row = {("id" if k == "_id" else k): v for k, v in doc.items() if k not in ("token_usage", "is_reused")}
+    for key in _INSIGHT_BOUNDS:
+        if key in row:
+            row[key] = as_calendar_date(row[key])
     usage = doc.get("token_usage") or {}
     for k in _TOKEN_COLUMNS:
         if k in usage:

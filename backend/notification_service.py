@@ -14,8 +14,8 @@ from sql import books as books_db
 from sql import users as users_db
 from plans.access import format_day
 from tz_utils import (
-    app_today, app_wall_clock_now, as_utc, days_until, goal_reminder_threshold, is_budget_ending_soon,
-    GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
+    as_calendar_date, as_wall_clock, days_until, default_zone, goal_reminder_threshold, is_budget_ending_soon,
+    local_now, local_today, GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
 )
 
 # The daily job only announces budgets whose start date is at most this many days ago
@@ -577,15 +577,15 @@ async def check_approaching_target_dates():
     """
     Check active goals for approaching target dates (run once daily).
 
-    Days remaining are counted in calendar days: the goal's stored target date vs. today
-    in the app timezone. Each goal gets at most one reminder per threshold (14/7/3/1 days)
+    Days remaining are counted in calendar days: the goal's target date vs. today
+    in the default zone. Each goal gets at most one reminder per threshold (14/7/3/1 days)
     for a given target date; thresholds are matched as ranges (e.g. 8-14 days -> the
     14-day reminder) so a missed run or a goal created inside a window still gets it.
     """
-    today = app_today()
+    today = local_today(default_zone())
     max_days = max(GOAL_REMINDER_THRESHOLDS)
-    window_start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    window_end = datetime.combine(today + timedelta(days=max_days + 1), datetime.max.time(), tzinfo=UTC)
+    window_start = today - timedelta(days=1)
+    window_end = today + timedelta(days=max_days + 1)
 
     goals = await goals_db.list_goals(status="active", target_between=(window_start, window_end))
 
@@ -602,7 +602,7 @@ async def check_approaching_target_dates():
 
             book_id = goal["book_id"]
             goal_id = goal["_id"]
-            target_key = as_utc(target_date).date().isoformat()
+            target_key = as_calendar_date(target_date).isoformat()
 
             # Dedupe per goal + threshold + target date (a changed target date re-arms
             # the reminders). The 20h check also covers notifications created before
@@ -660,20 +660,18 @@ async def check_budget_notifications(book_id: str, budget_id: str, old_percentag
 async def check_budget_period_notifications():
     """Check all budgets for period start/end notifications (run daily)"""
     now = datetime.now(UTC)
-    today = app_today(now)
+    today = local_today(default_zone(), now)
 
     from budget_service import is_budget_running, refresh_budget_state_if_stale  # local: avoid import cycle
 
-    wall_now = app_wall_clock_now(now)
-
     # --- Part 1: running budgets ending within BUDGET_ENDING_SOON_DAYS (by calendar date) ---
-    # "Running" = window contains now (app wall clock) and status active OR exceeded (an
+    # "Running" = its days include today and status active OR exceeded (an
     # exceeded budget is still running and must get the alert). Stored statuses can be
     # stale (still "upcoming" after the start date), so candidates are refreshed first.
     try:
-        window_start = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-        window_end = datetime.combine(today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1), datetime.max.time(), tzinfo=UTC)
-        budgets_ending = await budgets_db.ending_soon_candidates(wall_now, window_start, window_end)
+        window_start = today - timedelta(days=1)
+        window_end = today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1)
+        budgets_ending = await budgets_db.ending_soon_candidates(today, window_start, window_end)
     except Exception as e:
         print(f"❌ Error loading budgets ending soon: {e}")
         budgets_ending = []
@@ -727,10 +725,8 @@ async def check_budget_period_notifications():
     # Status may already have been flipped upcoming -> active by a list/get refresh, so
     # select by dates + the started_notified flag instead of status == "upcoming".
     try:
-        lookback_start = datetime.combine(
-            today - timedelta(days=BUDGET_NOW_ACTIVE_LOOKBACK_DAYS), datetime.min.time(), tzinfo=UTC
-        )
-        budgets_now_active = await budgets_db.now_active_candidates(lookback_start, wall_now)
+        lookback_start = today - timedelta(days=BUDGET_NOW_ACTIVE_LOOKBACK_DAYS)
+        budgets_now_active = await budgets_db.now_active_candidates(lookback_start, today)
     except Exception as e:
         print(f"❌ Error loading started budgets: {e}")
         budgets_now_active = []
@@ -860,14 +856,14 @@ async def analyze_unusual_spending(book_id: str):
         return
 
     now = datetime.now(UTC)
-    # Transaction dates are local wall-clock values stored tagged as UTC, so the "this
-    # week" window is measured on the app-timezone wall clock (created_at stays real UTC).
-    wall_now = app_wall_clock_now(now)
+    # Transaction dates are local wall-clock values (no timezone), so the "this week" window is measured on the
+    # default zone's wall clock (created_at stays real UTC).
+    wall_now = local_now(default_zone(), now)
     currencies = await transactions_db.currencies(book_id)
     # [FIX] Added await
     lang = await get_user_language(person_id)
 
-    # Upper bound of the "this week" window: end of today on the app wall clock, so
+    # Upper bound of the "this week" window: end of today on that wall clock, so
     # future-dated (planned) transactions don't count as this week's spending.
     end_of_today = wall_now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
@@ -946,7 +942,7 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
     currencies = await transactions_db.currencies(book_id)
 
     for currency in currencies:
-        ninety_days_ago = now - timedelta(days=90)
+        ninety_days_ago = local_now(default_zone(), now) - timedelta(days=90)
         transactions = await transactions_db.find_transactions(
             book_id, type_="outflow", currency=currency, date_from=ninety_days_ago, include_transfers=False
         )
@@ -968,7 +964,7 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
                 continue
 
             recurring_patterns[key].append({
-                "date": as_utc(t["date"]),
+                "date": as_wall_clock(t["date"]),
                 "amount": t.get("amount") or 0,
                 "category": t.get("main_category"),
                 "sub_category": sub_category,
@@ -1024,7 +1020,7 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
 async def detect_and_notify_recurring_payments():
     """Detect recurring payments and send reminders"""
     now = datetime.now(UTC)
-    today = app_today(now)
+    today = local_today(default_zone(), now)
 
     for book_id in await _personal_books():
         try:

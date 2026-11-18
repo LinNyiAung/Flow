@@ -1043,7 +1043,9 @@ def section_jobs():
               "persons' personal books)", notes)
 
         # ---- recurring job uses the entry's book (the notice goes to the adder only, R14)
-        start = (datetime.now(UTC) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+        from tz_utils import default_zone, local_now
+        # Two days ago on the default zone's calendar (the job's "today"), sent as a local date-time like the app.
+        start = (local_now(default_zone()) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
         r = c.post("/api/transactions", headers={**P2["h"], **FAMILY}, json={
             "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
             "date": start.isoformat(), "amount": 5, "currency": "usd",

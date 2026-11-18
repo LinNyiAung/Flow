@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from models import Currency  # ADD THIS IMPORT
+from tz_utils import CalendarDate
 
 class ReportPeriod(str, Enum):
     WEEK = "week"
@@ -13,8 +14,8 @@ class ReportPeriod(str, Enum):
 
 class ReportRequest(BaseModel):
     period: ReportPeriod
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    start_date: Optional[CalendarDate] = None  # custom period: the first and last day (inclusive)
+    end_date: Optional[CalendarDate] = None
     # Minutes EAST of UTC (Dart's DateTime.timeZoneOffset.inMinutes), e.g. +390 for Myanmar.
     timezone_offset: Optional[int] = Field(default=0, ge=-840, le=840)
     currency: Optional[Currency] = None  # NEW - optional currency filter

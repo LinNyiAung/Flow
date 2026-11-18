@@ -95,12 +95,15 @@ rec("second resend within a minute is rate-limited", "PASS" if after2 == after e
 import notification_service as ns  # noqa: E402
 stubenv.patch_loaded_modules()
 email3, tok3, uid3 = new_user("budget")
-tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+# Budget dates are calendar dates; "tomorrow" is on the default zone's calendar (the server's "today").
+from tz_utils import default_zone, local_today  # noqa: E402
+today = local_today(default_zone())
+tomorrow = today + timedelta(days=1)
 r = c.post("/api/budgets", headers=H(tok3), json={"name": "Soon", "period": "custom", "start_date": tomorrow.isoformat(),
                                                    "end_date": (tomorrow + timedelta(days=10)).isoformat(), "currency": "usd", "total_budget": 50,
                                                    "category_budgets": [{"main_category": "Transportation", "allocated_amount": 50}]})
 bid = r.json()["id"]
-db.budgets.update_one({"_id": bid}, {"$set": {"start_date": now - timedelta(hours=1)}})
+db.budgets.update_one({"_id": bid}, {"$set": {"start_date": today}})
 db.notifications.delete_many({"user_id": uid3, "type": {"$in": ["budget_started", "budget_now_active"]}})
 c.get("/api/budgets", headers=H(tok3))
 

@@ -1,7 +1,7 @@
 import calendar
 import logging
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta, UTC
+from datetime import date, datetime, timedelta, UTC
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ from sql import transactions as transactions_db
 from sql import books as books_db
 from sql.db import transaction as db_transaction
 from notification_service import create_notification
-from tz_utils import app_today
+from tz_utils import as_calendar_date, as_wall_clock, day_bounds, default_zone, local_today
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +26,6 @@ CATCHUP_WINDOW_DAYS = 31
 # Hard bound on how many stale occurrences we will step over in one run (defensive; a
 # daily recurrence 10 years behind is ~3650 steps).
 MAX_SKIP_STEPS = 100_000
-
-
-def _as_utc(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
 
 
 def _clamped(base: datetime, year: int, month: int, day: int) -> datetime:
@@ -58,15 +52,15 @@ def calculate_next_occurrence(
     """
     Calculate the first occurrence strictly AFTER last_date (compared by calendar date).
 
-    Dates follow the app convention (local wall-clock time stored tagged as UTC); the
+    Dates are local wall-clock values (naive datetimes; a date counts as its 00:00); the
     time-of-day of last_date is preserved. Days that don't exist in a month are clamped to
     the month's last day (Jan 31 monthly -> Feb 28/29; Apr 31 annually -> Apr 30).
     Returns None when the recurrence has ended or the config is incomplete.
     """
-    last_date = _as_utc(last_date)
-    end_date = _as_utc(config.end_date) if config.end_date else None
+    last_date = as_wall_clock(last_date)
+    end_date = as_calendar_date(config.end_date)
 
-    if end_date and last_date.date() >= end_date.date():
+    if end_date and last_date.date() >= end_date:
         return None  # Recurrence has ended
 
     next_date: Optional[datetime] = None
@@ -103,32 +97,32 @@ def calculate_next_occurrence(
         next_date = candidate
 
     # Whole-day semantics for end_date: an occurrence ON the end date is still created.
-    if next_date and end_date and next_date.date() > end_date.date():
+    if next_date and end_date and next_date.date() > end_date:
         return None
 
     return next_date
 
 
-def rearmed_recurrence_pointer(start: datetime, config: RecurrenceConfig, today: date) -> datetime:
+def rearmed_recurrence_pointer(start: date, config: RecurrenceConfig, today: date) -> date:
     """
-    Pure helper: last_created_date to store when a recurrence is (re-)enabled or its
+    Pure helper: last_created_date (a date) to store when a recurrence is (re-)enabled or its
     schedule changes, so the daily job does NOT back-fill the past.
 
-    Walks the occurrences after `start` and returns the latest one whose calendar date is
-    on/before `today` (app timezone), i.e. everything up to and including today counts as
-    already handled. Returns `start` itself when no occurrence falls in (start, today].
+    Walks the occurrences after `start` and returns the date of the latest one on/before
+    `today`, i.e. everything up to and including today counts as already handled. Returns
+    `start`'s date itself when no occurrence falls in (start, today].
 
     Decision: if today is itself an occurrence date, today's occurrence is NOT created
     either (the user re-enabled/rescheduled today; the first auto-created transaction is
     the next occurrence after today). The pointer never moves before `start`.
     """
-    current = _as_utc(start)
+    current = as_wall_clock(start)
     for _ in range(MAX_SKIP_STEPS):
         nxt = calculate_next_occurrence(current, config)
         if nxt is None or nxt.date() > today:
             break
         current = nxt
-    return current
+    return current.date()
 
 
 def recurrence_schedule_key(config) -> Optional[tuple]:
@@ -162,19 +156,20 @@ def plan_due_occurrences(
     catchup_days: Optional[int] = CATCHUP_WINDOW_DAYS,
 ) -> OccurrencePlan:
     """
-    Pure helper: occurrences after last_created whose calendar date is <= today in the app
-    timezone (so today's occurrence is due today even when the job runs at 06:00 Yangon =
-    23:30 UTC the previous day).
+    Pure helper: occurrences after last_created (a local wall-clock datetime; the occurrences
+    keep its time of day) whose calendar date is <= today in the default zone (so today's
+    occurrence is due today even when the job runs at 06:00 Yangon = 23:30 UTC the previous
+    day). `now` is an instant.
 
     Occurrences dated before (today - catchup_days) are skipped (counted, not returned;
     they don't count towards `limit`). At most `limit` occurrences are returned.
     """
-    today: date = app_today(now)
+    today: date = local_today(default_zone(), now)
     cutoff: Optional[date] = today - timedelta(days=catchup_days) if catchup_days is not None else None
     dates: List[datetime] = []
     skipped = 0
     last_skipped: Optional[datetime] = None
-    current = _as_utc(last_created)
+    current = as_wall_clock(last_created)
     while len(dates) < limit:
         nxt = calculate_next_occurrence(current, config)
         if nxt is None:
@@ -223,13 +218,9 @@ async def _notice_recipient(transaction: dict) -> Optional[str]:
 async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
     """True if an auto-created child of this parent already exists on occ_date's calendar date
     (older children have uuid _ids, so the deterministic _id alone can't dedupe them)."""
-    day = occ_date.date()
-    return await transactions_db.child_exists_between(
-        transaction["book_id"],
-        transaction["_id"],
-        datetime.combine(day, time.min, tzinfo=UTC),
-        datetime.combine(day, time.max, tzinfo=UTC),
-    )
+    day = as_calendar_date(occ_date)
+    return await transactions_db.child_exists_between(transaction["book_id"], transaction["_id"],
+                                                      *day_bounds(day, day))
 
 
 async def _process_recurring_transaction(
@@ -254,9 +245,11 @@ async def _process_recurring_transaction(
         await transactions_db.disable_recurrence(transaction["_id"])
         return 0
 
-    # A key that exists with value None must also fall back to the transaction date.
-    last_created = recurrence.get("last_created_date") or transaction["date"]
-    last_created = _as_utc(last_created)
+    # The pointer is the date of the last occurrence handled; occurrences keep the parent's time of day. A key that
+    # exists with value None must also fall back to the transaction date.
+    parent_date = as_wall_clock(transaction["date"])
+    pointer = recurrence.get("last_created_date")
+    last_created = datetime.combine(as_calendar_date(pointer), parent_date.time()) if pointer else parent_date
 
     plan = plan_due_occurrences(last_created, config, now)
     dates, ended = plan.dates, plan.ended
@@ -267,7 +260,7 @@ async def _process_recurring_transaction(
             f"Recurring tx {transaction['_id']}: skipped {plan.skipped} missed occurrence(s) older than "
             f"{CATCHUP_WINDOW_DAYS} days (through {plan.last_skipped:%Y-%m-%d})"
         )
-        await transactions_db.set_recurrence_pointer(transaction["_id"], plan.last_skipped)
+        await transactions_db.set_recurrence_pointer(transaction["_id"], plan.last_skipped.date())
 
     created = 0
     last_new_id = None
@@ -280,7 +273,7 @@ async def _process_recurring_transaction(
             # Already created (possibly by an older run with a uuid _id) - just advance the pointer.
             # Still refresh caches/budgets: a crashed run may have skipped that.
             affected[transaction["book_id"]][transaction.get("currency", "usd")].append(occ_date)
-            await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
+            await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date.date())
             continue
         new_transaction = {
             "_id": new_id,
@@ -315,7 +308,7 @@ async def _process_recurring_transaction(
 
         # Advance the pointer after every occurrence so a crash never re-creates (and the
         # deterministic _id makes a retry harmless anyway).
-        await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date)
+        await transactions_db.set_recurrence_pointer(transaction["_id"], occ_date.date())
 
     label = transaction.get("description") or transaction["sub_category"]
     recipient = None

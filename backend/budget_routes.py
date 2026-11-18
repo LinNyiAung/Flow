@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, UTC, timezone
+from datetime import datetime, UTC
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
@@ -192,13 +192,7 @@ async def create_budget(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         else:
             start_date = budget_data.start_date
-            end_date = budget_data.end_date
-
-        # Ensure timezone-aware
-        if start_date.tzinfo is None:
-            start_date = start_date.replace(tzinfo=timezone.utc)
-        if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=timezone.utc)
+            end_date = budget_data.end_date  # the inclusive last day
 
         # Determine if currently active
         window = {"start_date": start_date, "end_date": end_date}

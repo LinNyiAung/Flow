@@ -1378,7 +1378,9 @@ def section_recurring_children():
         d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
         view = c.post("/api/family/placeholders", headers=M["h"], json={"display_name": "Ma Ma"}).json()
         mama = next((m["id"] for m in view.get("members", []) if m["display_name"] == "Ma Ma"), None)
-        start = (datetime.now(UTC) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+        from tz_utils import default_zone, local_now
+        # Two days ago on the default zone's calendar (the job's "today"), sent as a local date-time like the app.
+        start = (local_now(default_zone()) - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
         r = c.post("/api/transactions", headers={**D["h"], **FAM}, json={
             "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
             "date": start.isoformat(), "amount": 5, "currency": "usd", "for_whom": [mama],
@@ -2115,8 +2117,8 @@ def section_notifications():
 
         async def payment_reminders():
             import notification_service as ns
-            from tz_utils import app_today
-            await ns._detect_recurring_payments_for_book(book, datetime.now(UTC), app_today())
+            from tz_utils import default_zone, local_today
+            await ns._detect_recurring_payments_for_book(book, datetime.now(UTC), local_today(default_zone()))
         _backend_async(payment_reminders)
         time.sleep(2)  # the large-entry check runs as a background task
         per_entry = [n["type"] for uid in (M["id"], D["id"]) for n in notes(uid)] + [n["type"] for n in book_notes()]

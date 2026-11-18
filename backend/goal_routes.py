@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, UTC, timezone
+from datetime import datetime, UTC
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
@@ -85,7 +85,7 @@ async def create_goal(
             "book_id": book.id,
             "name": goal_data.name,
             "target_amount": _money(target),
-            "target_date": goal_data.target_date.replace(tzinfo=timezone.utc) if goal_data.target_date and goal_data.target_date.tzinfo is None else goal_data.target_date,
+            "target_date": goal_data.target_date,
             "goal_type": goal_data.goal_type.value,
             "status": status_value.value,
             "currency": goal_data.currency.value,

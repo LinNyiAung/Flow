@@ -2,7 +2,7 @@
 
 A goal's money is its rows in goal_entries: every read here returns current_amount, the sum of the goal's entries
 (0.0 with none), so callers see the same goal shape as when it was a stored column."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import delete, exists, func, insert, select, update
@@ -11,6 +11,7 @@ from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
 from sql.docs import money, row_to_doc, rows_to_docs
 from sql.tables import goal_entries as e
 from sql.tables import goals as g
+from tz_utils import as_calendar_date
 
 _MONEY_FIELDS = ("target_amount",)
 
@@ -25,6 +26,8 @@ def _values(fields: Dict[str, Any]) -> Dict[str, Any]:
     for k in _MONEY_FIELDS:
         if k in values and values[k] is not None:
             values[k] = money(values[k])
+    if "target_date" in values:
+        values["target_date"] = as_calendar_date(values["target_date"])
     return values
 
 
@@ -40,8 +43,8 @@ async def get_goal(goal_id: str, book_id: Optional[str] = None) -> Optional[Dict
 
 
 async def list_goals(book_id: Optional[str] = None, *, status: Optional[str] = None, currency: Optional[str] = None,
-                     target_between: Optional[Tuple[datetime, datetime]] = None) -> List[Dict[str, Any]]:
-    """Goals newest first, filtered by any of book / status / currency / target-date window."""
+                     target_between: Optional[Tuple[date, date]] = None) -> List[Dict[str, Any]]:
+    """Goals newest first, filtered by any of book / status / currency / target dates (inclusive)."""
     stmt = select(*_GOAL)
     if book_id is not None:
         stmt = stmt.where(g.c.book_id == book_id)
@@ -50,7 +53,8 @@ async def list_goals(book_id: Optional[str] = None, *, status: Optional[str] = N
     if currency is not None:
         stmt = stmt.where(g.c.currency == currency)
     if target_between is not None:
-        stmt = stmt.where(g.c.target_date >= target_between[0], g.c.target_date <= target_between[1])
+        first, last = (as_calendar_date(d) for d in target_between)
+        stmt = stmt.where(g.c.target_date >= first, g.c.target_date <= last)
     return rows_to_docs(await fetch_all(stmt.order_by(g.c.created_at.desc(), g.c.id)))
 
 

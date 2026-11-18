@@ -4,7 +4,7 @@ Documents keep the shape the budget code was written for: a budget dict with a
 "category_budgets" list. Writing "category_budgets" replaces the allocation rows in the
 same transaction as the budget row.
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import delete, exists, func, insert, or_, select, update
@@ -12,6 +12,7 @@ from sqlalchemy import delete, exists, func, insert, or_, select, update
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction
 from sql.docs import allocation_rows, budget_doc, budget_row
 from sql.tables import budget_allocations as a, budgets as b
+from tz_utils import as_calendar_date
 
 _ANY = object()
 RUNNING_OR_UPCOMING = ("upcoming", "active", "exceeded")
@@ -61,26 +62,31 @@ async def list_budgets(book_id: str, *, currency: Optional[str] = None,
     return await _list(stmt.order_by(b.c.created_at.desc(), b.c.id))
 
 
-async def budgets_overlapping(book_id: str, start: datetime, end: datetime,
+async def budgets_overlapping(book_id: str, start: date, end: date,
                               currency: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Budgets whose window overlaps [start, end] (start == end: windows containing that moment), newest first."""
+    """Budgets whose days overlap the days [start, end] (start == end: budgets running on that day), newest first. A
+    datetime counts as its date."""
+    start, end = as_calendar_date(start), as_calendar_date(end)
     stmt = select(b).where(b.c.book_id == book_id, b.c.start_date <= end, b.c.end_date >= start)
     if currency is not None:
         stmt = stmt.where(b.c.currency == currency)
     return await _list(stmt.order_by(b.c.created_at.desc(), b.c.id))
 
 
-async def created_since(book_id: str, start: datetime, end: datetime, since: datetime) -> bool:
-    """True when a budget whose window overlaps [start, end] was created after `since`. updated_at is not used: every
-    spend recompute (budget_service.update_budget_spent_amounts, also run by the chatbot) moves it, so it does not tell
-    a user's edit. A deleted budget leaves no trace."""
+async def created_since(book_id: str, start: date, end: date, since: datetime) -> bool:
+    """True when a budget whose days overlap [start, end] was created after the instant `since`. updated_at is not used:
+    every spend recompute (budget_service.update_budget_spent_amounts, also run by the chatbot) moves it, so it does
+    not tell a user's edit. A deleted budget leaves no trace."""
+    start, end = as_calendar_date(start), as_calendar_date(end)
     return bool(await fetch_value(select(exists().where(
         b.c.book_id == book_id, b.c.start_date <= end, b.c.end_date >= start, b.c.created_at > since))))
 
 
-async def has_budget_containing(book_id: str, moment: datetime) -> bool:
+async def has_budget_containing(book_id: str, day: date) -> bool:
+    """True when one of the book's budgets runs on `day` (a datetime counts as its date)."""
+    day = as_calendar_date(day)
     return bool(await fetch_value(select(exists().where(
-        b.c.book_id == book_id, b.c.start_date <= moment, b.c.end_date >= moment))))
+        b.c.book_id == book_id, b.c.start_date <= day, b.c.end_date >= day))))
 
 
 async def count_budgets(book_id: Optional[str] = None) -> int:
@@ -97,34 +103,38 @@ async def find_child(book_id: str, parent_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def find_existing_next(book_id: str, parent_id: str, name: str, period: str, currency: str,
-                             day_start: datetime, day_end: datetime) -> Optional[Dict[str, Any]]:
-    """A child of parent_id, or a same name/period/currency budget starting in [day_start, day_end)."""
+                             start_date: date) -> Optional[Dict[str, Any]]:
+    """A child of parent_id, or a same name/period/currency budget starting on start_date."""
     row = await fetch_one(select(b.c.id, b.c.parent_budget_id).where(
         b.c.book_id == book_id,
         or_(b.c.parent_budget_id == parent_id,
             (b.c.name == name) & (b.c.period == period) & (b.c.currency == currency)
-            & (b.c.start_date >= day_start) & (b.c.start_date < day_end)),
+            & (b.c.start_date == as_calendar_date(start_date))),
     ).limit(1))
     return {"_id": row["id"], "parent_budget_id": row["parent_budget_id"]} if row else None
 
 
-async def rollover_candidates(wall_now: datetime) -> List[Dict[str, Any]]:
-    """Auto-create budgets whose period ended and that have no next budget yet."""
-    return await _list(select(b).where(b.c.auto_create_enabled.is_(True), b.c.end_date < wall_now,
+async def rollover_candidates(today: date) -> List[Dict[str, Any]]:
+    """Auto-create budgets whose last day is before `today` and that have no next budget yet."""
+    return await _list(select(b).where(b.c.auto_create_enabled.is_(True), b.c.end_date < as_calendar_date(today),
                                        b.c.rolled_over_to.is_(None)).order_by(b.c.end_date, b.c.id))
 
 
-async def ending_soon_candidates(wall_now: datetime, window_start: datetime, window_end: datetime) -> List[Dict[str, Any]]:
+async def ending_soon_candidates(today: date, window_start: date, window_end: date) -> List[Dict[str, Any]]:
+    """Not yet announced budgets that have started by `today` and whose last day is in [window_start, window_end]."""
     return await _list(select(b).where(
-        b.c.status.in_(RUNNING_OR_UPCOMING), b.c.start_date <= wall_now,
-        b.c.end_date >= window_start, b.c.end_date <= window_end, b.c.ending_soon_notified.is_(False),
+        b.c.status.in_(RUNNING_OR_UPCOMING), b.c.start_date <= as_calendar_date(today),
+        b.c.end_date >= as_calendar_date(window_start), b.c.end_date <= as_calendar_date(window_end),
+        b.c.ending_soon_notified.is_(False),
     ).order_by(b.c.end_date, b.c.id))
 
 
-async def now_active_candidates(lookback_start: datetime, wall_now: datetime) -> List[Dict[str, Any]]:
+async def now_active_candidates(lookback_start: date, today: date) -> List[Dict[str, Any]]:
+    """Not yet announced budgets that started in [lookback_start, today] and are still running today."""
+    today = as_calendar_date(today)
     return await _list(select(b).where(
         b.c.status.in_(RUNNING_OR_UPCOMING), b.c.started_notified.is_(False),
-        b.c.start_date >= lookback_start, b.c.start_date <= wall_now, b.c.end_date >= wall_now,
+        b.c.start_date >= as_calendar_date(lookback_start), b.c.start_date <= today, b.c.end_date >= today,
     ).order_by(b.c.start_date, b.c.id))
 
 

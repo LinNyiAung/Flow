@@ -1,7 +1,6 @@
 """The family: /api/family (members, roles, invitations, the per-person breakdown) and /api/transfers (moving money
 between a personal wallet and the family wallet). Thin routes over families.service, which holds the rules and raises
 the refusals as {"detail": {"code", "message"}}, families.breakdown and families.transfers."""
-from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
@@ -15,6 +14,7 @@ from models import Currency, PositiveAmount
 from plans.contact import normalize_email
 from report_models import ReportPeriod
 from report_routes import calculate_report_dates
+from tz_utils import CalendarDate, WallClock
 from utils import get_current_user
 
 router = APIRouter(prefix="/api/family", tags=["family"])
@@ -97,7 +97,7 @@ class TransferBody(BaseModel):
     direction: Literal["to_family", "to_personal"]
     amount: PositiveAmount
     currency: Currency
-    date: datetime
+    date: WallClock  # the local date and time, as for a transaction
     description: Optional[str] = None
 
 
@@ -122,7 +122,7 @@ async def delete_family(body: ConfirmName, current_user: dict = Depends(get_curr
 
 
 @router.get("/breakdown")
-async def breakdown(start_date: datetime = Query(...), end_date: datetime = Query(...),
+async def breakdown(start_date: CalendarDate = Query(...), end_date: CalendarDate = Query(...),
                     currency: Optional[Currency] = None, book: Book = Depends(get_book)):
     """Spending per person it was for, start_date..end_date as whole calendar days (as custom reports take them),
     in `currency` (default: the caller's default currency). Any active member; X-Book is optional here."""

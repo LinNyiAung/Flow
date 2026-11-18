@@ -14,7 +14,7 @@ from custom_insights_service import fail_stuck_reports
 from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
 from subscription_service import expire_paid_plans, send_plan_renewal_reminders, send_trial_reminders
 from device_jobs import delete_stale_devices, send_sign_in_reminders
-from tz_utils import get_app_timezone
+from tz_utils import default_zone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ def start_scheduler():
     # Explicit timezone (SCHEDULER_TIMEZONE, default Asia/Yangon) so cron times like
     # "Monday 05:00" mean local time regardless of the server's TZ. insights_service
     # computes the "previous week/month" with the same timezone (tz_utils).
-    app_tz = get_app_timezone()
+    app_tz = default_zone()
     scheduler = AsyncIOScheduler(timezone=app_tz)
 
     # --- NO WRAPPERS NEEDED ---

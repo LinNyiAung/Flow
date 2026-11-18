@@ -2,7 +2,7 @@
 import asyncio
 import os
 import sys
-from datetime import datetime, timedelta, UTC
+from datetime import timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stubenv  # noqa: E402
@@ -27,14 +27,17 @@ async def main():
     tok = (await c.post("/api/auth/login", json={"email": email, "password": "secret123"})).json()["access_token"]
     H = {"Authorization": f"Bearer {tok}"}
     carol = await U.find_one({"email": email})
-    tomorrow = (datetime.now(UTC) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Budget dates are calendar dates; "tomorrow" is on the default zone's calendar (the server's "today").
+    from tz_utils import default_zone, local_today
+    today = local_today(default_zone())
+    tomorrow = today + timedelta(days=1)
     r = await c.post("/api/budgets", headers=H, json={
         "name": "Starts soon", "period": "custom", "start_date": tomorrow.isoformat(), "end_date": (tomorrow + timedelta(days=10)).isoformat(),
         "currency": "usd", "total_budget": 50, "category_budgets": [{"main_category": "Transportation", "allocated_amount": 50}]})
     bid = r.json()["id"]
     print("created status:", r.json()["status"])
     # time passes: start date reached
-    await B.update_one({"_id": bid}, {"$set": {"start_date": datetime.now(UTC) - timedelta(hours=1)}})
+    await B.update_one({"_id": bid}, {"$set": {"start_date": today}})
     # The notification is now "budget_now_active" (older code used "budget_started").
     STARTED = {"$in": ["budget_started", "budget_now_active"]}
     await N.delete_many({"user_id": carol["_id"], "type": STARTED})

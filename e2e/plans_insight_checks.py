@@ -511,8 +511,8 @@ async def run(t):
 
         # ---- next_insight_at: when the next insight arrives, from the scheduler's own cron fields
         import insight_schedule
-        from tz_utils import get_app_timezone
-        tz = get_app_timezone()
+        from tz_utils import default_zone
+        tz = default_zone()
 
         def local(*a):
             return datetime(*a, tzinfo=tz).astimezone(UTC)

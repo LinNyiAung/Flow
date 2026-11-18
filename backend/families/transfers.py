@@ -24,6 +24,7 @@ from goal_routes import to_cents
 from sql import transactions as transactions_db
 from sql import families as fdb
 from sql import books as books_db
+from tz_utils import as_wall_clock
 from utils import get_book_balance, get_books_money_locks
 
 MAIN_CATEGORY = "Transfer"
@@ -51,8 +52,7 @@ def _refresh(background_tasks: BackgroundTasks, legs: Iterable[Dict[str, Any]]) 
     """Budgets of both books in the background, as for a normal entry (a transfer is never budget spending, but the
     budgets are recomputed the same way)."""
     for leg in legs:
-        date = leg["date"] if leg["date"].tzinfo else leg["date"].replace(tzinfo=UTC)
-        background_tasks.add_task(update_relevant_budgets, leg["book_id"], date, leg["currency"])
+        background_tasks.add_task(update_relevant_budgets, leg["book_id"], leg["date"], leg["currency"])
 
 
 async def create_transfer(person: dict, direction: Direction, amount: float, currency: str, date: datetime,
@@ -72,7 +72,7 @@ async def create_transfer(person: dict, direction: Direction, amount: float, cur
     source = personal_book if to_family else book.id
     transfer_id = str(uuid.uuid4())
     now = datetime.now(UTC)
-    when = date if date.tzinfo else date.replace(tzinfo=UTC)
+    when = as_wall_clock(date)  # the local date and time, no timezone
     note = (description or "").strip() or None
 
     def leg(book_id: str, type_: str, added_by: Optional[str]) -> Dict[str, Any]:

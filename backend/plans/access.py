@@ -11,7 +11,7 @@ HTTP 403 (plan_feature_locked) or 429 (plan_limit_reached, plan_cost_cap) with t
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
-from tz_utils import as_utc, get_app_timezone
+from tz_utils import as_utc, default_zone
 
 from .catalog import PAID_PLANS, PLANS
 
@@ -66,8 +66,8 @@ def format_day(day: date, lang: str) -> str:
 
 
 def format_date(when: datetime, lang: str) -> str:
-    """The local (app timezone) date of a moment, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
-    return format_day(when.astimezone(get_app_timezone()), lang)
+    """The local (default zone) date of a moment, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
+    return format_day(when.astimezone(default_zone()), lang)
 
 
 class PlanError(Exception):
