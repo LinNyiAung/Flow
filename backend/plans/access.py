@@ -8,7 +8,7 @@ HTTP 403 (plan_feature_locked) or 429 (plan_limit_reached, plan_cost_cap) with t
 {"detail": {"code", "feature", "resets_at", "upgrade_available", "message"}}. The app decides what to do from
 `code`; `message` is for people, in the user's language.
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
 from typing import Any, Dict, Mapping, Optional
 
 from tz_utils import as_utc, default_zone
@@ -65,20 +65,22 @@ def format_day(day: date, lang: str) -> str:
     return day.strftime("%b %d, %Y").replace(" 0", " ")
 
 
-def format_date(when: datetime, lang: str) -> str:
-    """The local (default zone) date of a moment, as the user reads it: "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
-    return format_day(when.astimezone(default_zone()), lang)
+def format_date(when: datetime, lang: str, tz: Optional[tzinfo] = None) -> str:
+    """The local date of a moment in `tz` (the reader's zone; default the default zone), as the user reads it:
+    "Dec 1, 2026", or in Myanmar "1 ဒီဇင်ဘာ 2026"."""
+    return format_day(when.astimezone(tz if tz is not None else default_zone()), lang)
 
 
 class PlanError(Exception):
     """A plan check refused the request: the feature is locked, its allowance is used up, or the cost cap is reached.
 
     status: 403 for plan_feature_locked, 429 otherwise. resets_at: an aware UTC datetime (None for a locked feature).
-    feature: a quota feature key, or None for a route that only needs a paid plan (utils.ensure_paid).
+    feature: a quota feature key, or None for a route that only needs a paid plan (utils.ensure_paid). tz: the zone
+    the message shows resets_at's date in (the zone of the counted person; default the default zone).
     """
 
     def __init__(self, code: str, feature: Optional[str], *, resets_at: Optional[datetime] = None,
-                 upgrade_available: bool = False, lang: str = "en"):
+                 upgrade_available: bool = False, lang: str = "en", tz: Optional[tzinfo] = None):
         if code not in _STATUS:
             raise ValueError(f"Unknown plan error code '{code}'")
         self.status = _STATUS[code]
@@ -87,6 +89,7 @@ class PlanError(Exception):
         self.resets_at = resets_at
         self.upgrade_available = upgrade_available
         self.lang = lang if lang in LANGUAGES else "en"
+        self.tz = tz
         super().__init__(f"{code}: {feature}")
 
     def message(self) -> str:
@@ -96,7 +99,7 @@ class PlanError(Exception):
 
         lang = self.lang
         name = translate(f"plan_feature_{self.feature}", lang) if self.feature else ""
-        resets_on = format_date(self.resets_at, lang) if self.resets_at is not None else ""
+        resets_on = format_date(self.resets_at, lang, self.tz) if self.resets_at is not None else ""
         if self.code == LOCKED:
             # feature None: a route that needs any paid plan and is not one of the quota features
             text = (translate("plan_feature_locked_msg", lang, feature=name) if self.feature

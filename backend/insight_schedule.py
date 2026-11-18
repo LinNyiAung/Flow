@@ -2,9 +2,9 @@
 
 The cron fields live here once: scheduler.py builds its CronTrigger jobs from them and next_scheduled_insight_at() asks a trigger
 built from the same fields, so the "Next insight" line in the app can never drift from the real schedule. Times are in
-the default zone (tz_utils.default_zone).
+the default zone (tz_utils.default_zone); a Free user's on-demand monthly insight follows their own month.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
 from apscheduler.triggers.cron import CronTrigger
@@ -34,7 +34,7 @@ def next_scheduled_insight_at(insight_type: str, now: Optional[datetime] = None)
     return trigger.get_next_fire_time(None, local_now).astimezone(timezone.utc)
 
 
-def next_on_demand_insight_at(now: Optional[datetime] = None) -> datetime:
-    """A Free user's monthly insight is made on demand once per calendar month: the next one can be made at the
-    start of next month (local midnight on the 1st), as an aware UTC datetime."""
-    return periods.resets_at("month", as_utc(now) if now is not None else utc_now())
+def next_on_demand_insight_at(now: Optional[datetime] = None, tz: Optional[tzinfo] = None) -> datetime:
+    """A Free user's monthly insight is made on demand once per calendar month of their zone `tz`: the next one can be
+    made at the start of next month (local midnight on the 1st), as an aware UTC datetime."""
+    return periods.resets_at("month", as_utc(now) if now is not None else utc_now(), tz)

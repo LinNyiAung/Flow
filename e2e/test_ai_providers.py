@@ -3842,7 +3842,7 @@ async def _insight_inprocess_checks(uid):
         from families.book import Book
         orig_weekly = ins.generate_weekly_insight
 
-        async def weekly_fails(book_id):
+        async def weekly_fails(book_id, **_):  # on demand it is also given the book's zone (tz)
             raise RuntimeError("upstream refused key sk-proj-t9MANUALkey1234567 for this request")
         ins.generate_weekly_insight = weekly_fails
         out = io.StringIO()

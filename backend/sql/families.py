@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
+from sql.docs import wall_bound
 from sql.tables import (books as bk, families as f, family_invites as fi, family_members as fm,
                         transaction_beneficiaries as tb, transactions as t, users)
 
@@ -59,15 +60,23 @@ async def books_with_paid_owner(plans: Sequence[str]) -> List[Dict[str, Any]]:
 
 async def owner_user(family_id: str) -> Optional[Dict[str, Any]]:
     """The active owner's user fields that effective_plan and quota.over_cost_cap read (`_id`, subscription_type,
-    subscription_expires_at, usage_reset_at), plus language and default_currency; None when the owner's account is
-    gone."""
-    fields = ("subscription_type", "subscription_expires_at", "usage_reset_at", "language", "default_currency")
+    subscription_expires_at, usage_reset_at), plus language, default_currency and timezone (whose month the cost cap
+    counts); None when the owner's account is gone."""
+    fields = ("subscription_type", "subscription_expires_at", "usage_reset_at", "language", "default_currency",
+              "timezone")
     row = await fetch_one(select(users.c.id, *(users.c[k] for k in fields))
                           .select_from(fm.join(users, users.c.id == fm.c.user_id))
                           .where(fm.c.family_id == family_id, fm.c.role == "owner", fm.c.status == "active"))
     if row is None:
         return None
     return {"_id": row["id"], **{k: row[k] for k in fields}}
+
+
+async def owner_timezone(family_id: str) -> Optional[str]:
+    """The saved zone name (users.timezone) of the family's current active owner; None when they have none saved, or
+    there is no such owner."""
+    return await fetch_value(select(users.c.timezone).select_from(fm.join(users, users.c.id == fm.c.user_id))
+                             .where(fm.c.family_id == family_id, fm.c.role == "owner", fm.c.status == "active"))
 
 
 async def lock_family(family_id: str) -> Optional[Dict[str, Any]]:
@@ -227,7 +236,7 @@ async def outflow_shares(book_id: str, currency: str, date_from: datetime, date_
     stmt = (select(t.c.id, t.c.amount, tb.c.member_id)
             .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id).outerjoin(fm, fm.c.id == tb.c.member_id))
             .where(t.c.book_id == book_id, t.c.type == "outflow", t.c.currency == currency,
-                   t.c.transfer_id.is_(None), t.c.date >= date_from, t.c.date <= date_to)
+                   t.c.transfer_id.is_(None), t.c.date >= wall_bound(date_from), t.c.date <= wall_bound(date_to))
             .order_by(t.c.id, fm.c.joined_at, fm.c.id))
     return await fetch_all(stmt)
 
@@ -239,8 +248,8 @@ async def transfer_totals(book_id: str, date_from: datetime, date_to: datetime) 
     stmt = (select(t.c.added_by_member_id.label("member_id"), t.c.type, t.c.currency,
                    func.sum(t.c.amount).label("total"))
             .select_from(t.outerjoin(fm, fm.c.id == t.c.added_by_member_id))
-            .where(t.c.book_id == book_id, t.c.transfer_id.isnot(None), t.c.date >= date_from,
-                   t.c.date <= date_to)
+            .where(t.c.book_id == book_id, t.c.transfer_id.isnot(None), t.c.date >= wall_bound(date_from),
+                   t.c.date <= wall_bound(date_to))
             .group_by(t.c.added_by_member_id, fm.c.joined_at, t.c.type, t.c.currency)
             .order_by(fm.c.joined_at.nulls_last(), t.c.added_by_member_id, t.c.type, t.c.currency))
     return [{**r, "total": float(r["total"])} for r in await fetch_all(stmt)]

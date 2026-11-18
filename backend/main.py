@@ -79,6 +79,7 @@ from plans import periods, quota
 from plans import store as plan_store
 from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan, user_language
 from tz_utils import as_utc
+from user_zones import book_zone, user_zone
 
 # SafeJSONResponse: a stray NaN/inf in a response body is sanitised instead of a 500.
 app = FastAPI(title="Toe Pwar API", version="1.0.0", default_response_class=SafeJSONResponse)
@@ -543,12 +544,14 @@ async def refresh_ai_data(
 
 async def _generate_insight(book_id: str, insight_type: str):
     """One insight of the book on the insight_weekly / insight_monthly provider chain (the admin AI settings decide).
-    Its AI spend is the book's (insights_service: a personal book's person, or the family book itself)."""
+    Its AI spend is the book's (insights_service: a personal book's person, or the family book itself). Its week or
+    month is the book's (book_zone: a family's insight is once per book, on its owner's clock)."""
     from insights_service import generate_weekly_insight, generate_monthly_insight
 
+    tz = await book_zone(book_id)
     if insight_type == "monthly":
-        return await generate_monthly_insight(book_id)
-    return await generate_weekly_insight(book_id)
+        return await generate_monthly_insight(book_id, tz=tz)
+    return await generate_weekly_insight(book_id, tz=tz)
 
 
 def _is_new_real_insight(insight: Optional[dict]) -> bool:
@@ -753,12 +756,12 @@ def _next_insight_at(user: dict, insight_type: str) -> Optional[datetime]:
     """When the next insight of `insight_type` arrives for this user (UTC), or None when the type is locked for them.
 
     Plus and Pro: the scheduler's next run (insight_schedule reads the same cron fields the scheduler uses). A Free user's
-    monthly insight is made on demand once a month, so the next one can be made at the start of next month. The scheduler
-    skips Free users, so there is no scheduled weekly insight to announce for them."""
+    monthly insight is made on demand once a month, so the next one can be made at the start of next month (in their
+    zone). The scheduler skips Free users, so there is no scheduled weekly insight to announce for them."""
     if quota.is_locked(user, f"insight_{insight_type}"):
         return None
     if effective_plan(user) == "free":
-        return insight_schedule.next_on_demand_insight_at() if insight_type == "monthly" else None
+        return insight_schedule.next_on_demand_insight_at(tz=user_zone(user)) if insight_type == "monthly" else None
     return insight_schedule.next_scheduled_insight_at(insight_type)
 
 
@@ -791,7 +794,7 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
 
 
 async def _free_monthly_insight(user: dict, latest: Optional[dict], book_id: str) -> dict:
-    """The monthly insight a Free user sees: generated on demand, once per calendar month (app timezone).
+    """The monthly insight a Free user sees: generated on demand, once per calendar month (the user's zone).
 
     - A real (non-placeholder) monthly insight generated this month, by this on-demand call or by the scheduler while
       the user was on a paid plan, is shown and nothing is counted.
@@ -807,11 +810,13 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict], book_id: str
     """
     from insights_service import _latest_real_insight, book_has_insight_data
 
+    tz = user_zone(user)
     real = await _latest_real_insight(book_id, "monthly")
-    this_month = periods.period_start("month", datetime.now(UTC))
-    if real and real.get("generated_at") and periods.period_start("month", as_utc(real["generated_at"])) == this_month:
+    this_month = periods.period_start("month", datetime.now(UTC), tz)
+    if (real and real.get("generated_at")
+            and periods.period_start("month", as_utc(real["generated_at"]), tz) == this_month):
         return real
-    if latest and latest.get("is_placeholder") and not await book_has_insight_data(book_id, "monthly"):
+    if latest and latest.get("is_placeholder") and not await book_has_insight_data(book_id, "monthly", tz):
         return real or latest
 
     error: Optional[Exception] = None
@@ -888,7 +893,7 @@ async def get_insights(
         # week), the latest real insight is shown instead of the welcome text.
         if latest_insight and latest_insight.get("is_placeholder"):
             try:
-                if await book_has_insight_data(book_id, insight_type):
+                if await book_has_insight_data(book_id, insight_type, await book_zone(book_id)):
                     print(f"🔄 Replacing placeholder {insight_type} insight for book {book_id} (book now has data)")
                     regenerated = None
                     try:

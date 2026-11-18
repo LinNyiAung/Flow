@@ -6,7 +6,7 @@ import uuid
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, UTC
+from datetime import date, datetime, UTC
 from decimal import Decimal
 from typing import Dict, List, Optional, Set, Tuple
 import logging
@@ -45,6 +45,7 @@ from sql.db import transaction as db_transaction
 
 from category_matching import normalize_type, parse_positive_amount, snap_category
 from tz_utils import WallClock, as_calendar_date, as_wall_clock, default_zone, local_today
+from user_zones import book_zone, user_zone
 from finite_utils import finite_amount_or_none, is_finite_number
 
 
@@ -109,12 +110,12 @@ def _safe_confidence(value) -> float:
     return min(max(c, 0.0), 1.0)
 
 
-def _extraction_date(value) -> datetime:
-    """Model-produced date (YYYY-MM-DD) as a wall-clock datetime at 00:00; today if unusable."""
+def _extraction_date(value, today: date) -> datetime:
+    """Model-produced date (YYYY-MM-DD) as a wall-clock datetime at 00:00; `today` (the person's) if unusable."""
     try:
         return as_wall_clock(as_calendar_date(str(value).strip()[:10]))
     except (TypeError, ValueError):
-        return as_wall_clock(local_today(default_zone()))
+        return as_wall_clock(today)
 
 
 def _extraction_currency(value, default: str) -> Currency:
@@ -127,7 +128,7 @@ def _extraction_currency(value, default: str) -> Currency:
 
 
 async def _build_extraction(
-    data: dict, default_currency: str, keep_invalid_amount: bool
+    data: dict, default_currency: str, keep_invalid_amount: bool, today: Optional[date] = None
 ) -> Optional[TransactionExtraction]:
     """
     Turn one model-produced transaction dict into a TransactionExtraction whose type and
@@ -136,6 +137,7 @@ async def _build_extraction(
 
     Amount <= 0 / missing: returns None (caller drops it) unless keep_invalid_amount, in
     which case amount=0 and confidence=0 are returned with a note in `reasoning`.
+    today: the person's today, the date when the model gave none (default: today in the default zone).
     """
     if not isinstance(data, dict):
         return None
@@ -167,7 +169,7 @@ async def _build_extraction(
         type=tx_type,
         main_category=main,
         sub_category=sub,
-        date=_extraction_date(data.get("date")),
+        date=_extraction_date(data.get("date"), today if today is not None else local_today(default_zone())),
         description=data.get("description"),
         amount=amount,
         currency=_extraction_currency(data.get("currency"), default_currency),
@@ -734,10 +736,11 @@ async def update_transaction(
             if (not was_enabled or schedule_changed) and incoming.config:
                 # Re-enabled (disabled -> enabled) or rescheduled (frequency/day changed):
                 # don't back-fill the past. Every occurrence up to and including today
-                # (default zone) counts as handled, so the job only creates from the next
-                # occurrence after today. An unchanged enabled recurrence keeps its pointer.
+                # (the book's zone: the job runs once per book) counts as handled, so the job only creates from
+                # the next occurrence after today. An unchanged enabled recurrence keeps its pointer.
                 try:
-                    pointer = rearmed_recurrence_pointer(pointer, incoming.config, local_today(default_zone()))
+                    pointer = rearmed_recurrence_pointer(pointer, incoming.config,
+                                                         local_today(await book_zone(book.id)))
                 except Exception as e:
                     logger.warning(f"Could not fast-forward recurrence pointer for {transaction_id}: {e}")
             new_rec["last_created_date"] = pointer
@@ -932,6 +935,7 @@ async def _extract_transaction_from_text(request: TextExtractionRequest, current
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
         user_default_currency = current_user.get("default_currency", "usd")
+        today = local_today(user_zone(current_user))
 
         system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
 
@@ -941,7 +945,7 @@ RULES:
 1. Determine if it's 'inflow' (income) or 'outflow' (expense)
 2. Select the most appropriate main_category and sub_category from the list above
 3. Extract the amount as a positive number
-4. Determine the date (default to today if not specified: {local_today(default_zone()).isoformat()})
+4. Determine the date (default to today if not specified: {today.isoformat()})
 5. Extract any description/notes
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Carefully analyze the text for currency indicators
@@ -979,7 +983,7 @@ Respond in JSON format:
         _log_ai_usage("Text Extraction", current_user["_id"], result)
         result = result.value
 
-        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
+        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True, today=today)
         if extraction is None:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI returned an unexpected response")
         return extraction
@@ -1021,6 +1025,7 @@ async def _extract_multiple_transactions_from_text(request: TextExtractionReques
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
         user_default_currency = current_user.get("default_currency", "usd")
+        today = local_today(user_zone(current_user))
 
         system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
 
@@ -1032,7 +1037,7 @@ RULES:
    - Determine if it's 'inflow' (income) or 'outflow' (expense)
    - Select the most appropriate main_category and sub_category from the list above
    - Extract the amount as a positive number
-   - Determine the date (default to today if not specified: {local_today(default_zone()).isoformat()})
+   - Determine the date (default to today if not specified: {today.isoformat()})
    - Extract any description/notes
    - CURRENCY DETECTION (VERY IMPORTANT):
      * Carefully analyze the text for currency indicators for EACH transaction
@@ -1087,7 +1092,8 @@ Respond in JSON format:
         if not isinstance(raw_items, list):
             raw_items = []
         for tx_data in raw_items:
-            extraction = await _build_extraction(tx_data, user_default_currency, keep_invalid_amount=False)
+            extraction = await _build_extraction(tx_data, user_default_currency, keep_invalid_amount=False,
+                                                 today=today)
             if extraction is not None:
                 transactions.append(extraction)
 
@@ -1275,6 +1281,7 @@ async def _extract_transaction_from_image(image: UploadFile, current_user: dict)
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
         user_default_currency = current_user.get("default_currency", "usd")
+        today = local_today(user_zone(current_user))
 
         # 6. Construct System Prompt
         system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
@@ -1285,7 +1292,7 @@ RULES:
 1. Identify if it's 'inflow' or 'outflow' (receipts are usually outflow)
 2. Select the most appropriate category from the list above based on merchant/items
 3. Extract the total amount
-4. Extract the date from receipt (default to today if not visible: {local_today(default_zone()).isoformat()})
+4. Extract the date from receipt (default to today if not visible: {today.isoformat()})
 5. Create a brief description including merchant name
 6. CURRENCY DETECTION (VERY IMPORTANT):
    - Look CAREFULLY at the receipt for currency indicators
@@ -1324,7 +1331,7 @@ Respond in JSON format:
         _log_ai_usage("Image Extraction", current_user["_id"], result)
         result = result.value
 
-        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True)
+        extraction = await _build_extraction(result, user_default_currency, keep_invalid_amount=True, today=today)
         if extraction is None:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI returned an unexpected response")
         return extraction

@@ -3,7 +3,7 @@ import weakref
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import AsyncIterator, Iterable, Optional
-from fastapi import Depends, HTTPException , status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_chatbot import financial_chatbot
@@ -14,6 +14,7 @@ from sql import goals as goals_db
 from sql import transactions as transactions_db
 from sql import users as users_db
 from sql.db import transaction
+from user_zones import TIMEZONE_HEADER, remember_timezone
 import jwt  # PyJWT (replaces python-jose; same HS256 tokens)
 from passlib.context import CryptContext
 
@@ -96,10 +97,11 @@ async def get_token_expiry(credentials: HTTPAuthorizationCredentials = Depends(s
     return datetime.fromtimestamp(exp, UTC)
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Get current authenticated (and e-mail verified) user: the users row plus `personal_book_id`, the id of the
     person's personal book (loaded in the same query; a person row without one, e.g. written by older code, gets it
-    here)."""
+    here). The phone's X-Timezone header, when valid, is saved and used as the person's `timezone`
+    (user_zones.remember_timezone; a bad or missing header is ignored)."""
     payload = _decode_user_token(credentials.credentials)
     email = payload["sub"]
     user = await users_db.get_user_with_book_by_email(email)
@@ -141,7 +143,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
     if user.get("personal_book_id") is None:
         user["personal_book_id"] = await books_db.ensure_personal_book(user["_id"])
-    return user
+    return await remember_timezone(user, request.headers.get(TIMEZONE_HEADER))
 
 
 def ensure_utc_datetime(dt) -> datetime:

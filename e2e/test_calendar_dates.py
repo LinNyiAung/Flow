@@ -14,11 +14,25 @@ Sections:
     labels back (a budget end as 23:59:59.999999 of its day, every other date as midnight UTC); up again works; the API
     returns the new shapes and an old-style "...Z" input keeps its clock fields (Task 1). Needs the stub server on
     127.0.0.1:8765.
+  header -- the X-Timezone header: a new person's zone is NULL until their first header; a valid IANA name is saved and
+    kept by later requests without the header; "Mars/Base", "", "+07:00" and a 70-character value are ignored with a
+    200; a failing save never fails the request (Task 2). Needs the stub server.
+  today -- each person's "today" comes from their own zone: the custom-insight range may end on the person's today but
+    not the day after, a "week" report covers the person's own week and the quota week resets at the person's local
+    midnight; a NULL zone behaves as Asia/Yangon; the old report timezone_offset is ignored; pinned instants check the
+    same rules where Tokyo and Yangon are on different days (Task 2). The stub has no clock override, so the HTTP checks
+    compare with "today" computed from the real clock in each zone, and Pacific/Kiritimati (UTC+14) against
+    Etc/GMT+12 (UTC-12), which are never on the same day, makes the difference visible on every run. Needs the stub.
+  family -- owner in Asia/Yangon, member in Asia/Tokyo: the member's "2026-11-18T23:40:00" entry reads back the same
+    for the owner; the family book's zone is the owner's, and the new owner's after ownership passes (Task 2). Needs
+    the stub.
 """
+import asyncio
 import os
 import sys
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 os.environ.setdefault("E2E_FAKE_AI", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -377,7 +391,325 @@ def section_migration():
         db.sql("DELETE FROM users WHERE id = %s", ids["A"])
 
 
-SECTIONS = {"schema": section_schema, "migration": section_migration}
+# ---------------------------------------------------------------------------------------------- people over HTTP
+TZ_HEADER = "X-Timezone"
+FAMILY = {"X-Book": "family"}
+
+
+def _backend_async(coro_fn):
+    """Run backend async code in-process (its DB engine binds to the loop: one asyncio.run per call, a fresh engine)."""
+    async def go():
+        from sql import db as sqldb
+        try:
+            return await coro_fn()
+        finally:
+            await sqldb.dispose_engine()
+    return asyncio.run(go())
+
+
+def _client():
+    import httpx
+    return httpx.Client(base_url=BASE, timeout=60)
+
+
+def _person(c, made, label, plan="free", zone=None):
+    """A verified account (id, email, h: the auth header), on `plan`; `zone` is sent once as X-Timezone (None: never)."""
+    tag = uuid.uuid4().hex[:8]
+    email = f"cd-{label.lower()}-{tag}@example.com"
+    c.post("/api/auth/register", json={"name": label, "email": email, "password": "secret123"})
+    db.sql("UPDATE users SET is_verified = true WHERE lower(email) = %s", email)
+    row = _one("SELECT id FROM users WHERE lower(email) = %s", email)
+    made.append(row.get("id"))
+    if plan != "free":
+        db.sql("UPDATE users SET subscription_type = %s, subscription_expires_at = now() + interval '30 days', "
+               "trial_ends_at = NULL WHERE id = %s", plan, row.get("id"))
+    r = c.post("/api/auth/login", json={"email": email, "password": "secret123"})
+    p = {"id": row.get("id"), "email": email, "h": {"Authorization": f"Bearer {r.json().get('access_token')}"}}
+    if zone is not None:
+        c.get("/api/auth/me", headers={**p["h"], TZ_HEADER: zone})
+    return p
+
+
+def _stored_zone(p):
+    return _one("SELECT timezone FROM users WHERE id = %s", p["id"]).get("timezone", "no row")
+
+
+def _cleanup(made):
+    made = [m for m in made if m]
+    if made:
+        db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+        db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+# ---------------------------------------------------------------------------------------------------------- header
+def section_header():
+    c, made = _client(), []
+    try:
+        p = _person(c, made, "Header")
+        r = c.get("/api/auth/me", headers=p["h"])
+        check(r.status_code == 200 and _stored_zone(p) is None,
+              "header: a new person's timezone is NULL until their first header", (r.status_code, _stored_zone(p)))
+        r = c.get("/api/auth/me", headers={**p["h"], TZ_HEADER: "Asia/Tokyo"})
+        check(r.status_code == 200 and _stored_zone(p) == "Asia/Tokyo",
+              "header: GET /api/auth/me with X-Timezone: Asia/Tokyo saves Asia/Tokyo", (r.status_code, _stored_zone(p)))
+        r = c.get("/api/auth/me", headers=p["h"])
+        check(r.status_code == 200 and _stored_zone(p) == "Asia/Tokyo",
+              "header: a later request without the header keeps Asia/Tokyo", (r.status_code, _stored_zone(p)))
+        for label, value in (("Mars/Base", "Mars/Base"), ('""', ""), ("+07:00", "+07:00"),
+                             ("a 70-character value", "Asia/" + "x" * 65), ("a path", "../../etc/passwd")):
+            r = c.get("/api/auth/me", headers={**p["h"], TZ_HEADER: value})
+            check(r.status_code == 200 and _stored_zone(p) == "Asia/Tokyo",
+                  f"header: X-Timezone {label} gives 200 and leaves the stored zone unchanged",
+                  (r.status_code, _stored_zone(p)))
+        r = c.get("/api/transactions", headers={**p["h"], TZ_HEADER: "Asia/Bangkok"})
+        check(r.status_code == 200 and _stored_zone(p) == "Asia/Bangkok",
+              "header: a different valid name on any authenticated route replaces it", (r.status_code, _stored_zone(p)))
+
+        async def failing_save():
+            import logging
+            import user_zones
+            from sql import users as users_db
+            orig, log = users_db.set_timezone, logging.getLogger("user_zones")
+            records = []
+
+            class Keep(logging.Handler):
+                def emit(self, record):
+                    records.append(record.getMessage())
+
+            async def boom(*a, **k):
+                raise RuntimeError("database down")
+            users_db.set_timezone, keep, log.propagate = boom, Keep(), False
+            log.addHandler(keep)
+            try:
+                user = {"_id": p["id"], "timezone": "Asia/Bangkok"}
+                got = await user_zones.remember_timezone(user, "Asia/Tokyo")
+            finally:
+                users_db.set_timezone, log.propagate = orig, True
+                log.removeHandler(keep)
+            same = await user_zones.remember_timezone({"_id": p["id"], "timezone": "Asia/Bangkok"}, "Mars/Base")
+            return got.get("timezone"), same.get("timezone"), str(user_zones.user_zone(got)), len(records)
+        try:
+            got = _backend_async(failing_save)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == ("Asia/Tokyo", "Asia/Bangkok", "Asia/Tokyo", 1),
+              "header: a failing save is logged, never raised, and the request still uses the header's zone; an "
+              "invalid name keeps the stored one", got)
+        check(_stored_zone(p) == "Asia/Bangkok", "header: the failed save stored nothing", _stored_zone(p))
+    finally:
+        _cleanup(made)
+
+
+# ----------------------------------------------------------------------------------------------------------- today
+PINNED = datetime(2026, 11, 22, 15, 30, tzinfo=UTC)  # Sunday 22nd 22:00 in Yangon, Monday 23rd 00:30 in Tokyo
+TOKYO, YANGON = ZoneInfo("Asia/Tokyo"), ZoneInfo("Asia/Yangon")
+KIRITIMATI, MINUS_12 = "Pacific/Kiritimati", "Etc/GMT+12"  # UTC+14 and UTC-12: never on the same calendar day
+
+
+def _today_in(zone):
+    return datetime.now(UTC).astimezone(ZoneInfo(zone)).date()
+
+
+def _range_ok(c, p, end, extra=None):
+    """True when the custom-insight range ending `end` passes the range check (a Free person then gets 403
+    plan_feature_locked), False when it is refused as custom_insight_invalid_range, else the response."""
+    body = {"start_date": (end - timedelta(days=13)).isoformat(), "end_date": end.isoformat()}
+    r = c.post("/api/custom-insights", headers={**p["h"], **(extra or {})}, json=body)
+    detail = r.json().get("detail") if r.headers.get("content-type", "").startswith("application/json") else None
+    code = detail.get("code") if isinstance(detail, dict) else None
+    if r.status_code == 403 and code == "plan_feature_locked":
+        return True
+    if r.status_code == 422 and code == "custom_insight_invalid_range":
+        return False
+    return f"{r.status_code} {r.text[:200]}"
+
+
+def _week_report(c, p, extra=None):
+    r = c.post("/api/reports/generate", headers=p["h"], json={"period": "week", "currency": "usd", **(extra or {})})
+    if r.status_code != 200:
+        return f"{r.status_code} {r.text[:200]}"
+    return r.json()["start_date"], r.json()["end_date"]
+
+
+def _week_of(today):
+    monday = today - timedelta(days=today.weekday())
+    return f"{monday.isoformat()}T00:00:00", f"{(monday + timedelta(days=6)).isoformat()}T23:59:59.999999"
+
+
+def _weekly_resets_at(c, p):
+    """The resets_at of the person's weekly counted features in GET /api/plan (as aware datetimes, one per feature)."""
+    r = c.get("/api/plan", headers=p["h"])
+    if r.status_code != 200:
+        return f"{r.status_code} {r.text[:200]}"
+    return {f: datetime.fromisoformat(v["resets_at"]) for f, v in r.json()["features"].items()
+            if v.get("mode") == "counted" and v.get("period") == "week"}
+
+
+def _next_monday_midnight(zone):
+    today = _today_in(zone)
+    monday = today - timedelta(days=today.weekday()) + timedelta(days=7)
+    return datetime.combine(monday, datetime.min.time(), tzinfo=ZoneInfo(zone)).astimezone(UTC)
+
+
+def section_today():
+    c, made = _client(), []
+    try:
+        people = {
+            "tokyo": _person(c, made, "Tokyo", zone="Asia/Tokyo"),
+            "yangon": _person(c, made, "Yangon", zone="Asia/Yangon"),
+            "null": _person(c, made, "Nullzone"),
+            "kiri": _person(c, made, "Kiri", zone=KIRITIMATI),
+            "minus12": _person(c, made, "Minus", zone=MINUS_12),
+        }
+        zone_of = {"tokyo": "Asia/Tokyo", "yangon": "Asia/Yangon", "null": "Asia/Yangon", "kiri": KIRITIMATI,
+                   "minus12": MINUS_12}
+        check(_stored_zone(people["null"]) is None, "today: the NULL-zone person really has no saved zone",
+              _stored_zone(people["null"]))
+
+        # ---- the custom-insight range may end on the person's today, not the day after
+        for key, p in people.items():
+            today = _today_in(zone_of[key])
+            got = (_range_ok(c, p, today), _range_ok(c, p, today + timedelta(days=1)))
+            check(got == (True, False), f"today: a range ending today in {zone_of[key]} ({today}) is accepted for the "
+                  f"{key} person and one ending the day after is refused", got)
+        kiri_today = _today_in(KIRITIMATI)
+        got = (_range_ok(c, people["kiri"], kiri_today), _range_ok(c, people["minus12"], kiri_today))
+        check(got == (True, False), f"today: a range ending {kiri_today} (today in Kiritimati) is accepted for the "
+              "Kiritimati person and refused for the UTC-12 person", got)
+        tokyo_today = _today_in("Asia/Tokyo")
+        yangon_accepts = tokyo_today <= _today_in("Asia/Yangon")
+        got = (_range_ok(c, people["tokyo"], tokyo_today), _range_ok(c, people["yangon"], tokyo_today),
+               _range_ok(c, people["null"], tokyo_today))
+        check(got == (True, yangon_accepts, yangon_accepts),
+              f"today: a range ending today in Tokyo ({tokyo_today}) is accepted for the Tokyo person and "
+              f"{'accepted' if yangon_accepts else 'refused'} for the Yangon and NULL-zone people (Yangon is on "
+              f"{_today_in('Asia/Yangon')})", got)
+        # The header's zone is used by the very request that brings it.
+        switch = _person(c, made, "Switch", zone=MINUS_12)
+        got = (_range_ok(c, switch, kiri_today), _range_ok(c, switch, kiri_today, {TZ_HEADER: KIRITIMATI}),
+               _stored_zone(switch))
+        check(got == (False, True, KIRITIMATI), "today: a request that brings a new zone already uses it", got)
+
+        # ---- a "week" report covers the person's own week
+        for key, p in people.items():
+            got = _week_report(c, p)
+            want = _week_of(_today_in(zone_of[key]))
+            check(got == want, f"today: the week report of the {key} person covers the week of today in "
+                  f"{zone_of[key]}", (got, want))
+        got = _week_report(c, people["yangon"], {"timezone_offset": -840})
+        check(got == _week_of(_today_in("Asia/Yangon")),
+              "today: an old app's report timezone_offset is ignored (the person's zone decides)", got)
+
+        # ---- the quota week resets at the person's local midnight
+        for key, p in people.items():
+            got = _weekly_resets_at(c, p)
+            want = _next_monday_midnight(zone_of[key])
+            check(isinstance(got, dict) and got and all(v == want for v in got.values()),
+                  f"today: the {key} person's weekly quota resets at Monday 00:00 in {zone_of[key]} ({want})", got)
+
+        # ---- the same rules at a pinned instant where Tokyo and Yangon are on different days
+        async def pinned():
+            import custom_insights_service as cis
+            from plans import periods
+            from report_models import ReportPeriod
+            from report_routes import calculate_report_dates
+            from tz_utils import local_midnight_utc
+            out = {
+                "week_start": (periods.period_start("week", PINNED, TOKYO), periods.period_start("week", PINNED, YANGON)),
+                "week_reset": (periods.resets_at("week", PINNED, TOKYO), periods.resets_at("week", PINNED, YANGON)),
+                "report": (calculate_report_dates(ReportPeriod.WEEK, tz=TOKYO, now=PINNED)[0],
+                           calculate_report_dates(ReportPeriod.WEEK, tz=YANGON, now=PINNED)[0]),
+                "attempts": (cis.attempts_window_start(PINNED, TOKYO), cis.attempts_window_start(PINNED, YANGON)),
+                "midnight": (local_midnight_utc(date(2026, 11, 30), TOKYO), local_midnight_utc(date(2026, 11, 23), YANGON)),
+            }
+            return out
+        try:
+            got = _backend_async(pinned)
+        except Exception as e:  # noqa: BLE001
+            got = {"error": repr(e)[:300]}
+        check(got.get("week_start") == (date(2026, 11, 23), date(2026, 11, 16)),
+              "today (pinned 2026-11-22 15:30 UTC): the quota week is the 23rd's in Tokyo and the 16th's in Yangon",
+              got.get("week_start", got))
+        check(got.get("week_reset") == got.get("midnight") and got.get("midnight") == (
+            datetime(2026, 11, 29, 15, 0, tzinfo=UTC), datetime(2026, 11, 22, 17, 30, tzinfo=UTC)),
+              "today (pinned): the quota week resets at Tokyo midnight (local_midnight_utc) for Tokyo, Yangon "
+              "midnight for Yangon", got.get("week_reset", got))
+        check(got.get("report") == (datetime(2026, 11, 23), datetime(2026, 11, 16)),
+              "today (pinned): a week report starts Monday the 23rd in Tokyo and Monday the 16th in Yangon",
+              got.get("report", got))
+        check(got.get("attempts") == (datetime(2026, 11, 22, 15, 0, tzinfo=UTC), datetime(2026, 11, 21, 17, 30, tzinfo=UTC)),
+              "today (pinned): the custom-insight attempt window starts at the person's own midnight",
+              got.get("attempts", got))
+    finally:
+        _cleanup(made)
+
+
+# ---------------------------------------------------------------------------------------------------------- family
+def section_family():
+    c, made = _client(), []
+    try:
+        owner = _person(c, made, "Owner", plan="plus", zone="Asia/Yangon")
+        member = _person(c, made, "Member", zone="Asia/Tokyo")
+        r = c.post("/api/family", headers=owner["h"], json={"name": f"Zones {uuid.uuid4().hex[:6]}"})
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        check(fid is not None, "family: the owner creates a family", f"{r.status_code} {r.text[:200]}")
+        if not fid:
+            return
+        book_id = _one("SELECT id FROM books WHERE family_id = %s", fid).get("id")
+        r = c.post("/api/family/invites", headers=owner["h"], json={"email": member["email"]})
+        invites = c.get("/api/family/invites/mine", headers=member["h"]).json().get("invites", [])
+        inv = next((i for i in invites if i.get("family_id", fid) == fid), None)
+        r = c.post(f"/api/family/invites/{inv['id']}/accept", headers=member["h"]) if inv else r
+        check(inv is not None and r.status_code == 200, "family: the member joins", f"{r.status_code} {r.text[:200]}")
+
+        r = c.post("/api/transactions", headers={**member["h"], **FAMILY}, json={
+            "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 4,
+            "currency": "usd", "date": "2026-11-18T23:40:00"})
+        tx = r.json().get("id") if r.status_code == 200 else None
+        check(tx is not None and r.json().get("date") == "2026-11-18T23:40:00",
+              'family: the Tokyo member posts "2026-11-18T23:40:00" and gets it back', f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/transactions", headers={**owner["h"], **FAMILY})
+        got = {t["id"]: t["date"] for t in r.json()}.get(tx) if r.status_code == 200 else r.text[:200]
+        check(got == "2026-11-18T23:40:00", 'family: the Yangon owner reads it as "2026-11-18T23:40:00"', got)
+        got = _one("SELECT date FROM transactions WHERE id = %s", tx).get("date")
+        check(got == datetime(2026, 11, 18, 23, 40), "family: it is stored as 2026-11-18 23:40:00", got)
+
+        async def zone():
+            import user_zones
+            return str(await user_zones.book_zone(book_id))
+        try:
+            got = _backend_async(zone)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == "Asia/Yangon", "family: the family book's zone is the owner's (Asia/Yangon)", got)
+        members = c.get("/api/family", headers=member["h"]).json().get("members", [])
+        mid = next((m["id"] for m in members if m.get("is_me")), None)
+        r = c.post("/api/family/transfer-ownership", headers=owner["h"], json={"member_id": mid})
+        check(r.status_code == 200, "family: ownership passes to the Tokyo member", f"{r.status_code} {r.text[:200]}")
+        try:
+            got = _backend_async(zone)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == "Asia/Tokyo", "family: the family book's zone is now the new owner's (Asia/Tokyo)", got)
+
+        async def edges():
+            import user_zones
+            personal = _one("SELECT id FROM books WHERE person_id = %s", member["id"]).get("id")
+            return (str(await user_zones.book_zone(personal)), str(await user_zones.book_zone("no-such-book")),
+                    str(user_zones.user_zone({"timezone": None})), str(user_zones.user_zone({"timezone": "Mars/Base"})))
+        try:
+            got = _backend_async(edges)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == ("Asia/Tokyo", "Asia/Yangon", "Asia/Yangon", "Asia/Yangon"),
+              "family: a personal book's zone is its person's; a missing book, a NULL zone and an unknown name give "
+              "the default zone", got)
+    finally:
+        _cleanup(made)
+
+
+SECTIONS = {"schema": section_schema, "migration": section_migration, "header": section_header,
+            "today": section_today, "family": section_family}
 
 
 def main():

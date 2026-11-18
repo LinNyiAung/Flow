@@ -23,12 +23,13 @@ still gives the use back to the period it was taken from.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any, AsyncIterator, Dict, Mapping, Optional, Sequence, Tuple
 
 from sql import ai_usage as ai_usage_db
 from sql import plans as plans_db
 from tz_utils import as_utc
+from user_zones import user_zone
 
 from . import periods, store
 from .access import COST_CAP, LIMIT_REACHED, LOCKED, PlanError, effective_plan, is_trial, user_language
@@ -78,8 +79,8 @@ def _cost_upgrade_available(plan: str) -> bool:
 # ---- the hidden cost cap ----
 
 def _spend_window_start(user: Mapping[str, Any], now: datetime) -> datetime:
-    """Spend counts from the later of this month's start (app timezone) and the admin's last usage reset."""
-    start = periods.month_start_utc(now)
+    """Spend counts from the later of this month's start (the user's zone) and the admin's last usage reset."""
+    start = periods.month_start_utc(now, user_zone(user))
     reset = user.get("usage_reset_at")
     if reset is not None and as_utc(reset) > start:
         start = as_utc(reset)
@@ -129,9 +130,10 @@ async def require_under_cost_cap(user: Mapping[str, Any], feature: str, *, lang:
     now = _now(now)
     plan = effective_plan(user, now)
     if await _at_cost_cap(user, plan, now, book_id):
-        raise PlanError(COST_CAP, feature, resets_at=periods.resets_at("month", now),
+        tz = user_zone(user)
+        raise PlanError(COST_CAP, feature, resets_at=periods.resets_at("month", now, tz),
                         upgrade_available=upgrade_hint and _cost_upgrade_available(plan),
-                        lang=lang or user_language(user))
+                        lang=lang or user_language(user), tz=tz)
 
 
 # ---- reservations ----
@@ -190,6 +192,7 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
     limits = store.limits(plan)
     lang = user_language(user)
     uid = _user_id(user)
+    tz = user_zone(user)
 
     for f in wanted:
         if limits[f].mode == "locked":
@@ -199,8 +202,8 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
     # the same time can each add their cost, so spend may overshoot the cap slightly under concurrency. That is
     # acceptable; the counted allowances below are the exact limits.
     if await _at_cost_cap(user, plan, now):
-        raise PlanError(COST_CAP, feature, resets_at=periods.resets_at("month", now),
-                        upgrade_available=_cost_upgrade_available(plan), lang=lang)
+        raise PlanError(COST_CAP, feature, resets_at=periods.resets_at("month", now, tz),
+                        upgrade_available=_cost_upgrade_available(plan), lang=lang, tz=tz)
 
     rows = []
     for f in wanted:
@@ -209,13 +212,13 @@ async def reserve(user: Mapping[str, Any], feature: str, *, also: Sequence[str] 
             continue  # included: nothing to count
         for period in PERIODS:
             cap = lim.quota if period == lim.period else None
-            rows.append((f, period, periods.period_start(period, now), cap))
+            rows.append((f, period, periods.period_start(period, now, tz), cap))
     if rows:
         full = await plans_db.increment_counters(uid, rows)
         if full is not None:
             f, period, _ = full
-            raise PlanError(LIMIT_REACHED, f, resets_at=periods.resets_at(period, now),
-                            upgrade_available=_upgrade_available(plan, f), lang=lang)
+            raise PlanError(LIMIT_REACHED, f, resets_at=periods.resets_at(period, now, tz),
+                            upgrade_available=_upgrade_available(plan, f), lang=lang, tz=tz)
     return Reservation(uid, [r[:3] for r in rows])
 
 
@@ -278,14 +281,16 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
     now = _now(now)
     plan = effective_plan(user, now)
     limits = store.limits(plan)
-    counts = await plans_db.read_counters(_user_id(user), {p: periods.period_start(p, now) for p in PERIODS})
+    tz = user_zone(user)
+    counts = await plans_db.read_counters(_user_id(user), {p: periods.period_start(p, now, tz) for p in PERIODS})
     features = {}
     for f in FEATURES:
         lim = limits[f]
         if lim.mode == "counted":
             used = counts.get((f, lim.period), 0)
             features[f] = {"mode": "counted", "limit": lim.quota, "period": lim.period, "used": used,
-                           "remaining": max(0, lim.quota - used), "resets_at": periods.resets_at(lim.period, now).isoformat()}
+                           "remaining": max(0, lim.quota - used),
+                           "resets_at": periods.resets_at(lim.period, now, tz).isoformat()}
         else:
             features[f] = {"mode": lim.mode, "limit": None, "period": None, "used": None, "remaining": None,
                            "resets_at": None}
@@ -312,11 +317,13 @@ async def status(user: Mapping[str, Any], now: Optional[datetime] = None) -> Dic
     }
 
 
-async def reset_usage(user_id: str, admin_id: str, now: Optional[datetime] = None) -> None:
-    """Admin "reset usage": delete this week's and this month's counters and restart the cost-cap window from now.
+async def reset_usage(user_id: str, admin_id: str, now: Optional[datetime] = None,
+                      tz: Optional[tzinfo] = None) -> None:
+    """Admin "reset usage": delete this week's and this month's counters (in the user's zone `tz`, default the default
+    zone) and restart the cost-cap window from now.
 
     ai_usage rows are never deleted (cost reports depend on them). The route writes the admin action log.
     """
     now = _now(now)
-    await plans_db.reset_counters(user_id, {p: periods.period_start(p, now) for p in PERIODS}, now)
+    await plans_db.reset_counters(user_id, {p: periods.period_start(p, now, tz) for p in PERIODS}, now)
     logger.info("Usage reset for user %s by admin %s", user_id, admin_id)

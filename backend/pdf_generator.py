@@ -6,14 +6,13 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.platypus import Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
-from datetime import datetime, UTC, timezone, timedelta
+from datetime import datetime, UTC, tzinfo
 from io import BytesIO
+from typing import Optional
 from xml.sax.saxutils import escape as _xml_escape
 from models import Currency
 from report_models import FinancialReport
-
-# Valid UTC offsets range from -14:00 to +14:00.
-_MAX_TZ_OFFSET_MINUTES = 14 * 60
+from tz_utils import default_zone
 
 
 def _p(text) -> str:
@@ -21,25 +20,22 @@ def _p(text) -> str:
     return _xml_escape("" if text is None else str(text))
 
 
-def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_timezone_offset: int = 0, currency: Currency = None) -> BytesIO:
+def generate_financial_report_pdf(report: FinancialReport, user_name: str, tz: Optional[tzinfo] = None,
+                                  currency: Currency = None) -> BytesIO:
     """
     Generate a PDF financial report with currency support
 
     Args:
         report: The financial report data
         user_name: Name of the user
-        user_timezone_offset: Timezone offset in minutes from UTC (east positive)
+        tz: the person's zone (user_zones.user_zone) the generated-at times are shown in; default the default zone
         currency: Currency for formatting (from models.Currency enum)
 
     Note: user-supplied strings are escaped before going into Paragraph markup. Table
     cells receive plain strings (not parsed as markup). The built-in Helvetica font has
     no Myanmar (Burmese) glyphs, so such text renders as boxes.
     """
-    try:
-        user_timezone_offset = int(user_timezone_offset or 0)
-    except (TypeError, ValueError):
-        user_timezone_offset = 0
-    user_timezone_offset = max(-_MAX_TZ_OFFSET_MINUTES, min(_MAX_TZ_OFFSET_MINUTES, user_timezone_offset))
+    user_tz = tz if tz is not None else default_zone()
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
@@ -52,12 +48,11 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, user_
     currency_name = "USD" if currency == Currency.USD else ("MMK" if currency == Currency.MMK else "THB")
     
     # Convert UTC times to user's local time
-    user_tz = timezone(timedelta(minutes=user_timezone_offset))
     local_generated_at = report.generated_at.astimezone(user_tz)
     current_local_time = datetime.now(UTC).astimezone(user_tz)
-    
-    # Format timezone offset for display (e.g., UTC+8, UTC-5)
-    offset_hours = user_timezone_offset / 60
+
+    # Format the zone's offset at that time for display (e.g., UTC+8, UTC-5, UTC+6.5)
+    offset_hours = local_generated_at.utcoffset().total_seconds() / 3600
     if offset_hours >= 0:
         tz_display = f"UTC+{int(offset_hours)}" if offset_hours == int(offset_hours) else f"UTC+{offset_hours:.1f}"
     else:

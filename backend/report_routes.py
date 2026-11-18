@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, tzinfo, UTC
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
@@ -13,7 +13,8 @@ from report_models import (
     MultiCurrencyFinancialReport, ReportPeriod, ReportRequest
 )
 from models import Currency
-from tz_utils import as_calendar_date, day_bounds
+from tz_utils import as_calendar_date, day_bounds, default_zone, local_today
+from user_zones import user_zone
 
 from sql import transactions as transactions_db
 from sql import goals as goals_db
@@ -25,32 +26,26 @@ def calculate_report_dates(
     period: ReportPeriod,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    timezone_offset: int = 0,
+    tz: Optional[tzinfo] = None,
+    now: Optional[datetime] = None,
 ):
     """
-    Calculate start and end dates based on period, as naive wall-clock bounds (transaction dates are local date-times
-    with no timezone, so they compare directly).
+    Calculate start and end dates based on period, as naive wall-clock bounds of whole days (transaction dates are
+    local date-times with no timezone, so they compare directly).
 
-    timezone_offset: minutes EAST of UTC (Flutter's DateTime.timeZoneOffset.inMinutes).
-    Week/month/year boundaries are computed in the user's local time: "now" is the UTC clock shifted by the offset.
-    Custom dates are calendar dates, first and last day included.
+    Week/month/year are the ones containing today in `tz`, the person's zone (user_zones.user_zone; default the
+    default zone), at the instant `now` (default: now). Custom dates are calendar dates, first and last day included.
     """
-    offset = max(-840, min(840, int(timezone_offset or 0)))
-    now = (datetime.now(UTC) + timedelta(minutes=offset)).replace(tzinfo=None)  # the user's wall clock
+    today = local_today(tz if tz is not None else default_zone(), now)
 
     if period == ReportPeriod.WEEK:
-        start = now - timedelta(days=now.weekday())
-        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        monday = today - timedelta(days=today.weekday())
+        start, end = day_bounds(monday, monday + timedelta(days=6))
     elif period == ReportPeriod.MONTH:
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if now.month == 12:
-            end = now.replace(month=12, day=31, hour=23, minute=59, second=59)
-        else:
-            end = (now.replace(month=now.month + 1, day=1) - timedelta(days=1)).replace(hour=23, minute=59, second=59)
+        next_month = date(today.year + (today.month == 12), today.month % 12 + 1, 1)
+        start, end = day_bounds(today.replace(day=1), next_month - timedelta(days=1))
     elif period == ReportPeriod.YEAR:
-        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = now.replace(month=12, day=31, hour=23, minute=59, second=59)
+        start, end = day_bounds(date(today.year, 1, 1), date(today.year, 12, 31))
     else:  # CUSTOM
         if not start_date or not end_date:
             raise HTTPException(
@@ -158,7 +153,7 @@ async def generate_report(
             report_request.period,
             report_request.start_date,
             report_request.end_date,
-            report_request.timezone_offset or 0,
+            user_zone(book.person),
         )
 
         # Determine currency - use requested or user's default
@@ -336,7 +331,7 @@ async def generate_multi_currency_report(
             report_request.period,
             report_request.start_date,
             report_request.end_date,
-            report_request.timezone_offset or 0,
+            user_zone(book.person),
         )
 
         all_transactions = await transactions_db.find_transactions(
@@ -428,7 +423,7 @@ async def _download_report_pdf(report_request: ReportRequest, book: Book):
             report_request.period,
             report_request.start_date,
             report_request.end_date,
-            report_request.timezone_offset or 0,
+            user_zone(book.person),
         )
 
         transactions = await transactions_db.find_transactions(
@@ -480,15 +475,14 @@ async def _download_report_pdf(report_request: ReportRequest, book: Book):
             generated_at=datetime.now(UTC)
         )
 
-        # Generate PDF with user's timezone offset
-        user_timezone_offset = report_request.timezone_offset or 0  # bounded to +/-840 by ReportRequest
+        # Generate PDF with its times in the person's zone
         # "Generated For": the family's name for the family book, else the person's.
         generated_for = (book.family or {}).get("name", "") if book.is_family else book.person.get("name", "")
         pdf_buffer = await asyncio.to_thread(
             generate_financial_report_pdf,
             report,
             generated_for,
-            user_timezone_offset, 
+            user_zone(book.person),
             currency
         )
 

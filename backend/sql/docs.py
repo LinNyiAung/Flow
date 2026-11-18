@@ -6,12 +6,23 @@ shape so business logic stays unchanged while storage moves to normalized tables
 Money comes back as float (what the code and API expect) and is written as exact
 NUMERIC. Transaction dates are written as naive wall-clock datetimes and calendar dates as dates (tz_utils).
 """
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional
 
 from tz_utils import as_calendar_date, as_wall_clock
 
 _CENT = Decimal("0.01")
+
+
+def wall_bound(value: Optional[datetime]) -> Optional[datetime]:
+    """A bound on transaction dates (local date-times, no timezone) as a naive datetime: an aware value keeps its clock
+    fields. A plain date is refused: as a bound it would mean its 00:00 (use tz_utils.day_bounds for whole days)."""
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise TypeError(f"transaction dates are bounded by date-times, not {value!r}")
+    return value.replace(tzinfo=None)
 
 
 def money(value: Any) -> Optional[Decimal]:

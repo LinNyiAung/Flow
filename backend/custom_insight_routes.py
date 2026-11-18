@@ -31,8 +31,9 @@ from sql import budgets as budgets_db
 from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import transactions as transactions_db
-from tz_utils import CalendarDate, as_utc, day_bounds, default_zone, local_today, utc_now
+from tz_utils import CalendarDate, as_utc, day_bounds, local_today, utc_now
 from families.book import Book, get_book, require_admin, require_writable
+from user_zones import user_zone
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +137,9 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     if instruction and _BAD_INSTRUCTION_CHARS.search(instruction):
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction",
                      message_key="custom_insight_instruction_chars_msg")
+    tz = user_zone(current_user)  # the asker's today and day
     try:
-        cis.validate_range(data.start_date, data.end_date, local_today(default_zone()))
+        cis.validate_range(data.start_date, data.end_date, local_today(tz))
     except cis.RangeError:
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_range")
 
@@ -166,9 +168,9 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     if await ci.has_pending(book_id):
         raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_pending")
     now = utc_now()
-    if await ci.count_attempts_since(book_id, cis.attempts_window_start(now)) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
+    if await ci.count_attempts_since(book_id, cis.attempts_window_start(now, tz)) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
         raise _error(current_user, status.HTTP_429_TOO_MANY_REQUESTS, "custom_insight_attempts",
-                     resets_at=cis.attempts_reset_at(now))
+                     resets_at=cis.attempts_reset_at(now, tz))
 
     reservation = await quota.reserve(current_user, cis.FEATURE)  # PlanError: limit reached, cost cap
     report_id = str(uuid.uuid4())

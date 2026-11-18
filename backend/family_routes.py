@@ -15,6 +15,7 @@ from plans.contact import normalize_email
 from report_models import ReportPeriod
 from report_routes import calculate_report_dates
 from tz_utils import CalendarDate, WallClock
+from user_zones import user_zone
 from utils import get_current_user
 
 router = APIRouter(prefix="/api/family", tags=["family"])
@@ -127,7 +128,7 @@ async def breakdown(start_date: CalendarDate = Query(...), end_date: CalendarDat
     """Spending per person it was for, start_date..end_date as whole calendar days (as custom reports take them),
     in `currency` (default: the caller's default currency). Any active member; X-Book is optional here."""
     family = book.family if book.is_family else await service.family_of(book.person)
-    date_from, date_to = calculate_report_dates(ReportPeriod.CUSTOM, start_date, end_date)
+    date_from, date_to = calculate_report_dates(ReportPeriod.CUSTOM, start_date, end_date, user_zone(book.person))
     code = currency.value if currency else book.person.get("default_currency") or "usd"
     if code not in {c.value for c in Currency}:
         code = Currency.USD.value

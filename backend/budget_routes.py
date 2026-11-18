@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime, tzinfo, UTC
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Path
@@ -32,6 +32,7 @@ from plans.access import user_language
 
 from sql import budgets as budgets_db
 from sql import books as books_db
+from user_zones import book_zone
 
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
@@ -81,10 +82,10 @@ def _budget_response(b: dict) -> BudgetResponse:
     )
 
 
-def _summarize(budgets: List[dict]) -> dict:
-    """Counts + totals for a list of budgets, using date/spend-derived status."""
+def _summarize(budgets: List[dict], tz: tzinfo) -> dict:
+    """Counts + totals for a list of budgets, using date/spend-derived status ("today" in the book's zone `tz`)."""
     now = datetime.now(UTC)
-    states = [derive_budget_state(b, now)["status"] for b in budgets]
+    states = [derive_budget_state(b, tz, now)["status"] for b in budgets]
     # Exceeded budgets are still "current": they count in the totals.
     current = [b for b, s in zip(budgets, states) if s in _CURRENT_STATUSES]
     total_allocated = sum(finite_or(b.get("total_budget", 0) or 0) for b in current)
@@ -194,11 +195,12 @@ async def create_budget(
             start_date = budget_data.start_date
             end_date = budget_data.end_date  # the inclusive last day
 
-        # Determine if currently active
+        # Determine if currently active (a budget's status is once per book: the book's today)
+        tz = await book_zone(book.id)
         window = {"start_date": start_date, "end_date": end_date}
-        is_active = is_budget_active(window, now)
+        is_active = is_budget_active(window, now, tz)
         initial_status = calculate_budget_status(
-            {**window, "category_budgets": []}, now, total_budget=budget_data.total_budget, total_spent=0.0
+            {**window, "category_budgets": []}, now, tz, total_budget=budget_data.total_budget, total_spent=0.0
         )
 
         new_budget = {
@@ -237,7 +239,7 @@ async def create_budget(
 
         await budgets_db.insert_budget(new_budget)
 
-        await update_budget_spent_amounts(book.id, budget_id)
+        await update_budget_spent_amounts(book.id, budget_id, tz=tz)
 
         if is_active:
             await notify_budget_started(
@@ -285,7 +287,8 @@ async def get_budgets(
 
         # Status / is_active are derived from the dates (+ spend) and persisted if stale,
         # so expired budgets don't stay "active" forever.
-        budgets = [await refresh_budget_state_if_stale(b) for b in budgets]
+        tz = await book_zone(book.id)
+        budgets = [await refresh_budget_state_if_stale(b, tz) for b in budgets]
 
         if active_only:
             budgets = [b for b in budgets if b.get("is_active")]
@@ -313,7 +316,7 @@ async def get_budgets_summary(
 
         budgets = await budgets_db.list_budgets(book.id, currency=currency.value)
 
-        return BudgetSummary(**_summarize(budgets), currency=currency)
+        return BudgetSummary(**_summarize(budgets, await book_zone(book.id)), currency=currency)
 
     except Exception as e:
         print(f"Error calculating budget summary: {str(e)}")
@@ -330,8 +333,9 @@ async def get_multi_currency_budgets_summary(
     """Get summary of all budgets with per-currency breakdown"""
     try:
         all_budgets = await budgets_db.list_budgets(book.id)
+        tz = await book_zone(book.id)
 
-        overall = _summarize(all_budgets)
+        overall = _summarize(all_budgets, tz)
 
         # Group budgets by currency
         currency_groups = {}
@@ -339,7 +343,7 @@ async def get_multi_currency_budgets_summary(
             currency_groups.setdefault(budget.get("currency", "usd"), []).append(budget)
 
         currency_summaries = [
-            CurrencyBudgetSummary(currency=Currency(currency), **_summarize(budgets))
+            CurrencyBudgetSummary(currency=Currency(currency), **_summarize(budgets, tz))
             for currency, budgets in currency_groups.items()
         ]
 

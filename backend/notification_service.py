@@ -17,6 +17,7 @@ from tz_utils import (
     as_calendar_date, as_wall_clock, days_until, default_zone, goal_reminder_threshold, is_budget_ending_soon,
     local_now, local_today, GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
 )
+from user_zones import person_zone
 
 # The daily job only announces budgets whose start date is at most this many days ago
 # (covers a missed run without spamming long-running legacy budgets on rollout).
@@ -679,7 +680,7 @@ async def check_budget_period_notifications():
     for budget in budgets_ending:
         try:
             budget = await refresh_budget_state_if_stale(budget)
-            if not is_budget_running(budget, now):
+            if not is_budget_running(budget, default_zone(), now):
                 continue
             end_date = budget.get("end_date")
             if not end_date:
@@ -857,8 +858,8 @@ async def analyze_unusual_spending(book_id: str):
 
     now = datetime.now(UTC)
     # Transaction dates are local wall-clock values (no timezone), so the "this week" window is measured on the
-    # default zone's wall clock (created_at stays real UTC).
-    wall_now = local_now(default_zone(), now)
+    # person's wall clock (created_at stays real UTC).
+    wall_now = local_now(await person_zone(person_id), now)
     currencies = await transactions_db.currencies(book_id)
     # [FIX] Added await
     lang = await get_user_language(person_id)

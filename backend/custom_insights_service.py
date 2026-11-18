@@ -20,7 +20,7 @@ database transaction as the status change, so a shutdown can lose only the notic
 import asyncio
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from typing import Optional
 
 from insights_service import (
@@ -36,6 +36,7 @@ from sql import goals as goals_db
 from sql import plans as plans_db
 from sql.db import transaction
 from tz_utils import as_calendar_date, day_bounds, default_zone, local_midnight_utc, local_today, utc_now
+from user_zones import book_zone, person_zone
 
 logger = logging.getLogger(__name__)
 
@@ -384,8 +385,11 @@ async def run_report(report_id: str) -> dict | None:
         user = await insight_profile(book_id) or {}
         goals = await goals_db.list_goals(book_id)
         budgets = await budgets_db.budgets_overlapping(book_id, start, end)
-        context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row))
         asker = await _asker(row)
+        # "As of today" is the asker's today; a report with no recorded asker: the book's.
+        tz = await person_zone(asker) if asker else await book_zone(book_id)
+        context = build_custom_context(user, row.get("figures") or {}, goals, budgets, start, end, instruction_text(row),
+                                       today=local_today(tz))
         result = await asyncio.wait_for(
             run_insight_model(FEATURE, CUSTOM_SYSTEM_PROMPT, context, "Custom Insight", user_id=asker,
                               book_id=None if asker else book_id, background=True),
@@ -459,13 +463,15 @@ async def fail_stuck_reports(now: datetime | None = None) -> int:
 
 # ---------------------------------------------------------------- the daily attempt window
 
-def attempts_window_start(now: datetime) -> datetime:
-    """Midnight today in the default zone, in UTC: failed / refused attempts since then count towards the daily limit."""
-    tz = default_zone()
+def attempts_window_start(now: datetime, tz: Optional[tzinfo] = None) -> datetime:
+    """Midnight today in `tz` (the asker's zone; default the default zone), in UTC: failed / refused attempts since then
+    count towards the daily limit."""
+    tz = tz if tz is not None else default_zone()
     return local_midnight_utc(local_today(tz, now), tz)
 
 
-def attempts_reset_at(now: datetime) -> datetime:
-    """The next midnight in the default zone, in UTC: when the daily attempt limit starts again."""
-    tz = default_zone()
+def attempts_reset_at(now: datetime, tz: Optional[tzinfo] = None) -> datetime:
+    """The next midnight in `tz` (the asker's zone; default the default zone), in UTC: when the daily attempt limit
+    starts again."""
+    tz = tz if tz is not None else default_zone()
     return local_midnight_utc(local_today(tz, now) + timedelta(days=1), tz)

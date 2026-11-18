@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from dataclasses import replace
-from datetime import datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, tzinfo, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
 from plans import quota
 from plans import store as plan_store
@@ -33,21 +33,21 @@ from ai_providers.types import Completion, Prompt
 logger = logging.getLogger(__name__)
 
 
-def get_week_date_range():
+def get_week_date_range(tz: tzinfo):
     """
     Start/end of the most recent COMPLETE Monday-Sunday week.
 
-    "Today" is evaluated in the default zone (SCHEDULER_TIMEZONE, default Asia/Yangon) so the
-    Monday 05:00 job (which is still Sunday in UTC) reviews the week that just ended, not the
+    "Today" is evaluated in the book's zone `tz` (the scheduled job: the default zone, SCHEDULER_TIMEZONE, default
+    Asia/Yangon) so the Monday 05:00 job (which is still Sunday in UTC) reviews the week that just ended, not the
     week before it. Boundaries are naive wall-clock day bounds, compared directly with the
     transaction dates.
     """
-    return previous_week_range(default_zone())
+    return previous_week_range(tz)
 
 
-def get_previous_week_date_range():
+def get_previous_week_date_range(tz: tzinfo):
     """Start/end of the week BEFORE the most recent complete week (for comparison)."""
-    return week_before_previous_range(default_zone())
+    return week_before_previous_range(tz)
 
 
 # What effective_plan and quota.over_cost_cap read from a user (plus "_id", which list_fields always selects).
@@ -200,17 +200,18 @@ async def _latest_real_insight(book_id: str, insight_type: str):
     return await insights_db.latest(book_id, insight_type, real_only=True)
 
 
-async def book_has_insight_data(book_id: str, insight_type: str = "weekly") -> bool:
+async def book_has_insight_data(book_id: str, insight_type: str, tz: tzinfo) -> bool:
     """
     Same notion of "has activity" as generate_*_insight: transactions in the last complete
     period OR in the current period-to-date (a brand-new user's first week), any goals, or
     running budgets (window contains today and status active/exceeded, after refreshing
     stale stored statuses). Used to replace a stored placeholder insight once real data exists.
+    `tz`: the zone generate_*_insight would use (the book's, user_zones.book_zone).
     """
     if insight_type == "monthly":
-        ranges = (get_month_date_range(), current_month_to_date_range(default_zone()))
+        ranges = (get_month_date_range(tz), current_month_to_date_range(tz))
     else:
-        ranges = (get_week_date_range(), current_week_to_date_range(default_zone()))
+        ranges = (get_week_date_range(tz), current_week_to_date_range(tz))
 
     for start, end in ranges:
         if await transactions_db.has_transactions_between(book_id, start, end):
@@ -218,18 +219,18 @@ async def book_has_insight_data(book_id: str, insight_type: str = "weekly") -> b
     if await goals_db.user_has_goals(book_id):
         return True
     # Cheap pre-check (any budget running today) before the refreshing lookup.
-    if not await budgets_db.has_budget_containing(book_id, local_today(default_zone())):
+    if not await budgets_db.has_budget_containing(book_id, local_today(tz)):
         return False
     return len(await get_running_budgets(book_id)) > 0
 
 
-async def _todays_placeholder(book_id: str, insight_type: str):
-    """The latest stored insight for the type if it is a placeholder generated today (default zone)."""
+async def _todays_placeholder(book_id: str, insight_type: str, tz: tzinfo):
+    """The latest stored insight for the type if it is a placeholder generated today (in `tz`)."""
     latest = await latest_valid_insight(book_id, insight_type)
     if not latest or not latest.get("is_placeholder") or not latest.get("generated_at"):
         return None
-    generated_on = local_today(default_zone(), as_utc(latest["generated_at"]))
-    return latest if generated_on == local_today(default_zone()) else None
+    generated_on = local_today(tz, as_utc(latest["generated_at"]))
+    return latest if generated_on == local_today(tz) else None
 
 
 # Output token limits per answering provider, as before for OpenAI and Gemini (Gemini 2.5 "thinking"
@@ -296,19 +297,22 @@ async def _call_insight_model(feature: str, system_prompt: str, context: str, la
     return c.text, t.provider, c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens
 
 
-async def generate_weekly_insight(book_id: str, notify: bool = False, background: bool = False):
+async def generate_weekly_insight(book_id: str, notify: bool = False, background: bool = False,
+                                  tz: Optional[tzinfo] = None):
     """
     Generate the weekly insight of a book, on the "insight_weekly" provider chain. Its AI spend is the book's person's
     (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "weekly insights ready" notification. Off by default; the scheduled
     all-books job sends exactly one notification per book. background: the scheduled job
-    (the runner retries a rate-limited provider before moving on).
+    (the runner retries a rate-limited provider before moving on). tz: the zone of the book's
+    week (on demand: user_zones.book_zone); default the default zone (the scheduled job).
     """
+    tz = tz if tz is not None else default_zone()
     try:
         # Get date ranges
-        week_start, week_end = get_week_date_range()
-        prev_week_start, prev_week_end = get_previous_week_date_range()
+        week_start, week_end = get_week_date_range(tz)
+        prev_week_start, prev_week_end = get_previous_week_date_range(tz)
 
         book = await books_db.get_book_row(book_id)
         user = await _insight_profile(book_id) if book else None
@@ -317,7 +321,7 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
             return None
 
         # Get financial data processor for other data (goals/budgets)
-        processor = FinancialDataProcessor(book_id)
+        processor = FinancialDataProcessor(book_id, tz)
 
         # [FIX] Added await (Function updated to async below)
         current_week_data = await get_financial_summary(book_id, week_start, week_end)
@@ -338,7 +342,7 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
             # placeholder: (1) a user with transactions in the CURRENT (incomplete) week gets
             # a period-to-date insight; (2) a returning user with real insight history keeps
             # seeing their latest real insight (no placeholder is stored over it).
-            ptd_start, ptd_end = current_week_to_date_range(default_zone())
+            ptd_start, ptd_end = current_week_to_date_range(tz)
             ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
                 logger.info(f"ℹ️  No activity last week for book {book_id}; generating week-to-date insight")
@@ -357,7 +361,7 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for book {book_id}, returning placeholder insight")
             # Don't pile up a new placeholder on every request: reuse today's.
-            existing_placeholder = await _todays_placeholder(book_id, "weekly")
+            existing_placeholder = await _todays_placeholder(book_id, "weekly", tz)
             if existing_placeholder:
                 return existing_placeholder
             insight_id = str(uuid.uuid4())
@@ -429,6 +433,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             week_end,
             previous_insight,
             period_to_date=period_to_date,
+            today=local_today(tz),
         )
 
         system_prompt = _build_weekly_system_prompt()
@@ -653,11 +658,13 @@ def _build_weekly_context(
     week_end,
     previous_insight,
     period_to_date: bool = False,
+    *,
+    today: date,
 ):
     """Build context for weekly insights using aggregated data.
 
     period_to_date=True: current_week_data covers the current, still-running week
-    (Monday..today) and prev_week_data the last complete week.
+    (Monday..today) and prev_week_data the last complete week. today: the book's today.
     """
 
     # Extract data for easier lookup
@@ -673,7 +680,7 @@ def _build_weekly_context(
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')}
+TODAY: {today.strftime('%A, %B %d, %Y')}
 
 REPORT PERIOD: CURRENT WEEK TO DATE (WEEK STILL IN PROGRESS): {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (today)
 NOTE: The last complete week had no transactions, so this report covers the current week so far.
@@ -688,7 +695,7 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')} (Monday Morning)
+TODAY: {today.strftime('%A, %B %d, %Y')} (Monday Morning)
 
 LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
@@ -1042,32 +1049,35 @@ async def translate_insight_to_myanmar(
         ) from e
 
 
-def get_month_date_range():
+def get_month_date_range(tz: tzinfo):
     """
     Start/end of the most recent COMPLETE calendar month, with "today" evaluated in the
-    default zone (see get_week_date_range).
+    book's zone `tz` (see get_week_date_range).
     """
-    return previous_month_range(default_zone())
+    return previous_month_range(tz)
 
 
-def get_previous_month_date_range():
+def get_previous_month_date_range(tz: tzinfo):
     """Start/end of the month BEFORE the most recent complete month (for comparison)."""
-    return month_before_previous_range(default_zone())
+    return month_before_previous_range(tz)
 
 
-async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False):
+async def generate_monthly_insight(book_id: str, notify: bool = False, background: bool = False,
+                                   tz: Optional[tzinfo] = None):
     """
     Generate the monthly insight of a book, on the "insight_monthly" provider chain. Its AI spend is the book's
     person's (a personal book) or the family book's own (books_db.spend_owner).
 
     notify: send the "monthly insights ready" notification. Off by default; the scheduled
     all-books job sends exactly one notification per book. background: the scheduled job
-    (the runner retries a rate-limited provider before moving on).
+    (the runner retries a rate-limited provider before moving on). tz: the zone of the book's
+    month (on demand: user_zones.book_zone); default the default zone (the scheduled job).
     """
+    tz = tz if tz is not None else default_zone()
     try:
         # Get date ranges
-        month_start, month_end = get_month_date_range()
-        prev_month_start, prev_month_end = get_previous_month_date_range()
+        month_start, month_end = get_month_date_range(tz)
+        prev_month_start, prev_month_end = get_previous_month_date_range(tz)
 
         book = await books_db.get_book_row(book_id)
         user = await _insight_profile(book_id) if book else None
@@ -1076,7 +1086,7 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
             return None
 
         # Get financial data processor
-        processor = FinancialDataProcessor(book_id)
+        processor = FinancialDataProcessor(book_id, tz)
 
         # [FIX] Added await (Function is now async)
         current_month_data = await get_financial_summary(book_id, month_start, month_end)
@@ -1094,7 +1104,7 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
         if not has_activity:
             # Nothing in the last complete month: month-to-date insight if the current month
             # has transactions, else keep the latest real insight (no placeholder over history).
-            ptd_start, ptd_end = current_month_to_date_range(default_zone())
+            ptd_start, ptd_end = current_month_to_date_range(tz)
             ptd_data = await get_financial_summary(book_id, ptd_start, ptd_end)
             if _tx_count(ptd_data) > 0:
                 logger.info(f"ℹ️  No activity last month for book {book_id}; generating month-to-date insight")
@@ -1112,7 +1122,7 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
         if not has_activity:
             logger.info(f"ℹ️  No financial activity found for book {book_id}, returning placeholder insight")
             # Don't pile up a new placeholder on every request: reuse today's.
-            existing_placeholder = await _todays_placeholder(book_id, "monthly")
+            existing_placeholder = await _todays_placeholder(book_id, "monthly", tz)
             if existing_placeholder:
                 return existing_placeholder
 
@@ -1186,6 +1196,7 @@ Start by adding your first transaction or creating a financial goal. The more da
             month_end,
             previous_insight,
             period_to_date=period_to_date,
+            today=local_today(tz),
         )
 
         system_prompt = _build_monthly_system_prompt()
@@ -1345,11 +1356,13 @@ def _build_monthly_context(
     month_end,
     previous_insight,
     period_to_date: bool = False,
+    *,
+    today: date,
 ):
     """Build context for monthly insights using aggregated data.
 
     period_to_date=True: current_month_data covers the current, still-running month
-    (1st..today) and prev_month_data the last complete month.
+    (1st..today) and prev_month_data the last complete month. today: the book's today.
     """
 
     # Extract data from aggregation structure
@@ -1365,7 +1378,7 @@ def _build_monthly_context(
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')}
+TODAY: {today.strftime('%A, %B %d, %Y')}
 
 REPORT PERIOD: CURRENT MONTH TO DATE (MONTH STILL IN PROGRESS): {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')} (today)
 NOTE: The last complete month had no transactions, so this report covers the current month so far.
@@ -1380,7 +1393,7 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {local_today(default_zone()).strftime('%A, %B %d, %Y')} (1st of the Month)
+TODAY: {today.strftime('%A, %B %d, %Y')} (1st of the Month)
 
 LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
 

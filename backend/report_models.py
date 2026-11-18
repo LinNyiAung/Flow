@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
@@ -13,17 +13,12 @@ class ReportPeriod(str, Enum):
     CUSTOM = "custom"
 
 class ReportRequest(BaseModel):
+    """Week / month / year are the person's own (their zone, user_zones.user_zone); an old app's timezone_offset is
+    ignored like any other unknown field."""
     period: ReportPeriod
     start_date: Optional[CalendarDate] = None  # custom period: the first and last day (inclusive)
     end_date: Optional[CalendarDate] = None
-    # Minutes EAST of UTC (Dart's DateTime.timeZoneOffset.inMinutes), e.g. +390 for Myanmar.
-    timezone_offset: Optional[int] = Field(default=0, ge=-840, le=840)
     currency: Optional[Currency] = None  # NEW - optional currency filter
-
-    @field_validator("timezone_offset", mode="after")
-    @classmethod
-    def _none_to_zero(cls, v):
-        return 0 if v is None else v
 
 class CategoryBreakdown(BaseModel):
     category: str

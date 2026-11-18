@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 import statistics
@@ -8,6 +8,7 @@ import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
 from tz_utils import as_calendar_date, day_bounds, default_zone, local_now, local_today
+from user_zones import book_zone
 from plans import quota
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
@@ -187,7 +188,7 @@ class BudgetAnalyzer:
     # [FIX] Changed to async def
     async def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:
         """Analyze user's spending patterns over the last N months for specific currency"""
-        cutoff_date = local_now(default_zone()) - timedelta(days=months * 30)
+        cutoff_date = local_now(await book_zone(self.book_id)) - timedelta(days=months * 30)
 
         transactions = await transactions_db.find_transactions(
             self.book_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
@@ -600,20 +601,21 @@ def _window(start_date, end_date) -> Dict[str, datetime]:
 def calculate_budget_status(
     budget: Dict,
     current_date: datetime,
+    tz: tzinfo,
     total_budget: Optional[float] = None,
     total_spent: Optional[float] = None,
 ) -> BudgetStatus:
     """
     Calculate the current status of a budget.
 
-    current_date is a real instant (e.g. datetime.now(UTC)); its date in the default zone ("today") is compared with
-    the budget's start date and inclusive end date.
+    current_date is a real instant (e.g. datetime.now(UTC)); its date in the book's zone `tz` ("today",
+    user_zones.book_zone) is compared with the budget's start date and inclusive end date.
 
     total_budget / total_spent override the (possibly stale) values stored in `budget`;
     callers that just recomputed spending must pass the fresh totals. Category
     `is_exceeded` flags are read from budget["category_budgets"], so update them first.
     """
-    today = local_today(default_zone(), current_date)
+    today = local_today(tz, current_date)
 
     # Check if budget hasn't started yet
     if today < as_calendar_date(budget["start_date"]):
@@ -639,32 +641,36 @@ def calculate_budget_status(
     return BudgetStatus.ACTIVE
 
 
-def is_budget_active(budget: Dict, current_date: datetime) -> bool:
+def is_budget_active(budget: Dict, current_date: datetime, tz: tzinfo) -> bool:
     """Check if a budget is running today: start_date <= today <= end_date.
 
-    current_date is a real instant; "today" is its date in the default zone (see calculate_budget_status).
+    current_date is a real instant; "today" is its date in the book's zone `tz` (see calculate_budget_status).
     """
-    today = local_today(default_zone(), current_date)
+    today = local_today(tz, current_date)
     return as_calendar_date(budget["start_date"]) <= today <= as_calendar_date(budget["end_date"])
 
 
-def derive_budget_state(budget: Dict, current_date: Optional[datetime] = None) -> Dict:
-    """Date + spend derived {"status": str, "is_active": bool} for a stored budget document."""
+def derive_budget_state(budget: Dict, tz: tzinfo, current_date: Optional[datetime] = None) -> Dict:
+    """Date + spend derived {"status": str, "is_active": bool} for a stored budget document, "today" in the book's
+    zone `tz`."""
     now = current_date or datetime.now(timezone.utc)
     return {
-        "status": calculate_budget_status(budget, now).value,
-        "is_active": is_budget_active(budget, now),
+        "status": calculate_budget_status(budget, now, tz).value,
+        "is_active": is_budget_active(budget, now, tz),
     }
 
 
-async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
+async def refresh_budget_state_if_stale(budget: Dict, tz: Optional[tzinfo] = None) -> Dict:
     """
     Make sure a budget's status/is_active reflect the current date (expired budgets must
     not stay "active" forever). If the stored values are stale, the budget is recomputed
     and persisted (which also triggers auto-create of the next budget on completion).
-    Returns the up-to-date budget document.
+    Returns the up-to-date budget document. A budget's status is once per book, so "today" is the book's
+    (`tz`, default user_zones.book_zone of its book).
     """
-    derived = derive_budget_state(budget)
+    if tz is None:
+        tz = await book_zone(budget["book_id"])
+    derived = derive_budget_state(budget, tz)
     # Stored totals that are NaN/inf (computed before non-finite amounts were excluded)
     # also count as stale: the recompute below replaces them with real numbers.
     numbers_ok = all(
@@ -674,7 +680,7 @@ async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
     if numbers_ok and budget.get("status") == derived["status"] and budget.get("is_active") == derived["is_active"]:
         return budget
     try:
-        await update_budget_spent_amounts(budget["book_id"], budget["_id"], budget_doc=dict(budget))
+        await update_budget_spent_amounts(budget["book_id"], budget["_id"], budget_doc=dict(budget), tz=tz)
         fresh = await budgets_db.get_budget(budget["_id"])
         if fresh:
             return fresh
@@ -695,10 +701,10 @@ async def refresh_budget_state_if_stale(budget: Dict) -> Dict:
 RUNNING_BUDGET_STATUSES = (BudgetStatus.ACTIVE.value, BudgetStatus.EXCEEDED.value)
 
 
-def is_budget_running(budget: Dict, current_date: Optional[datetime] = None) -> bool:
-    """True if the budget's window contains now (app wall clock) and status is active/exceeded."""
+def is_budget_running(budget: Dict, tz: tzinfo, current_date: Optional[datetime] = None) -> bool:
+    """True if the budget's window contains today in `tz` and status is active/exceeded."""
     now = current_date or datetime.now(timezone.utc)
-    return budget.get("status") in RUNNING_BUDGET_STATUSES and is_budget_active(budget, now)
+    return budget.get("status") in RUNNING_BUDGET_STATUSES and is_budget_active(budget, now, tz)
 
 
 async def get_running_budgets(
@@ -712,22 +718,24 @@ async def get_running_budgets(
     Candidates are selected by date window only (stored status can be stale, e.g. still
     "upcoming" after the start date), then each one is refreshed before deciding:
     recompute=True recalculates spend for every candidate (chatbot: fresh numbers),
-    otherwise only budgets whose stored status/is_active are stale are recomputed.
+    otherwise only budgets whose stored status/is_active are stale are recomputed. "Today" is the book's
+    (user_zones.book_zone).
     """
-    today = local_today(default_zone())
+    tz = await book_zone(book_id)
+    today = local_today(tz)
     candidates = await budgets_db.budgets_overlapping(book_id, today, today, currency)
 
     running: List[Dict] = []
     for budget in candidates:
         try:
             if recompute:
-                await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=dict(budget))
+                await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=dict(budget), tz=tz)
                 budget = await budgets_db.get_budget(budget["_id"]) or budget
             else:
-                budget = await refresh_budget_state_if_stale(budget)
+                budget = await refresh_budget_state_if_stale(budget, tz)
         except Exception as e:
             logger.error(f"Failed to refresh budget {budget.get('_id')}: {e}")
-        if is_budget_running(budget):
+        if is_budget_running(budget, tz):
             running.append(budget)
     return running
 
@@ -737,6 +745,7 @@ async def update_budget_spent_amounts(
     budget_id: str,
     budget_doc: Optional[Dict] = None,
     trigger_auto_create: bool = True,
+    tz: Optional[tzinfo] = None,
 ):
     """
     Recalculate spent amounts for a budget (spend is summed in the database).
@@ -744,10 +753,13 @@ async def update_budget_spent_amounts(
 
     trigger_auto_create: when the recompute finds the budget COMPLETED and auto-create is
     enabled, schedule auto_create_next_budget in the background. The daily rollover job
-    passes False and awaits auto_create_next_budget itself.
+    passes False and awaits auto_create_next_budget itself. tz: the book's zone (the stored
+    status is once per book); default user_zones.book_zone(book_id).
     """
     max_retries = 3
     attempt = 0
+    if tz is None:
+        tz = await book_zone(book_id)
 
     while attempt < max_retries:
         try:
@@ -852,9 +864,9 @@ async def update_budget_spent_amounts(
             # an overspend flips the budget back to active immediately.
             now_utc = datetime.now(timezone.utc)
             status_enum = calculate_budget_status(
-                budget, now_utc, total_budget=total_budget, total_spent=total_spent_accum
+                budget, now_utc, tz, total_budget=total_budget, total_spent=total_spent_accum
             )
-            is_active = is_budget_active(budget, now_utc)
+            is_active = is_budget_active(budget, now_utc, tz)
 
             # 4. Attempt Atomic Update with Optimistic Lock
             #
@@ -1098,7 +1110,8 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
     # Next period starts the day after the parent's last day.
     next_start_date = old_end + timedelta(days=1)
 
-    # Compute the real next period BEFORE any expensive work.
+    # Compute the real next period BEFORE any expensive work. A rollover is once per book: the book's today.
+    tz = await book_zone(book_id)
     analyzer = BudgetAnalyzer(book_id)
 
     def _period_after(start: date):
@@ -1110,7 +1123,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         new_start, new_end = _period_after(next_start_date)
         # If the user was away for several periods, jump straight to the period containing
         # today instead of creating (and paying AI for) every missed period one by one.
-        today = local_today(default_zone())
+        today = local_today(tz)
         for _ in range(1000):
             if new_end >= today:
                 break
@@ -1165,10 +1178,10 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         new_budget_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         window = {"start_date": new_start, "end_date": new_end}
-        is_active = is_budget_active(window, now)
+        is_active = is_budget_active(window, now, tz)
         status_value = (
             BudgetStatus.ACTIVE if is_active
-            else (BudgetStatus.UPCOMING if local_today(default_zone(), now) < new_start else BudgetStatus.COMPLETED)
+            else (BudgetStatus.UPCOMING if local_today(tz, now) < new_start else BudgetStatus.COMPLETED)
         ).value
 
         new_budget = {
@@ -1202,7 +1215,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         await _mark_rolled_over(budget_id, new_budget_id)
 
         # Compute spend for the new period (transactions may already exist in it).
-        await update_budget_spent_amounts(book_id, new_budget_id)
+        await update_budget_spent_amounts(book_id, new_budget_id, tz=tz)
 
         await notify_budget_auto_created(
             book_id=book_id,

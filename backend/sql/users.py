@@ -135,6 +135,16 @@ async def update_user_returning(user_id: str, *conditions: ColumnElement, **fiel
     return row_to_doc(await write_returning(stmt))
 
 
+async def set_timezone(user_id: str, name: str) -> None:
+    """Save the person's IANA zone name (validated by the caller, user_zones.remember_timezone)."""
+    await update_user(user_id, timezone=name)
+
+
+async def timezone_of(user_id: str) -> Optional[str]:
+    """The person's saved zone name (None: none saved, or no such person)."""
+    return await fetch_value(select(users.c.timezone).where(users.c.id == user_id))
+
+
 async def lock_user(user_id: str) -> bool:
     """SELECT ... FOR UPDATE on the user row (inside transaction()); False when there is none. Until the transaction
     ends, nothing can point a new row at this user (a foreign-key check waits for the lock)."""

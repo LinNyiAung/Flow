@@ -5,7 +5,7 @@ import json
 from collections import OrderedDict
 from contextlib import aclosing
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -28,6 +28,7 @@ from sql import users as users_db
 from tz_utils import (
     as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, default_zone, local_now, local_today,
 )
+from user_zones import book_zone, user_zone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -109,11 +110,12 @@ def _schedule_vector_store_delete(store) -> None:
 
 
 class _StoreEntry:
-    __slots__ = ("store", "built_on", "refs", "retired")
+    __slots__ = ("store", "tz", "built_on", "refs", "retired")
 
-    def __init__(self, store, built_on: str):
+    def __init__(self, store, tz: tzinfo):
         self.store = store
-        self.built_on = built_on
+        self.tz = tz  # the zone its documents' relative labels were computed in
+        self.built_on = local_today(tz)
         self.refs = 0          # requests currently using the store
         self.retired = False   # removed from the cache; delete once refs == 0
 
@@ -123,9 +125,9 @@ class BookVectorStoreCache:
     Bounded per-process cache of per-book in-memory vector stores (keyed by book id: a personal or a family book).
 
     - LRU-capped (default 200 books).
-    - Entries are only valid for the app-timezone calendar day they were built on, because the
-      documents embed relative labels ("TODAY", "N days ago", days remaining) that are
-      computed at build time. A new day forces a rebuild.
+    - Entries are only valid for the calendar day they were built on, in the zone they were built
+      for (the book's, user_zones.book_zone), because the documents embed relative labels
+      ("TODAY", "N days ago", days remaining) that are computed at build time. A new day forces a rebuild.
     - Concurrent first builds for the same book are serialized with an asyncio.Lock
       (striped by book id so the lock table stays bounded), so only one store is built.
     - Requests lease a store via acquire()/release. A store that leaves the cache
@@ -137,11 +139,6 @@ class BookVectorStoreCache:
         self._stores: "OrderedDict[str, _StoreEntry]" = OrderedDict()
         self._max_books = max_books
         self._locks = [asyncio.Lock() for _ in range(lock_stripes)]
-
-    @staticmethod
-    def _today_key() -> str:
-        # Calendar day in the default zone (same "today" the documents' labels use).
-        return local_today(default_zone()).isoformat()
 
     def _lock_for(self, book_id: str) -> asyncio.Lock:
         return self._locks[hash(book_id) % len(self._locks)]
@@ -170,7 +167,7 @@ class BookVectorStoreCache:
         entry = self._stores.get(book_id)
         if entry is None:
             return None
-        if entry.built_on != self._today_key():
+        if entry.built_on != local_today(entry.tz):
             self.invalidate(book_id)
             return None
         self._stores.move_to_end(book_id)
@@ -181,14 +178,14 @@ class BookVectorStoreCache:
         entry = self._get_entry(book_id)
         return entry.store if entry is not None else None
 
-    def _put_entry(self, book_id: str, store) -> _StoreEntry:
+    def _put_entry(self, book_id: str, store, tz: Optional[tzinfo]) -> _StoreEntry:
         old = self._stores.pop(book_id, None)
         if old is not None and old.store is store:
             entry = old
         else:
             if old is not None:
                 self._retire(old)
-            entry = _StoreEntry(store, self._today_key())
+            entry = _StoreEntry(store, tz if tz is not None else default_zone())
         self._stores[book_id] = entry
         while len(self._stores) > self._max_books:
             evicted_book, evicted = self._stores.popitem(last=False)
@@ -196,8 +193,9 @@ class BookVectorStoreCache:
             print(f"🧹 Evicted vector store for book {evicted_book} (LRU cap {self._max_books})")
         return entry
 
-    def put(self, book_id: str, store) -> None:
-        self._put_entry(book_id, store)
+    def put(self, book_id: str, store, tz: Optional[tzinfo] = None) -> None:
+        """Cache `store`, built for today in `tz` (default the default zone)."""
+        self._put_entry(book_id, store, tz)
 
     def invalidate(self, book_id: str) -> bool:
         entry = self._stores.pop(book_id, None)
@@ -206,9 +204,10 @@ class BookVectorStoreCache:
         self._retire(entry)
         return True
 
-    async def acquire(self, book_id: str, builder):
+    async def acquire(self, book_id: str, builder, tz: Optional[tzinfo] = None):
         """
-        Lease the book's store, building it once via `await builder()` if needed.
+        Lease the book's store, building it once via `await builder()` if needed (a store built for today in `tz`,
+        default the default zone).
         Returns (store_or_None, release); call release() when done using the store.
         """
         entry = self._get_entry(book_id)
@@ -219,7 +218,7 @@ class BookVectorStoreCache:
                     store = await builder()
                     if store is None:
                         return None, (lambda: None)
-                    entry = self._put_entry(book_id, store)
+                    entry = self._put_entry(book_id, store, tz)
         # No await between lookup/insert and the increment, so it can't be retired+deleted in between.
         entry.refs += 1
         released = False
@@ -253,10 +252,14 @@ _LANGUAGE_NAMES = {"en": "English", "my": "Myanmar"}
 
 
 class FinancialDataProcessor:
-    """Processes a book's financial data for RAG (a personal or a family book)"""
+    """Processes a book's financial data for RAG (a personal or a family book).
 
-    def __init__(self, book_id: str):
+    tz: the zone of the "today" the data is labelled with (days remaining, "N days ago", this month): the person asking
+    for their chat, the book's zone for its cached documents and its insights; default the default zone."""
+
+    def __init__(self, book_id: str, tz: Optional[tzinfo] = None):
         self.book_id = book_id
+        self.tz = tz if tz is not None else default_zone()
 
 
     def ensure_utc_datetime(self, dt) -> datetime:
@@ -270,7 +273,7 @@ class FinancialDataProcessor:
         Defaults to last 90 days or max 500 items to prevent OOM.
         """
         # 1. Apply Date Filter (Default 90 days)
-        cutoff_date = local_now(default_zone()) - timedelta(days=days_back) if days_back else None
+        cutoff_date = local_now(self.tz) - timedelta(days=days_back) if days_back else None
 
         try:
             transactions = await transactions_db.find_transactions(
@@ -393,7 +396,7 @@ class FinancialDataProcessor:
             return ""
         members = await families_db.list_members(family["id"])
         names = {m["id"]: m["display_name"] for m in members}
-        date_from, date_to = current_month_to_date_range(default_zone())
+        date_from, date_to = current_month_to_date_range(self.tz)
 
         def label(m: Dict[str, Any]) -> str:
             if m["kind"] == "placeholder":
@@ -488,7 +491,7 @@ class FinancialDataProcessor:
 
                         if g.get("target_date"):
                             target_date = as_calendar_date(g["target_date"])
-                            days_remaining = days_until(target_date, local_today(default_zone()))
+                            days_remaining = days_until(target_date, local_today(self.tz))
                             goals_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
                             goals_text += f"Days Remaining: {days_remaining}\n"
 
@@ -553,7 +556,7 @@ class FinancialDataProcessor:
                 for idx, b in enumerate(curr_budgets, 1):
                     start_date = as_calendar_date(b["start_date"])
                     end_date = as_calendar_date(b["end_date"])
-                    days_remaining = days_until(end_date, local_today(default_zone()))
+                    days_remaining = days_until(end_date, local_today(self.tz))
                     days_total = (end_date - start_date).days + 1
 
                     budgets_text += f"──── Budget #{idx}: {b['name']} ────\n"
@@ -609,7 +612,7 @@ class FinancialDataProcessor:
 
         for idx, t in enumerate(transactions[:25], 1):
             date_obj = as_wall_clock(t["date"])
-            days_ago = (local_today(default_zone()) - date_obj.date()).days
+            days_ago = (local_today(self.tz) - date_obj.date()).days
 
             currency = t.get("currency", "usd")
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
@@ -711,7 +714,7 @@ class FinancialDataProcessor:
                 goal_text += f"Target Date: {target_date.strftime('%B %d, %Y')}\n"
 
                 if goal["status"] == "active":
-                    days_remaining = days_until(target_date, local_today(default_zone()))
+                    days_remaining = days_until(target_date, local_today(self.tz))
                     goal_text += f"Days Remaining: {days_remaining}\n"
 
                     if days_remaining > 0 and remaining > 0:
@@ -755,7 +758,7 @@ class FinancialDataProcessor:
 
             start_date = as_calendar_date(budget["start_date"])
             end_date = as_calendar_date(budget["end_date"])
-            days_remaining = days_until(end_date, local_today(default_zone()))
+            days_remaining = days_until(end_date, local_today(self.tz))
             days_total = (end_date - start_date).days + 1
             days_elapsed = days_total - days_remaining
 
@@ -835,7 +838,7 @@ class FinancialDataProcessor:
                 transactions_by_date[date_str] = []
             transactions_by_date[date_str].append(t)
 
-        recent_cutoff = local_now(default_zone()) - timedelta(days=30)
+        recent_cutoff = local_now(self.tz) - timedelta(days=30)
 
         for date_str, daily_transactions in sorted(transactions_by_date.items(), reverse=True)[:30]:
             date_obj = as_wall_clock(daily_transactions[0]["date"])
@@ -843,7 +846,7 @@ class FinancialDataProcessor:
             if date_obj < recent_cutoff:
                 continue
 
-            days_ago = (local_today(default_zone()) - date_obj.date()).days
+            days_ago = (local_today(self.tz) - date_obj.date()).days
 
             # Group by currency
             currency_totals = {}
@@ -972,8 +975,8 @@ class FinancialChatbot:
             max_books=int(os.getenv("AI_VECTOR_STORE_CACHE_SIZE", "200"))
         )
 
-    async def _build_vector_store(self, book_id: str) -> Optional[InMemoryVectorStore]:
-        processor = FinancialDataProcessor(book_id)
+    async def _build_vector_store(self, book_id: str, tz: tzinfo) -> Optional[InMemoryVectorStore]:
+        processor = FinancialDataProcessor(book_id, tz)
         documents = await processor.create_financial_documents()
 
         if not documents or not self.embeddings:
@@ -1002,11 +1005,13 @@ class FinancialChatbot:
 
     async def _get_or_create_vector_store(self, book_id: str):
         """
-        Lease (building once, even under concurrent requests) the book's vector store.
+        Lease (building once, even under concurrent requests) the book's vector store. It is shared by everyone who
+        chats about the book, so its documents are labelled in the book's zone (a family's: its owner's).
         Returns (store_or_None, release); call release() when done querying it.
         """
+        tz = await book_zone(book_id)
         return await self.book_vector_stores.acquire(
-            book_id, lambda: self._build_vector_store(book_id)
+            book_id, lambda: self._build_vector_store(book_id, tz), tz
         )
 
     def refresh_book_data(self, book_id: str):
@@ -1321,7 +1326,9 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             if not user:
                 raise ChatServiceError("We couldn't load your account. Please log in again.")
 
-            processor = FinancialDataProcessor(book_id)
+            # The asker's today: their "this month", and the TODAY the prompt states.
+            tz = user_zone(user)
+            processor = FinancialDataProcessor(book_id, tz)
 
             # [FIX] Fetch data concurrently using native async methods
             summary, goals, budgets, family_text = await asyncio.gather(
@@ -1447,8 +1454,8 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                     history_text += f"\n{role}: {msg.get('content', '')}"
 
             # Get today's date
-            # "Today" for the user is the default zone's calendar date, not the UTC one.
-            today = local_now(default_zone()).strftime("%A, %B %d, %Y")
+            # "Today" for the user is the calendar date in their own zone, not the UTC one.
+            today = local_now(tz).strftime("%A, %B %d, %Y")
 
             # Build prompts with response style
             system_prompt = self._build_system_prompt(today, response_style, family=bool(family_text))

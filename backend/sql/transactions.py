@@ -10,7 +10,7 @@ from sqlalchemy import case, delete, distinct, exists, func, insert, select, upd
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql.db import execute, fetch_all, fetch_one, fetch_value, transaction, write_returning
-from sql.docs import money, recurrence_columns, transaction_doc, transaction_row
+from sql.docs import money, recurrence_columns, transaction_doc, transaction_row, wall_bound as _wall
 from sql.tables import books, transactions as t
 from tz_utils import as_calendar_date, as_wall_clock
 
@@ -28,16 +28,6 @@ _RECURRENCE_FIELDS = {
 
 def _plain(value: Any) -> Any:
     return getattr(value, "value", value)  # str enums (type, currency, frequency) -> str
-
-
-def _wall(value: Optional[datetime]) -> Optional[datetime]:
-    """A bound on transaction dates (local date-times, no timezone) as a naive datetime: an aware value keeps its clock
-    fields. A plain date is refused: as a bound it would mean its 00:00 (use tz_utils.day_bounds for whole days)."""
-    if value is None:
-        return None
-    if not isinstance(value, datetime):
-        raise TypeError(f"transaction dates are bounded by date-times, not {value!r}")
-    return value.replace(tzinfo=None)
 
 
 def _row(doc: Dict[str, Any]) -> Dict[str, Any]:

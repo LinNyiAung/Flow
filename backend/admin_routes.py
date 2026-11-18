@@ -58,6 +58,7 @@ from sql import devices as devices_db
 from sql import users as users_db
 from sql import feedback as feedback_db
 from sql import ai_usage as ai_usage_db
+from user_zones import user_zone
 from sql import notifications as notifications_db
 from sql import chat as chat_db
 from sql import goals as goals_db
@@ -774,7 +775,8 @@ async def get_user_usage(
     now = datetime.now(UTC)
     plan = effective_plan(user, now)
     limits = store.limits(plan)
-    counts = await plans_db.read_counters(user_id, {p: periods.period_start(p, now) for p in PERIODS})
+    tz = user_zone(user)  # the counters' weeks and months are the user's own
+    counts = await plans_db.read_counters(user_id, {p: periods.period_start(p, now, tz) for p in PERIODS})
 
     features = {}
     for feature in FEATURES:
@@ -807,7 +809,7 @@ async def reset_user_usage(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    await quota.reset_usage(user_id, current_admin["_id"])
+    await quota.reset_usage(user_id, current_admin["_id"], tz=user_zone(user))
 
     await log_admin_action(
         admin_id=current_admin["_id"],
