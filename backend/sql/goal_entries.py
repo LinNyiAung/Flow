@@ -3,6 +3,7 @@ computes it); entries are never edited or deleted on their own, only with their 
 signed (a withdraw is negative), returned as float.
 """
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import exists, func, insert, select
@@ -18,9 +19,13 @@ KIND_CARRIED_OVER = "carried_over"  # the goal's balance when history began (the
 
 
 async def add_entry(goal_id: str, kind: str, amount, added_by_member_id: Optional[str]) -> None:
-    """Record one movement; `amount` is signed (negative for a withdraw) and rounded to cents."""
+    """Record one movement; `amount` is signed (negative for a withdraw) and rounded to cents.
+
+    created_at is the clock time of this call, not the server default now() (the transaction's start): callers hold the
+    book's money lock here, so entry order follows the order the movements were made in, across workers.
+    """
     await execute(insert(e).values(id=str(uuid.uuid4()), goal_id=goal_id, kind=kind, amount=money(amount),
-                                   added_by_member_id=added_by_member_id))
+                                   added_by_member_id=added_by_member_id, created_at=datetime.now(timezone.utc)))
 
 
 async def list_entries(goal_id: str, limit: int, offset: int) -> List[Dict[str, Any]]:

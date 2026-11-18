@@ -7,7 +7,9 @@ Sections:
   migration -- the goal entries migration on goals seeded in the old shape (goals.current_amount) in two people's
     personal books and a family book: upgrade gives each non-zero goal one carried_over entry with no member and none
     to a zero goal, held sums and the API's current_amount and available balance don't change; downgrade puts the
-    column back with the same values, and up again works (Task 1). Needs the stub server on 127.0.0.1:8765.
+    column back with the same values, and up again works (Task 1); both directions first lock goals, and an upgrade
+    started while a goal write is open waits for it and carries over the committed amount (final review F2). Needs the
+    stub server on 127.0.0.1:8765.
   money -- create, contribute, refusals, cents, withdrawing everything, target edits, who a family entry records, two
     racing adds, delete, and the sql/goal_entries helpers (Task 1). Needs the stub server.
   history -- GET /api/goals/{id}/history: order, paging and past the end, limit and offset bounds, 404, who an entry
@@ -238,6 +240,50 @@ def _check_upgraded(ids, held, label):
                   (got_available, want_available))
 
 
+def _check_locks_goals_first():
+    """Both directions start by locking goals ACCESS EXCLUSIVE, before anything reads or changes goals."""
+    import ast
+    path = os.path.join(stubenv.BACKEND, "alembic", "versions", "20261118_c1f0a8e2d93b_goal_entries.py")
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for fn in ("upgrade", "downgrade"):
+        body = next((n.body for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fn), [])
+        first = ast.unparse(body[0]) if body else None
+        check(first == "op.execute('LOCK TABLE goals IN ACCESS EXCLUSIVE MODE')",
+              f"migration: {fn}() first locks goals in ACCESS EXCLUSIVE mode", first)
+
+
+def _check_waits_for_open_write(t, ids):
+    """At the old revision a request's transaction has locked a goal's row and not committed when the upgrade starts
+    (the old backend keeps serving while the upgrade runs). The upgrade waits on goals for it, and the goal's
+    carried_over entry is the amount that transaction committed, not the one before it."""
+    import time
+    goal, new = ids["a250"], Decimal("400.00")
+    done = {}
+    upgrade = threading.Thread(target=lambda: done.update(result=t.alembic("upgrade", "head")))
+    with t.connect() as watch, t.psycopg.connect(t.DSN) as writer:  # writer is not autocommit: its UPDATEs stay open
+        writer.execute("UPDATE goals SET current_amount = current_amount WHERE id = %s", (goal,))
+        upgrade.start()
+        waiting = False
+        for _ in range(1200):  # up to 120 s for the alembic process to start (it is slow on a busy machine) and queue
+            waiting = bool(watch.execute("SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid = l.relation "
+                                         "WHERE c.relname = 'goals' AND NOT l.granted").fetchone())
+            if waiting:
+                break
+            time.sleep(0.1)
+        time.sleep(1)
+        check(waiting and upgrade.is_alive(), "migration (open write): the upgrade waits on goals for an open goal write",
+              (waiting, done))
+        writer.execute("UPDATE goals SET current_amount = %s WHERE id = %s", (new, goal))
+        writer.commit()
+    upgrade.join(300)
+    ok, out = done.get("result", (False, "the upgrade did not finish"))
+    check(ok, "migration (open write): the upgrade finishes once the write commits", out)
+    got = entries(goal)
+    check(got == [("carried_over", new, None)],
+          f"migration (open write): the carried_over entry is the committed amount {new}, not 250", got)
+
+
 def section_migration():
     import test_plans as t  # noqa: E402  (alembic helper)
     from plans_subscription_checks import head_revision  # noqa: E402
@@ -287,6 +333,13 @@ def section_migration():
         check(ok, "migration: upgrade head runs again", out)
         if ok:
             _check_upgraded(ids, held, "upgrade again")
+
+        # ---- a goal write still open when the upgrade starts is not lost
+        _check_locks_goals_first()
+        ok, out = t.alembic("downgrade", BEFORE_ENTRIES)
+        check(ok, "migration (open write): downgrade runs", out)
+        if ok:
+            _check_waits_for_open_write(t, ids)
     finally:
         ok, out = t.alembic("upgrade", "head")  # whatever happened above, leave the database at head
         with t.connect() as conn:
@@ -553,6 +606,23 @@ def section_money():
             check(kinds == ("start", "add", "withdraw", "carried_over"), "helpers: the kind constants", kinds)
         except Exception as e:  # noqa: BLE001
             check(False, "helpers: sql.goal_entries runs", repr(e))
+
+        # ---- add_entry stamps the clock time of the call, not its transaction's start (final review F3)
+        async def two_in_one_transaction():
+            import asyncio
+            from sql import db as sqldb, goal_entries as ge
+            async with sqldb.transaction():
+                await ge.add_entry(gid, ge.KIND_ADD, 1, None)
+                await asyncio.sleep(0.05)
+                await ge.add_entry(gid, ge.KIND_ADD, 2, None)
+        try:
+            _backend_async(two_in_one_transaction)
+            rows = db.sql("SELECT amount, created_at FROM goal_entries WHERE goal_id = %s AND kind = 'add' "
+                          "AND amount IN (1, 2) ORDER BY amount", gid)
+            check(len(rows) == 2 and (rows[1]["created_at"] - rows[0]["created_at"]).total_seconds() >= 0.04,
+                  "helpers: two add_entry calls in one transaction get their own times, in call order", rows)
+        except Exception as e:  # noqa: BLE001
+            check(False, "helpers: add_entry in one transaction runs", repr(e))
     finally:
         if made:
             db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)

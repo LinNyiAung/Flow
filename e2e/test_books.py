@@ -188,8 +188,8 @@ def _goal_totals(owner_col, owners):
         rows = db.sql("SELECT user_id AS o, currency, SUM(current_amount) AS s FROM goals WHERE user_id = ANY(%s) GROUP BY 1, 2",
                       list(owners))
     else:
-        rows = db.sql("SELECT g.book_id AS o, g.currency, SUM(e.amount) AS s FROM goals g JOIN goal_entries e ON e.goal_id = g.id "
-                      "WHERE g.book_id = ANY(%s) GROUP BY 1, 2", list(owners))
+        rows = db.sql("SELECT g.book_id AS o, g.currency, COALESCE(SUM(e.amount), 0) AS s FROM goals g "
+                      "LEFT JOIN goal_entries e ON e.goal_id = g.id WHERE g.book_id = ANY(%s) GROUP BY 1, 2", list(owners))
     return {(r["o"], r["currency"]): r["s"] for r in rows}
 
 

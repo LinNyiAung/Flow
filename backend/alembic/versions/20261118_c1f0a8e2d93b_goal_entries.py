@@ -22,6 +22,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # The old backend still serves while this runs: block its goal writes until we commit, so none lands after the
+    # copy below and is lost with the dropped column. Not SHARE mode: upgrading it for the DROP can deadlock with a writer.
+    op.execute("LOCK TABLE goals IN ACCESS EXCLUSIVE MODE")
     op.create_table(
         'goal_entries',
         sa.Column('id', sa.Text(), nullable=False),
@@ -52,6 +55,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Block goal writes (and so new entries, which reference goals) until we commit, so none is lost with the table.
+    op.execute("LOCK TABLE goals IN ACCESS EXCLUSIVE MODE")
     op.add_column('goals', sa.Column('current_amount', sa.Numeric(precision=18, scale=2), server_default='0',
                                      nullable=False))
     op.execute(
