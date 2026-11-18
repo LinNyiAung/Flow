@@ -7,7 +7,7 @@ import statistics
 import uuid
 
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
-from tz_utils import as_calendar_date, day_bounds, default_zone, local_now, local_today
+from tz_utils import as_calendar_date, day_bounds, local_now, local_today
 from user_zones import book_zone
 from plans import quota
 from plans.access import effective_plan
@@ -975,31 +975,27 @@ async def _mark_rolled_over(budget_id: str, child_id: str) -> None:
         logger.warning(f"Could not mark budget {budget_id} as rolled over: {e}")
 
 
-async def process_due_budget_rollovers() -> Dict[str, int]:
+async def budget_rollovers_for_book(book_id: str, today: date, tz: tzinfo) -> Dict[str, int]:
     """
-    Daily job: create the next-period budget for auto-create budgets whose period ended.
+    The book's daily rollover (local_jobs, 00:30 on the book's clock: a personal book's person's, a family book's
+    owner's): create the next-period budget for its auto-create budgets whose period ended.
 
     Before this job, the next budget was only created when something happened to
     recompute the finished budget (opening the budgets screen, a new transaction in its
-    range...). Selects auto_create_enabled budgets whose end_date has passed (app wall
-    clock) and that have no child yet, completes them (recompute) and awaits
+    range...). Selects the book's auto_create_enabled budgets whose last day is before the
+    book's `today` and that have no child yet, completes them (recompute) and awaits
     auto_create_next_budget, which keeps its own duplicate check and atomic claim.
 
     A failed attempt (auto_create_next_budget releases its claim on error; a crashed claim
-    expires after 10 minutes) is simply retried on the next run. A budget stops being
+    expires after 10 minutes) is simply retried on the next day's run. A budget stops being
     selected once its child exists: the parent is then marked with rolled_over_to=<child
     id> (set by auto_create_next_budget, or backfilled here for budgets created before
     the marker existed), so each series only costs its latest budget per run. The child
     check is an indexed (book_id, parent_budget_id) lookup, never a collection scan.
+    A failure to load the candidates raises (the tick retries the run).
     """
-    today = local_today(default_zone())
     stats = {"candidates": 0, "created": 0, "skipped": 0, "not_created": 0, "failed": 0, "already_rolled_over": 0}
-
-    try:
-        unmarked = await budgets_db.rollover_candidates(today)
-    except Exception as e:
-        logger.error(f"Budget rollover job: failed to load candidates: {e}")
-        return stats
+    unmarked = await budgets_db.rollover_candidates(book_id, today)
 
     candidates = []
     for budget in unmarked:
@@ -1024,7 +1020,7 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
             if budget.get("status") != BudgetStatus.COMPLETED.value or budget.get("is_active"):
                 # Persist the final spend/status first (no background auto-create: we do it below).
                 await update_budget_spent_amounts(
-                    budget["book_id"], budget_id, budget_doc=dict(budget), trigger_auto_create=False
+                    book_id, budget_id, budget_doc=dict(budget), trigger_auto_create=False, tz=tz
                 )
                 budget = await budgets_db.get_budget(budget_id) or budget
             if budget.get("status") != BudgetStatus.COMPLETED.value or not budget.get("auto_create_enabled"):
@@ -1044,7 +1040,8 @@ async def process_due_budget_rollovers() -> Dict[str, int]:
             stats["failed"] += 1
             logger.error(f"Budget rollover job: budget {budget_id} failed (will retry next run): {e}")
 
-    logger.info(f"Budget rollover job finished: {stats}")
+    if stats["candidates"] or stats["already_rolled_over"] or stats["failed"]:
+        logger.info(f"Budget rollover for book {book_id} finished: {stats}")
     return stats
 
 
@@ -1052,10 +1049,10 @@ async def update_relevant_budgets(book_id: str, transaction_date: datetime, tran
     """Update only budgets that are affected by the transaction (those running on its date)"""
     day = as_calendar_date(transaction_date)
     relevant_budgets = await budgets_db.budgets_overlapping(book_id, day, day, transaction_currency)
+    tz = await book_zone(book_id) if relevant_budgets else None
 
     for budget in relevant_budgets:
-        # [FIX] Added await
-        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget, tz=tz)
 
 
 async def update_budgets_in_range(book_id: str, start: datetime, end: datetime, currency: str):
@@ -1063,8 +1060,10 @@ async def update_budgets_in_range(book_id: str, start: datetime, end: datetime, 
     start, end = as_calendar_date(start), as_calendar_date(end)
     if end < start:
         start, end = end, start
-    for budget in await budgets_db.budgets_overlapping(book_id, start, end, currency):
-        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)
+    budgets = await budgets_db.budgets_overlapping(book_id, start, end, currency)
+    tz = await book_zone(book_id) if budgets else None
+    for budget in budgets:
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget, tz=tz)
 
 
 def calculate_total_budget_excluding_subcategories(category_budgets: List[Dict]) -> float:
@@ -1453,7 +1452,7 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
 async def update_all_book_budgets(book_id: str):
     """Update all budgets of the book (called after transaction changes)"""
     budgets = await budgets_db.list_budgets(book_id)
+    tz = await book_zone(book_id) if budgets else None
 
     for budget in budgets:
-        # [FIX] Added await
-        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget)
+        await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=budget, tz=tz)

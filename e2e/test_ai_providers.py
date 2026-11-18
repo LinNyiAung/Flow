@@ -3660,6 +3660,7 @@ async def _insight_inprocess_checks(uid):
     from sql.db import fetch_all, fetch_value
     from sql.tables import insights as insights_t
     from sqlalchemy import func, select
+    from tz_utils import default_zone  # the user has no saved zone
 
     book = await books_db.ensure_personal_book(uid)  # the user's insights are their personal book's
 
@@ -3667,15 +3668,12 @@ async def _insight_inprocess_checks(uid):
     saved = (settings._env, dict(settings._env_units), settings._panel)
     health.reset()
     stubenv.clear_fake_ai()
-    orig_run, orig_list = runner.run, ins.users_db.list_fields
+    orig_run = runner.run
     runs = []
 
     async def spy(feature, **kw):
         runs.append((feature, kw.get("background"), kw.get("user_id")))
         return await orig_run(feature, **kw)
-
-    async def only_our_user(fields, *where):
-        return [u for u in await orig_list(fields, *where) if u["_id"] == uid]
 
     async def count(insight_type):
         return await fetch_value(select(func.count()).select_from(insights_t).where(
@@ -3687,24 +3685,23 @@ async def _insight_inprocess_checks(uid):
     try:
         settings.set_panel_cache({})
         settings.reload_env({})
-        runner.run, ins.users_db.list_fields = spy, only_our_user
-        for label, job, itype, feature in (("weekly", ins.generate_weekly_insights_for_all_users, "weekly", "insight_weekly"),
-                                           ("monthly", ins.generate_monthly_insights_for_all_users, "monthly", "insight_monthly")):
+        runner.run = spy
+        for label, itype, feature in (("weekly", "weekly", "insight_weekly"), ("monthly", "monthly", "insight_monthly")):
             n0 = await count(itype)
             runs.clear()
-            await job()
+            await stubenv.run_local_job(f"{itype}_insights", book)  # the scheduled job of the user's book
             n1 = await count(itype)
             check(n1 == n0 + 1, f"job_generates_once_per_user: the {label} job inserts exactly 1 row", (n0, n1))
             check(runs == [(feature, True, uid)], f"job_generates_once_per_user: the {label} job runs {feature} once in the background",
                   runs)
-        runner.run, ins.users_db.list_fields = orig_run, orig_list
+        runner.run = orig_run
 
         # prompts and token limits per answering provider (temperature 0.7 as before; never sent to Claude)
         for feature, gen, limits in (("insight_weekly", ins.generate_weekly_insight, {"openai": 2500, "gemini": 8192, "claude": 12000}),
                                      ("insight_monthly", ins.generate_monthly_insight, {"openai": 3000, "gemini": 8192, "claude": 12000})):
             for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
                 use(feature, provider, model)
-                row = await gen(book)
+                row = await gen(book, tz=default_zone())
                 kw = stubenv.LAST_KWARGS[provider]
                 if provider == "openai":
                     got = (kw.get("max_completion_tokens"), kw.get("temperature"), kw["messages"][0]["content"][:40])
@@ -3822,7 +3819,7 @@ async def _insight_inprocess_checks(uid):
             health.reset()
             stubenv.set_fake_ai(claude=kind)
             try:
-                await ins.generate_weekly_insight(book)
+                await ins.generate_weekly_insight(book, tz=default_zone())
                 err = None
             except Exception as e:  # noqa: BLE001
                 err = e
@@ -3859,7 +3856,7 @@ async def _insight_inprocess_checks(uid):
               and "t9MANUAL" not in printed and "[redacted]" in printed,
               "manual_weekly_logs_redacted: the failure is printed with the key redacted", (res, printed[-300:]))
     finally:
-        runner.run, ins.users_db.list_fields = orig_run, orig_list
+        runner.run = orig_run
         stubenv.clear_fake_ai()
         health.reset()
         settings._env, settings._panel = saved[0], saved[2]
@@ -4432,6 +4429,7 @@ async def _transaction_inprocess_checks(uid):
     from ai_providers.errors import AllProvidersFailed, UnusableAnswer
     from ai_providers.types import Completion, FeatureSetting, Target
     from models import TextExtractionRequest
+    from tz_utils import default_zone, local_today
 
     stubenv.patch_loaded_modules()
     saved = (settings._env, dict(settings._env_units), settings._panel)
@@ -4587,7 +4585,8 @@ async def _transaction_inprocess_checks(uid):
                    '{"transactions": "x"}', '{"transactions": []}', '{"amount": -5, "confidence": 7, "date": "garbage"}']
         check(not any(refuses(tr._parse_extraction_json, t) for t in lenient),
               "tx parse: low confidence, zero or odd amounts, unknown categories and empty lists are still accepted")
-        built = await tr._build_extraction({"amount": 0, "confidence": 0.9, "main_category": "Nope"}, "usd", keep_invalid_amount=True)
+        built = await tr._build_extraction({"amount": 0, "confidence": 0.9, "main_category": "Nope"}, "usd", keep_invalid_amount=True,
+                                           today=local_today(default_zone()))
         check(built is not None and built.amount == 0 and built.confidence == 0,
               "tx parse: a zero amount still reaches the route's own handling (amount 0, confidence 0)")
 

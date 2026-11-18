@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta, tzinfo, UTC
@@ -13,7 +12,6 @@ from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import insights as insights_db
 from sql import books as books_db
-from sql import users as users_db
 from tz_utils import (
     as_utc, default_zone, local_today, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
@@ -23,7 +21,7 @@ from ai_chatbot import FinancialDataProcessor
 from budget_categories import allocation_label
 from budget_service import get_running_budgets
 import logging
-from typing import List, Optional, Tuple
+from typing import Optional
 from ai_providers import errors as _errors
 from ai_providers import runner as _runner
 from ai_providers import settings as _ai_settings
@@ -37,9 +35,8 @@ def get_week_date_range(tz: tzinfo):
     """
     Start/end of the most recent COMPLETE Monday-Sunday week.
 
-    "Today" is evaluated in the book's zone `tz` (the scheduled job: the default zone, SCHEDULER_TIMEZONE, default
-    Asia/Yangon) so the Monday 05:00 job (which is still Sunday in UTC) reviews the week that just ended, not the
-    week before it. Boundaries are naive wall-clock day bounds, compared directly with the
+    "Today" is evaluated in the book's zone `tz` (user_zones.book_zone) so the Monday 05:00 job (which is still Sunday
+    in UTC) reviews the week that just ended, not the week before it. Boundaries are naive wall-clock day bounds, compared directly with the
     transaction dates.
     """
     return previous_week_range(tz)
@@ -48,10 +45,6 @@ def get_week_date_range(tz: tzinfo):
 def get_previous_week_date_range(tz: tzinfo):
     """Start/end of the week BEFORE the most recent complete week (for comparison)."""
     return week_before_previous_range(tz)
-
-
-# What effective_plan and quota.over_cost_cap read from a user (plus "_id", which list_fields always selects).
-USER_PLAN_FIELDS = ["subscription_type", "subscription_expires_at", "usage_reset_at"]
 
 
 async def _skip_user(user: dict, feature: str, book_id: str, is_family: bool) -> bool:
@@ -75,25 +68,43 @@ async def _skip_user(user: dict, feature: str, book_id: str, is_family: bool) ->
     return False
 
 
-async def _job_targets(feature: str) -> List[Tuple[str, dict, bool]]:
-    """What a scheduled insight job (`feature`: insight_weekly / insight_monthly) generates for: (book_id, plan_user,
-    is_family) triples, where plan_user is the user whose plan and cost cap _skip_user checks.
+async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, notify) -> None:
+    """The book's scheduled insight of `feature` (insight_weekly / insight_monthly), made by `generate`
+    (generate_weekly_insight / generate_monthly_insight) in the book's zone `tz`, announced by `notify`.
 
-    - every paid person's personal book: (the book, the person, False). A person without a personal book yet (a row
-      written by older code, P2) has no data to report on and is left out; their book is made on their next request;
-    - every family book whose owner is on a paid plan (sql.families.books_with_paid_owner): (the family book, the
-      owner, True). A family insight is stored and notified under the book (the notice fans out to the members),
-      counts against nobody's allowance, and is skipped like the owner's own (plan ended or locked type), or when the
-      owner's spend plus the book's reaches the owner's monthly cost cap (R16)."""
-    users = await users_db.list_fields(USER_PLAN_FIELDS, users_db.users.c.subscription_type.in_(PAID_PLANS))
-    personal = await books_db.personal_book_ids([u["_id"] for u in users])
+    The plan user is the user whose plan and cost cap _skip_user checks: a personal book's person, a family book's
+    active owner (books_db.book_profile). Only a stored paid plan is considered (a Free user's weekly insight is locked
+    and their monthly one is made on demand, main._free_monthly_insight), and _skip_user drops an ended plan, a locked
+    type and a user at the cost cap. A family insight is stored and notified under the book (the notice fans out to the
+    members), counts against nobody's allowance, and is skipped like the owner's own, or when the owner's spend plus
+    the book's reaches the owner's monthly cost cap (R16). Never an allowance: the spend lands in ai_usage.
+
+    An insight that can't be made (every provider failed) is logged and not retried until the next period, as before.
+    """
+    book = await books_db.get_book_row(book_id)
+    plan_user = await books_db.book_profile(book_id) if book else None
+    if plan_user is None or plan_user.get("subscription_type") not in PAID_PLANS:
+        return
+    if await _skip_user(plan_user, feature, book_id, book["kind"] == "family"):
+        return
+    label = feature.removeprefix("insight_")
     try:
-        books = await families_db.books_with_paid_owner(PAID_PLANS)
-    except Exception as e:  # noqa: BLE001  the personal insights must still run
-        logger.error(f"❌ Could not list family books for {feature}: {type(e).__name__}: {e}")
-        books = []
-    return ([(personal[u["_id"]], u, False) for u in users if u["_id"] in personal]
-            + [(b["book_id"], b["owner"], True) for b in books])
+        # background: the runner retries a rate-limited provider before falling back.
+        result = await generate(book_id, notify=False, background=True, tz=tz)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"❌ Error generating {label} insight for {book_id}: {e}")
+        return
+    if not result:
+        logger.warning(f"⚠️ Failed to generate {label} insight for book {book_id} (Returned None)")
+        return
+    logger.info(f"✅ Generated {label} insight for book {book_id} ({result.get('ai_provider')})")
+    # One "insights ready" notification, only for a new real (non-placeholder) insight (a reused older insight
+    # returned for a quiet period is not "new").
+    if not result.get("is_placeholder") and not result.get("is_reused"):
+        try:
+            await notify(book_id)
+        except Exception as notify_error:  # noqa: BLE001
+            logger.error(f"⚠️ Failed to send {label} insights notification to {book_id}: {notify_error}")
 
 
 async def _insight_profile(book_id: str) -> Optional[dict]:
@@ -777,75 +788,10 @@ Total Transactions: {total_tx}
     return context
 
 
-async def generate_weekly_insights_for_all_users():
-    """Generate weekly insights for the personal books of all Plus and Pro users, and for the family books of Plus and
-    Pro owners, using Bounded Concurrency (_job_targets).
-
-    Free users are never included (weekly insights are locked for them), a Plus or Pro plan that has ended counts as
-    Free, a plan whose insight_weekly the owner locked is skipped, and a user at their plan's hidden monthly cost cap
-    is skipped for the rest of the month. A family book is checked the same way on its owner. The jobs never use
-    an allowance; their spend lands in ai_usage (a personal book's under its person, which counts towards their cap; a
-    family book's under ai_usage.book_id).
-    """
-    logger.info("🔄 Starting weekly insights generation (Concurrent Mode)...")
-
-    # 1. Fetch all Plus and Pro users (and paid owners' family books) quickly to release DB cursor
-    # Projection only gets necessary fields to save memory (the plan check and the cost cap read these)
-    targets = await _job_targets("insight_weekly")
-
-    if not targets:
-        logger.info("ℹ️ No Plus or Pro users found for weekly insights.")
-        return
-
-    logger.info(f"📊 Processing {len(targets)} Plus and Pro users and family books for weekly insights...")
-
-    # 2. Semaphore to limit concurrency (5 users at a time = 5 concurrent AI calls).
-    sem = asyncio.Semaphore(5)
-
-    success_count = 0
-    error_count = 0
-
-    async def process_book_weekly(book_id, plan_user, is_family):
-        nonlocal success_count, error_count
-
-        async with sem:  # Wait for a free slot in the semaphore
-            try:
-                if await _skip_user(plan_user, "insight_weekly", book_id, is_family):
-                    return
-
-                # One insight per user, on the insight_weekly provider chain (background: the
-                # runner retries a rate-limited provider before falling back).
-                try:
-                    result = await generate_weekly_insight(book_id, notify=False, background=True)
-                except Exception as e:
-                    logger.error(f"❌ Error generating weekly insight for {book_id}: {str(e)}")
-                    error_count += 1
-                    return
-                if not result:
-                    logger.warning(f"⚠️ Failed to generate weekly insight for book {book_id} (Returned None)")
-                    error_count += 1
-                    return
-                logger.info(f"✅ Generated weekly insight for book {book_id} ({result.get('ai_provider')})")
-                success_count += 1
-
-                # One "insights ready" notification, only for a new real (non-placeholder)
-                # insight (a reused older insight returned for a quiet period is not "new").
-                if not result.get("is_placeholder") and not result.get("is_reused"):
-                    try:
-                        await notify_weekly_insights_generated(book_id)
-                    except Exception as notify_error:
-                        logger.error(f"⚠️ Failed to send weekly insights notification to {book_id}: {notify_error}")
-
-            except Exception as e:
-                logger.error(f"❌ Critical error processing book {book_id}: {str(e)}")
-                error_count += 1
-
-    # 3. Create and run all tasks
-    # This fires off the workers, which will respect the semaphore limit
-    tasks = [process_book_weekly(*target) for target in targets]
-    await asyncio.gather(*tasks)
-
-    logger.info(f"✅ Weekly insights generation completed: {success_count} successful, {error_count} errors")
+async def weekly_insight_for_book(book_id: str, today: date, tz: tzinfo) -> None:
+    """The book's weekly insight (local_jobs, Monday 05:00 on the book's clock: a personal book's person's, a family
+    book's owner's), covering the book's last complete week (_scheduled_insight)."""
+    await _scheduled_insight(book_id, tz, "insight_weekly", generate_weekly_insight, notify_weekly_insights_generated)
 
 
 MYANMAR_PLACEHOLDER = """## 👋 Toe Pwar မှ ကြိုဆိုပါတယ်!
@@ -1517,67 +1463,7 @@ Total Transactions: {total_tx}
     return context
 
 
-async def generate_monthly_insights_for_all_users():
-    """Generate monthly insights for all Plus and Pro users using Bounded Concurrency.
-
-    Free users get their monthly insight on demand instead (see main._free_monthly_insight), so this job never
-    spends on them. Same selection (paid users and the family books of paid owners), locked-plan skip
-    (insight_monthly) and cost-cap skip as the weekly job.
-    """
-    logger.info("📅 Starting monthly insights generation (Concurrent Mode)...")
-
-    # 1. Fetch all Plus and Pro users and paid owners' family books
-    targets = await _job_targets("insight_monthly")
-
-    if not targets:
-        logger.info("ℹ️ No Plus or Pro users found for monthly insights.")
-        return
-
-    logger.info(f"📊 Processing {len(targets)} Plus and Pro users and family books for monthly insights...")
-
-    # 2. Semaphore to limit concurrency
-    sem = asyncio.Semaphore(5)
-
-    success_count = 0
-    error_count = 0
-
-    async def process_book_monthly(book_id, plan_user, is_family):
-        nonlocal success_count, error_count
-
-        async with sem:
-            try:
-                if await _skip_user(plan_user, "insight_monthly", book_id, is_family):
-                    return
-
-                # One insight per user, on the insight_monthly provider chain (background: the
-                # runner retries a rate-limited provider before falling back).
-                try:
-                    result = await generate_monthly_insight(book_id, notify=False, background=True)
-                except Exception as e:
-                    logger.error(f"❌ Error generating monthly insight for {book_id}: {str(e)}")
-                    error_count += 1
-                    return
-                if not result:
-                    logger.warning(f"⚠️ Failed to generate monthly insight for book {book_id} (Returned None)")
-                    error_count += 1
-                    return
-                logger.info(f"✅ Generated monthly insight for book {book_id} ({result.get('ai_provider')})")
-                success_count += 1
-
-                # One "insights ready" notification, only for a new real (non-placeholder)
-                # insight (a reused older insight returned for a quiet period is not "new").
-                if not result.get("is_placeholder") and not result.get("is_reused"):
-                    try:
-                        await notify_monthly_insights_generated(book_id)
-                    except Exception as notify_error:
-                        logger.error(f"⚠️ Failed to send monthly insights notification to {book_id}: {notify_error}")
-
-            except Exception as e:
-                logger.error(f"❌ Critical error processing book {book_id}: {str(e)}")
-                error_count += 1
-
-    # 3. Run all tasks
-    tasks = [process_book_monthly(*target) for target in targets]
-    await asyncio.gather(*tasks)
-
-    logger.info(f"✅ Monthly insights generation completed: {success_count} successful, {error_count} errors")
+async def monthly_insight_for_book(book_id: str, today: date, tz: tzinfo) -> None:
+    """The book's monthly insight (local_jobs, the 1st at 06:00 on the book's clock), covering the book's last complete
+    month (_scheduled_insight). A Free user gets theirs on demand instead (main._free_monthly_insight)."""
+    await _scheduled_insight(book_id, tz, "insight_monthly", generate_monthly_insight, notify_monthly_insights_generated)

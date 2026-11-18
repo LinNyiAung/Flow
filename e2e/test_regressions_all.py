@@ -6,7 +6,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, UTC
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stubenv  # noqa: E402
@@ -43,12 +43,13 @@ def new_user(prefix):
 import dotenv  # noqa: E402,F401
 from recurring_transaction_service import due_occurrences, plan_due_occurrences  # noqa: E402
 from recurrence_models import RecurrenceConfig  # noqa: E402
-run_at = datetime(2026, 10, 9, 23, 30, tzinfo=UTC)
+from tz_utils import default_zone, local_today  # noqa: E402
+run_at = local_today(default_zone(), datetime(2026, 10, 9, 23, 30, tzinfo=UTC))  # the 06:00 Yangon run's today
 d, _ = due_occurrences(datetime(2026, 10, 9, tzinfo=UTC), RecurrenceConfig(frequency="daily"), run_at)
 bug("daily occurrence due today is created at the 06:00 Yangon run", [x.date().isoformat() for x in d] != ["2026-10-10"], [x.date().isoformat() for x in d])
 d, _ = due_occurrences(datetime(2026, 9, 10, tzinfo=UTC), RecurrenceConfig(frequency="monthly", day_of_month=10), run_at)
 bug("monthly occurrence on day 10 created at the Oct 10 06:00 Yangon run", [x.date().isoformat() for x in d] != ["2026-10-10"], [x.date().isoformat() for x in d])
-d = plan_due_occurrences(datetime(2026, 1, 1, tzinfo=UTC), RecurrenceConfig(frequency="daily"), datetime(2026, 10, 10, 6, tzinfo=UTC)).dates
+d = plan_due_occurrences(datetime(2026, 1, 1, tzinfo=UTC), RecurrenceConfig(frequency="daily"), date(2026, 10, 10)).dates
 bug("long-lagging daily recurrence catches up at most ~31 days in one run", len(d) > 32, f"{len(d)} occurrences")
 
 # 2. editing a legacy-category transaction
@@ -95,8 +96,7 @@ rec("second resend within a minute is rate-limited", "PASS" if after2 == after e
 import notification_service as ns  # noqa: E402
 stubenv.patch_loaded_modules()
 email3, tok3, uid3 = new_user("budget")
-# Budget dates are calendar dates; "tomorrow" is on the default zone's calendar (the server's "today").
-from tz_utils import default_zone, local_today  # noqa: E402
+# Budget dates are calendar dates; "tomorrow" is on the default zone's calendar (a person without a zone).
 today = local_today(default_zone())
 tomorrow = today + timedelta(days=1)
 r = c.post("/api/budgets", headers=H(tok3), json={"name": "Soon", "period": "custom", "start_date": tomorrow.isoformat(),
@@ -108,10 +108,13 @@ db.notifications.delete_many({"user_id": uid3, "type": {"$in": ["budget_started"
 c.get("/api/budgets", headers=H(tok3))
 
 
+book3 = db.sql("SELECT id FROM books WHERE person_id = %s", uid3)[0]["id"]
+
+
 async def _twice():
-    await ns.check_budget_period_notifications()
+    await stubenv.run_local_job("budget_now_active", book3)
     a = db.notifications.count_documents({"user_id": uid3, "type": {"$in": ["budget_started", "budget_now_active"]}})
-    await ns.check_budget_period_notifications()
+    await stubenv.run_local_job("budget_now_active", book3)
     return a
 
 

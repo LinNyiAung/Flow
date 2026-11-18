@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 from contextlib import aclosing
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, tzinfo, UTC
 from typing import Awaitable, Callable, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, Query, Path
@@ -752,17 +752,18 @@ def _insight_has_content(insight: Optional[dict]) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
-def _next_insight_at(user: dict, insight_type: str) -> Optional[datetime]:
+def _next_insight_at(user: dict, insight_type: str, book_tz: tzinfo) -> Optional[datetime]:
     """When the next insight of `insight_type` arrives for this user (UTC), or None when the type is locked for them.
 
-    Plus and Pro: the scheduler's next run (insight_schedule reads the same cron fields the scheduler uses). A Free user's
+    Plus and Pro: the book's next scheduled run on its clock `book_tz` (user_zones.book_zone; insight_schedule reads the
+    same cron fields as the local-time jobs). A Free user's
     monthly insight is made on demand once a month, so the next one can be made at the start of next month (in their
     zone). The scheduler skips Free users, so there is no scheduled weekly insight to announce for them."""
     if quota.is_locked(user, f"insight_{insight_type}"):
         return None
     if effective_plan(user) == "free":
-        return insight_schedule.next_on_demand_insight_at(tz=user_zone(user)) if insight_type == "monthly" else None
-    return insight_schedule.next_scheduled_insight_at(insight_type)
+        return insight_schedule.next_on_demand_insight_at(user_zone(user)) if insight_type == "monthly" else None
+    return insight_schedule.next_scheduled_insight_at(insight_type, book_tz)
 
 
 def _insight_response(insight: dict, translation_locked: bool = False, plan_translates: bool = True,
@@ -884,8 +885,8 @@ async def get_insights(
         if not book.is_family and effective_plan(plan_user) == "free" and insight_type == "monthly":
             # Free is never translated: English only, whatever language was asked for (no translation call).
             latest_insight = await _free_monthly_insight(plan_user, latest_insight, book_id)
-            return _insight_response(latest_insight, translation_locked, plan_translates=False,
-                                     next_insight_at=_next_insight_at(plan_user, insight_type))
+            next_at = _next_insight_at(plan_user, insight_type, await book_zone(book_id))
+            return _insight_response(latest_insight, translation_locked, plan_translates=False, next_insight_at=next_at)
 
         # A stored "welcome" placeholder is replaced once the user has real data (incl.
         # transactions in the current, incomplete period). If they don't, but they have
@@ -934,7 +935,7 @@ async def get_insights(
                 latest_insight, plan_user, **_translation_kwargs(book))
 
         return _insight_response(latest_insight, translation_locked, plan_translates, translation_unavailable,
-                                 _next_insight_at(plan_user, insight_type))
+                                 _next_insight_at(plan_user, insight_type, await book_zone(book_id)))
 
     except (HTTPException, PlanError):
         raise
@@ -1009,7 +1010,7 @@ async def regenerate_insights(
 
         print(f"✅ {insight_type.title()} insights regenerated successfully ({new_insight.get('ai_provider')})")
         return _insight_response(new_insight, translation_locked, plan_translates, translation_unavailable,
-                                 _next_insight_at(plan_user, insight_type))
+                                 _next_insight_at(plan_user, insight_type, await book_zone(book.id)))
     except (HTTPException, PlanError):
         raise
     except Exception as e:

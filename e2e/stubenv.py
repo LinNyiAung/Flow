@@ -689,3 +689,16 @@ def patch_loaded_modules():
                          ("send_fcm_to_multiple", fake_send_multi)):
             if hasattr(mod, name):
                 setattr(mod, name, fn)
+
+
+async def run_local_job(job_id, subject_id):
+    """Run the local-time job `job_id` (local_jobs.LOCAL_JOBS) for one person or book now, on the subject's today in its
+    zone, without claiming the day: what the 15-minute tick does for that subject, on demand. Returns the handler's
+    result."""
+    import local_jobs
+    from tz_utils import local_today
+    from user_zones import book_zone, person_zone
+    patch_loaded_modules()
+    job = next(j for j in local_jobs.LOCAL_JOBS if j.id == job_id)
+    tz = await (person_zone(subject_id) if job.subject == "person" else book_zone(subject_id))
+    return await job.handler(subject_id, local_today(tz), tz)

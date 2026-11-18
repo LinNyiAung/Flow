@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, datetime, UTC, timedelta
+from datetime import date, datetime, UTC, timedelta, tzinfo
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 from firebase_service import send_push
@@ -14,10 +14,10 @@ from sql import books as books_db
 from sql import users as users_db
 from plans.access import format_day
 from tz_utils import (
-    as_calendar_date, as_wall_clock, days_until, default_zone, goal_reminder_threshold, is_budget_ending_soon,
-    local_now, local_today, GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
+    as_calendar_date, as_wall_clock, days_until, goal_reminder_threshold, is_budget_ending_soon, local_now,
+    GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
 )
-from user_zones import person_zone
+from user_zones import book_zone, person_zone
 
 # The daily job only announces budgets whose start date is at most this many days ago
 # (covers a missed run without spamming long-running legacy budgets on rollout).
@@ -574,66 +574,63 @@ def _days_text(days: int, lang: str) -> str:
     return "1 day" if days == 1 else f"{days} days"
 
 
-async def check_approaching_target_dates():
-    """
-    Check active goals for approaching target dates (run once daily).
+async def _books_of_person(person_id: str) -> List[str]:
+    """The books whose reminders a person gets: their personal book, and their family's book while they are an active
+    account member of a family."""
+    book_ids = []
+    personal = await books_db.personal_book_id(person_id)
+    if personal:
+        book_ids.append(personal)
+    membership = await families_db.active_membership(person_id)
+    family_book = await books_db.family_book_id(membership["family_id"]) if membership else None
+    if family_book:
+        book_ids.append(family_book)
+    return book_ids
 
-    Days remaining are counted in calendar days: the goal's target date vs. today
-    in the default zone. Each goal gets at most one reminder per threshold (14/7/3/1 days)
-    for a given target date; thresholds are matched as ranges (e.g. 8-14 days -> the
-    14-day reminder) so a missed run or a goal created inside a window still gets it.
-    """
-    today = local_today(default_zone())
-    max_days = max(GOAL_REMINDER_THRESHOLDS)
-    window_start = today - timedelta(days=1)
-    window_end = today + timedelta(days=max_days + 1)
 
-    goals = await goals_db.list_goals(status="active", target_between=(window_start, window_end))
+async def goal_deadline_reminders_for_person(person_id: str, today: date, tz: tzinfo) -> None:
+    """The person's daily goal-deadline reminders (local_jobs, 09:00 on their clock): the active goals of their
+    books (personal, and their family's) whose target date is near, counted in calendar days from the person's `today`.
 
-    for goal in goals:
-        try:
-            target_date = goal.get("target_date")
-            if not target_date:
-                continue
+    Each goal gets at most one reminder per threshold (14/7/3/1 days) for a given target date for each person;
+    thresholds are matched as ranges (e.g. 8-14 days -> the 14-day reminder) so a missed run or a goal created inside a
+    window still gets it. A family goal's reminder goes to this member only (each member gets theirs in their own
+    run, counted from their own today)."""
+    window = (today - timedelta(days=1), today + timedelta(days=max(GOAL_REMINDER_THRESHOLDS) + 1))
+    since = datetime.now(UTC) - timedelta(hours=20)
+    for book_id in await _books_of_person(person_id):
+        for goal in await goals_db.list_goals(book_id, status="active", target_between=window):
+            try:
+                target_date = goal.get("target_date")
+                if not target_date:
+                    continue
+                days_remaining = days_until(target_date, today)
+                threshold = goal_reminder_threshold(days_remaining)
+                if threshold is None:
+                    continue
+                goal_id = goal["_id"]
+                target_key = as_calendar_date(target_date).isoformat()
 
-            days_remaining = days_until(target_date, today)
-            threshold = goal_reminder_threshold(days_remaining)
-            if threshold is None:
-                continue
+                # Dedupe per person + goal + threshold + target date (a changed target date re-arms the reminders).
+                # The 20h check also covers notifications created before these keys existed.
+                if await notifications_db.approaching_reminder_exists([person_id], goal_id, threshold, target_key,
+                                                                      since=since):
+                    continue
 
-            book_id = goal["book_id"]
-            goal_id = goal["_id"]
-            target_key = as_calendar_date(target_date).isoformat()
-
-            # Dedupe per goal + threshold + target date (a changed target date re-arms
-            # the reminders). The 20h check also covers notifications created before
-            # these keys existed, so nobody gets a duplicate on rollout. A family goal's
-            # reminder counts as sent once any member has it.
-            _, recipients = await notification_recipients(book_id)
-            if not recipients:
-                continue
-            existing = await notifications_db.approaching_reminder_exists(
-                recipients, goal_id, threshold, target_key, since=datetime.now(UTC) - timedelta(hours=20)
-            )
-            if existing:
-                continue
-
-            goal_name = goal["name"]
-            remaining = (goal.get("target_amount") or 0) - (goal.get("current_amount") or 0)
-            currency = goal.get("currency", "usd")
-
-            await create_notification_from_key(
-                book_id, "goal_approaching_date", "goal_approaching_title",
-                "goal_approaching_msg_with_remaining" if remaining > 0 else "goal_approaching_msg_achieved",
-                subject={"goal_id": goal_id},
-                goal_name=goal_name,
-                currency=currency,
-                extra={"reminder_threshold": threshold, "reminder_target_date": target_key},
-                days=lambda lang, d=days_remaining: _days_text(d, lang),
-                remaining=format_currency_amount(remaining, currency),
-            )
-        except Exception as e:
-            print(f"❌ Error checking target date for goal {goal.get('_id')}: {e}")
+                remaining = (goal.get("target_amount") or 0) - (goal.get("current_amount") or 0)
+                currency = goal.get("currency", "usd")
+                await create_person_notification_from_key(
+                    person_id, "goal_approaching_date", "goal_approaching_title",
+                    "goal_approaching_msg_with_remaining" if remaining > 0 else "goal_approaching_msg_achieved",
+                    links={"goal_id": goal_id, "book_id": book_id},
+                    goal_name=goal["name"],
+                    currency=currency,
+                    extra={"reminder_threshold": threshold, "reminder_target_date": target_key},
+                    days=lambda lang, d=days_remaining: _days_text(d, lang),
+                    remaining=format_currency_amount(remaining, currency),
+                )
+            except Exception as e:
+                print(f"❌ Error checking target date for goal {goal.get('_id')} for {person_id}: {e}")
 
 async def check_budget_notifications(book_id: str, budget_id: str, old_percentage: float, new_percentage: float, budget_name: str, category_name: str = None):
     """Check and create budget threshold/exceeded notifications"""
@@ -658,85 +655,62 @@ async def check_budget_notifications(book_id: str, budget_id: str, old_percentag
         )
 
 
-async def check_budget_period_notifications():
-    """Check all budgets for period start/end notifications (run daily)"""
-    now = datetime.now(UTC)
-    today = local_today(default_zone(), now)
+async def budget_ending_reminders_for_person(person_id: str, today: date, tz: tzinfo) -> None:
+    """The person's daily "budget ending soon" reminders (local_jobs, 09:00 on their clock): the running budgets of
+    their books (personal, and their family's) whose last day is at most BUDGET_ENDING_SOON_DAYS calendar days after
+    the person's `today` (0: it ends today).
 
-    from budget_service import is_budget_running, refresh_budget_state_if_stale  # local: avoid import cycle
+    "Running" = its days include the person's today and its status is active OR exceeded (an exceeded budget is still
+    running and must get the alert). A budget's status is once per book (the book's zone), and stored statuses can be
+    stale (still "upcoming" after the start date), so candidates are refreshed first. Budget ids are per period, so
+    each person gets one "ending soon" per budget ever; a family budget's goes to this member only."""
+    from budget_service import RUNNING_BUDGET_STATUSES, refresh_budget_state_if_stale  # local: avoid import cycle
 
-    # --- Part 1: running budgets ending within BUDGET_ENDING_SOON_DAYS (by calendar date) ---
-    # "Running" = its days include today and status active OR exceeded (an
-    # exceeded budget is still running and must get the alert). Stored statuses can be
-    # stale (still "upcoming" after the start date), so candidates are refreshed first.
-    try:
-        window_start = today - timedelta(days=1)
-        window_end = today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1)
-        budgets_ending = await budgets_db.ending_soon_candidates(today, window_start, window_end)
-    except Exception as e:
-        print(f"❌ Error loading budgets ending soon: {e}")
-        budgets_ending = []
-
-    for budget in budgets_ending:
+    window = (today - timedelta(days=1), today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1))
+    zones: Dict[str, tzinfo] = {}
+    for budget in await budgets_db.ending_soon_candidates(await _books_of_person(person_id), today, *window):
         try:
-            budget = await refresh_budget_state_if_stale(budget)
-            if not is_budget_running(budget, default_zone(), now):
+            book_id = budget["book_id"]
+            if book_id not in zones:
+                zones[book_id] = await book_zone(book_id)
+            budget = await refresh_budget_state_if_stale(budget, zones[book_id])
+            if budget.get("status") not in RUNNING_BUDGET_STATUSES or not budget.get("end_date"):
                 continue
-            end_date = budget.get("end_date")
-            if not end_date:
-                continue
-            days_until_end = days_until(end_date, today)
+            days_until_end = days_until(budget["end_date"], today)
             if not is_budget_ending_soon(days_until_end):
                 continue
-
-            book_id = budget["book_id"]
             budget_id = budget["_id"]
-
-            # Budget ids are per period, so one "ending soon" per budget ever. The flag is
-            # claimed atomically (overlapping runs can't both send); budgets notified
-            # before the flag existed are detected by their notification and just flagged.
-            if not await budgets_db.claim_flag(budget_id, "ending_soon_notified", now):
+            if await notifications_db.exists([person_id], "budget_ending_soon", budget_id=budget_id):
                 continue
-            _, recipients = await notification_recipients(book_id)
-            existing = await notifications_db.exists(recipients, "budget_ending_soon", budget_id=budget_id)
-            if existing:
-                continue
-
             budget_name = budget["name"]
-            currency = budget.get("currency", "usd")
-
-            try:
-                await create_notification_from_key(
-                    book_id, "budget_ending_soon", "budget_ending_soon_title",
-                    "budget_ending_today_msg" if days_until_end == 0 else "budget_ending_soon_msg",
-                    subject={"budget_id": budget_id},
-                    goal_name=budget_name,
-                    currency=currency,
-                    budget_name=budget_name,
-                    days=lambda lang, d=days_until_end: _days_text(d, lang),
-                )
-            except Exception:
-                # Release the claim so the next run can retry.
-                await budgets_db.release_flag(budget_id, "ending_soon_notified")
-                raise
+            await create_person_notification_from_key(
+                person_id, "budget_ending_soon", "budget_ending_soon_title",
+                "budget_ending_today_msg" if days_until_end == 0 else "budget_ending_soon_msg",
+                links={"budget_id": budget_id, "book_id": book_id},
+                goal_name=budget_name,
+                currency=budget.get("currency", "usd"),
+                budget_name=budget_name,
+                days=lambda lang, d=days_until_end: _days_text(d, lang),
+            )
         except Exception as e:
-            print(f"❌ Error checking budget end for {budget.get('_id')}: {e}")
+            print(f"❌ Error checking budget end for {budget.get('_id')} for {person_id}: {e}")
 
-    # --- Part 2: budgets whose start date has arrived and that were never announced ---
-    # Status may already have been flipped upcoming -> active by a list/get refresh, so
-    # select by dates + the started_notified flag instead of status == "upcoming".
-    try:
-        lookback_start = today - timedelta(days=BUDGET_NOW_ACTIVE_LOOKBACK_DAYS)
-        budgets_now_active = await budgets_db.now_active_candidates(lookback_start, today)
-    except Exception as e:
-        print(f"❌ Error loading started budgets: {e}")
-        budgets_now_active = []
 
-    for budget in budgets_now_active:
+async def budget_now_active_for_book(book_id: str, today: date, tz: tzinfo) -> None:
+    """The book's daily "budget now active" check (local_jobs, 09:00 on the book's clock): budgets whose start date
+    (at most BUDGET_NOW_ACTIVE_LOOKBACK_DAYS before the book's `today`) has arrived and that were never announced.
+
+    Status may already have been flipped upcoming -> active by a list/get refresh, so they are selected by dates and
+    the started_notified flag instead of status == "upcoming". The upcoming -> active recompute sends the notice too;
+    notify_budget_now_active_once sends it once whichever path gets there first."""
+    from budget_service import refresh_budget_state_if_stale  # local: avoid import cycle
+
+    lookback_start = today - timedelta(days=BUDGET_NOW_ACTIVE_LOOKBACK_DAYS)
+    for budget in await budgets_db.now_active_candidates(book_id, lookback_start, today):
         try:
             if budget.get("status") == "upcoming":
                 # Persist the real status; the recompute itself sends the notification.
-                budget = await refresh_budget_state_if_stale(budget)
+                budget = await refresh_budget_state_if_stale(budget, tz)
             if budget.get("status") in ("active", "exceeded"):
                 await notify_budget_now_active_once(budget)
         except Exception as e:
@@ -847,9 +821,9 @@ async def check_large_transaction(book_id: str, transaction: Dict, user_spending
             )
 
 
-async def analyze_unusual_spending(book_id: str):
+async def analyze_unusual_spending(book_id: str, tz: Optional[tzinfo] = None):
     """Analyze the book's spending patterns and notify its person about unusual activity (never for a family book: no
-    per-entry notices, R14)"""
+    per-entry notices, R14). tz: the person's zone when the caller has it (else it is read)."""
     from collections import defaultdict
 
     person_id = await _personal_book_person(book_id)
@@ -859,7 +833,7 @@ async def analyze_unusual_spending(book_id: str):
     now = datetime.now(UTC)
     # Transaction dates are local wall-clock values (no timezone), so the "this week" window is measured on the
     # person's wall clock (created_at stays real UTC).
-    wall_now = local_now(await person_zone(person_id), now)
+    wall_now = local_now(tz if tz is not None else await person_zone(person_id), now)
     currencies = await transactions_db.currencies(book_id)
     # [FIX] Added await
     lang = await get_user_language(person_id)
@@ -930,9 +904,9 @@ async def analyze_unusual_spending(book_id: str):
                     )
 
 
-async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today):
+async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today: date, tz: tzinfo):
     """Detect monthly recurring outflows in one book and send its person due-soon reminders (never for a family book,
-    R14)."""
+    R14). `today` and `tz`: the person's."""
     from collections import defaultdict
 
     person_id = await _personal_book_person(book_id)
@@ -943,7 +917,7 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
     currencies = await transactions_db.currencies(book_id)
 
     for currency in currencies:
-        ninety_days_ago = local_now(default_zone(), now) - timedelta(days=90)
+        ninety_days_ago = local_now(tz, now) - timedelta(days=90)
         transactions = await transactions_db.find_transactions(
             book_id, type_="outflow", currency=currency, date_from=ninety_days_ago, include_transfers=False
         )
@@ -1018,31 +992,20 @@ async def _detect_recurring_payments_for_book(book_id: str, now: datetime, today
             )
 
 
-async def detect_and_notify_recurring_payments():
-    """Detect recurring payments and send reminders"""
-    now = datetime.now(UTC)
-    today = local_today(default_zone(), now)
-
-    for book_id in await _personal_books():
-        try:
-            await _detect_recurring_payments_for_book(book_id, now, today)
-        except Exception as e:
-            print(f"❌ Error detecting recurring payments for book {book_id}: {e}")
+async def payment_reminders_for_person(person_id: str, today: date, tz: tzinfo) -> None:
+    """The person's daily recurring-payment reminders (local_jobs, 09:00 on their clock), from their personal book
+    only (family books get no spending-pattern notices, R14)."""
+    book_id = await books_db.personal_book_id(person_id)
+    if book_id:
+        await _detect_recurring_payments_for_book(book_id, datetime.now(UTC), today, tz)
 
 
-async def _personal_books() -> List[str]:
-    """The personal book of every person (the jobs that read spending patterns run on persons' personal books only;
-    family books get no such notices, R14). A person without a book yet has no data and is left out."""
-    return list((await books_db.personal_book_ids(await users_db.user_ids())).values())
-
-
-async def analyze_all_unusual_spending():
-    """The daily unusual-spending job: analyze_unusual_spending on every person's personal book."""
-    for book_id in await _personal_books():
-        try:
-            await analyze_unusual_spending(book_id)
-        except Exception as e:
-            print(f"Error analyzing spending for book {book_id}: {e}")
+async def unusual_spending_for_person(person_id: str, today: date, tz: tzinfo) -> None:
+    """The person's daily unusual-spending check (local_jobs, 08:00 on their clock), on their personal book only
+    (family books get no spending-pattern notices, R14)."""
+    book_id = await books_db.personal_book_id(person_id)
+    if book_id:
+        await analyze_unusual_spending(book_id, tz)
 
 async def _notify_insights_generated(book_id: str, notification_type: str, title_key: str, msg_key: str,
                                      goal_name_en: str, goal_name_my: str):

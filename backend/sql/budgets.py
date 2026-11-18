@@ -114,26 +114,30 @@ async def find_existing_next(book_id: str, parent_id: str, name: str, period: st
     return {"_id": row["id"], "parent_budget_id": row["parent_budget_id"]} if row else None
 
 
-async def rollover_candidates(today: date) -> List[Dict[str, Any]]:
-    """Auto-create budgets whose last day is before `today` and that have no next budget yet."""
-    return await _list(select(b).where(b.c.auto_create_enabled.is_(True), b.c.end_date < as_calendar_date(today),
+async def rollover_candidates(book_id: str, today: date) -> List[Dict[str, Any]]:
+    """The book's auto-create budgets whose last day is before `today` and that have no next budget yet."""
+    return await _list(select(b).where(b.c.book_id == book_id, b.c.auto_create_enabled.is_(True),
+                                       b.c.end_date < as_calendar_date(today),
                                        b.c.rolled_over_to.is_(None)).order_by(b.c.end_date, b.c.id))
 
 
-async def ending_soon_candidates(today: date, window_start: date, window_end: date) -> List[Dict[str, Any]]:
-    """Not yet announced budgets that have started by `today` and whose last day is in [window_start, window_end]."""
+async def ending_soon_candidates(book_ids: Sequence[str], today: date, window_start: date,
+                                 window_end: date) -> List[Dict[str, Any]]:
+    """The books' running or upcoming budgets that have started by `today` and whose last day is in
+    [window_start, window_end]."""
+    if not book_ids:
+        return []
     return await _list(select(b).where(
-        b.c.status.in_(RUNNING_OR_UPCOMING), b.c.start_date <= as_calendar_date(today),
-        b.c.end_date >= as_calendar_date(window_start), b.c.end_date <= as_calendar_date(window_end),
-        b.c.ending_soon_notified.is_(False),
+        b.c.book_id.in_(list(book_ids)), b.c.status.in_(RUNNING_OR_UPCOMING),
+        b.c.start_date <= as_calendar_date(today), b.c.end_date >= as_calendar_date(window_start), b.c.end_date <= as_calendar_date(window_end),
     ).order_by(b.c.end_date, b.c.id))
 
 
-async def now_active_candidates(lookback_start: date, today: date) -> List[Dict[str, Any]]:
-    """Not yet announced budgets that started in [lookback_start, today] and are still running today."""
+async def now_active_candidates(book_id: str, lookback_start: date, today: date) -> List[Dict[str, Any]]:
+    """The book's not yet announced budgets that started in [lookback_start, today] and are still running today."""
     today = as_calendar_date(today)
     return await _list(select(b).where(
-        b.c.status.in_(RUNNING_OR_UPCOMING), b.c.started_notified.is_(False),
+        b.c.book_id == book_id, b.c.status.in_(RUNNING_OR_UPCOMING), b.c.started_notified.is_(False),
         b.c.start_date >= as_calendar_date(lookback_start), b.c.start_date <= today, b.c.end_date >= today,
     ).order_by(b.c.start_date, b.c.id))
 
@@ -180,7 +184,9 @@ async def delete_budget(budget_id: str, book_id: str) -> int:
     return await execute(delete(b).where(b.c.id == budget_id, b.c.book_id == book_id))
 
 
-_FLAGS = {"started_notified", "ending_soon_notified"}
+# The one-time notification flag still claimed per budget ("ending soon" is guarded per person by its notice:
+# ending_soon_notified is no longer set).
+_FLAGS = {"started_notified"}
 
 
 async def claim_flag(budget_id: str, flag: str, now: datetime) -> bool:
@@ -188,11 +194,6 @@ async def claim_flag(budget_id: str, flag: str, now: datetime) -> bool:
     assert flag in _FLAGS
     stmt = update(b).where(b.c.id == budget_id, b.c[flag].is_(False)).values({flag: True, f"{flag}_at": now})
     return await execute(stmt) > 0
-
-
-async def release_flag(budget_id: str, flag: str) -> None:
-    assert flag in _FLAGS
-    await execute(update(b).where(b.c.id == budget_id).values({flag: False, f"{flag}_at": None}))
 
 
 async def claim_auto_create(budget_id: str, now: datetime, stale_before: datetime) -> bool:

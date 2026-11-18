@@ -1393,9 +1393,12 @@ def section_recurring_children():
             from collections import defaultdict
             import recurring_transaction_service as rts
             from sql import transactions as transactions_db
+            from tz_utils import local_today
+            from user_zones import book_zone
             doc = await transactions_db.get_transaction(parent)
             affected = defaultdict(lambda: defaultdict(list))
-            return await rts._process_recurring_transaction(doc, datetime.now(UTC), affected)
+            today = local_today(await book_zone(doc["book_id"]))  # the family book's (its owner's) today
+            return await rts._process_recurring_transaction(doc, datetime.now(UTC), today, affected)
         try:
             made_n = _backend_async(run_job)
         except Exception as e:  # noqa: BLE001
@@ -2118,7 +2121,8 @@ def section_notifications():
         async def payment_reminders():
             import notification_service as ns
             from tz_utils import default_zone, local_today
-            await ns._detect_recurring_payments_for_book(book, datetime.now(UTC), local_today(default_zone()))
+            await ns._detect_recurring_payments_for_book(book, datetime.now(UTC), local_today(default_zone()),
+                                                         default_zone())
         _backend_async(payment_reminders)
         time.sleep(2)  # the large-entry check runs as a background task
         per_entry = [n["type"] for uid in (M["id"], D["id"]) for n in notes(uid)] + [n["type"] for n in book_notes()]
@@ -2169,11 +2173,12 @@ def section_notifications():
               "notifications: with Dad's alerts off, only Mum gets the next one",
               (mt2, notes(D["id"], "budget_threshold")))
 
-        # ---- budget ending soon (daily job): once each, the days in each language ----
+        # ---- budget ending soon (each member's daily job): once each, the days in each language ----
         async def period_job():
-            import notification_service as ns
-            await ns.check_budget_period_notifications()
-            await ns.check_budget_period_notifications()
+            for _ in range(2):
+                for person in (M, D):
+                    await stubenv.run_local_job("budget_ending_reminders", person["id"])
+                await stubenv.run_local_job("budget_now_active", book)
         _backend_async(period_job)
         me = [n for n in notes(M["id"], "budget_ending_soon") if n["budget_id"] == bid]
         de = [n for n in notes(D["id"], "budget_ending_soon") if n["budget_id"] == bid]
@@ -2198,9 +2203,9 @@ def section_notifications():
         sid = r.json().get("id") if r.status_code == 200 else None
 
         async def target_job():
-            import notification_service as ns
-            await ns.check_approaching_target_dates()
-            await ns.check_approaching_target_dates()
+            for _ in range(2):
+                for person in (M, D):  # each member's own daily job
+                    await stubenv.run_local_job("goal_deadline_reminders", person["id"])
         _backend_async(target_job)
         mg = [n for n in notes(M["id"], "goal_approaching_date") if n["goal_id"] == sid]
         dg = [n for n in notes(D["id"], "goal_approaching_date") if n["goal_id"] == sid]
@@ -2256,8 +2261,12 @@ def section_notifications():
                 from collections import defaultdict
                 import recurring_transaction_service as rts
                 from sql import transactions as transactions_db
+                from tz_utils import local_today
+                from user_zones import book_zone
                 doc = await transactions_db.get_transaction(parent)
-                return await rts._process_recurring_transaction(doc, datetime.now(UTC), defaultdict(lambda: defaultdict(list)))
+                today = local_today(await book_zone(book))
+                return await rts._process_recurring_transaction(doc, datetime.now(UTC), today,
+                                                                defaultdict(lambda: defaultdict(list)))
             try:
                 return _backend_async(go)
             except Exception as e:  # noqa: BLE001
@@ -2348,11 +2357,7 @@ def section_ai():
 
     def run_job(kind):
         async def go():
-            import insights_service as ins
-            if kind == "weekly":
-                await ins.generate_weekly_insights_for_all_users()
-            else:
-                await ins.generate_monthly_insights_for_all_users()
+            await stubenv.run_local_job(f"{kind}_insights", book)
         _backend_async(go)
 
     book = None

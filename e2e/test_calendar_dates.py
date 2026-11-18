@@ -26,6 +26,18 @@ Sections:
   family -- owner in Asia/Yangon, member in Asia/Tokyo: the member's "2026-11-18T23:40:00" entry reads back the same
     for the owner; the family book's zone is the owner's, and the new owner's after ownership passes (Task 2). Needs
     the stub.
+  ticks -- the 15-minute tick (local_jobs.run_due_local_jobs, driven in-process at chosen instants, its subjects
+    narrowed to this section's people): a Yangon person's 7-days-left goal reminder is not sent at 08:50, sent once at
+    09:05 and not again at 09:20; a zone change to Asia/Tokyo after the Yangon run brings no second run that day; a
+    handler that raises releases its claim and the next tick sends the reminder; an America/New_York person gets
+    exactly one 09:00 run on the 2027-03-14 spring-forward day; a NULL-zone person's budget rolls over at the 00:30
+    Yangon tick, not before (Task 3). Needs the stub (people are made over HTTP).
+  family_jobs -- owner in Asia/Yangon, member in Asia/Tokyo: the family budget rolls over at the owner's 00:30, not
+    the member's; a family goal's reminder reaches the member alone in Tokyo's 09:00 tick (Tokyo's day count) and the
+    owner in Yangon's; the weekly family insight is generated once, at the owner's Monday 05:00 (Task 3). Needs the
+    stub.
+  plan_dates -- a plan renewal reminder shows the plan's end date on the recipient's calendar (a Kiritimati person's
+    date, not the default zone's) (Task 3). Needs the stub.
 """
 import asyncio
 import os
@@ -821,8 +833,274 @@ def section_family():
         _cleanup(made)
 
 
+# ----------------------------------------------------------------------------------------------------------- ticks
+NEW_YORK = ZoneInfo("America/New_York")
+
+
+def _at(day, hh, mm, zone):
+    """The instant `day` hh:mm on the wall clock of `zone`, as an aware UTC datetime."""
+    return datetime(day.year, day.month, day.day, hh, mm, tzinfo=zone).astimezone(UTC)
+
+
+def _ticks(nows, people=(), books=(), probe=None, flaky=None, logs=None):
+    """run_due_local_jobs at each instant of `nows` (one event loop), its subjects narrowed to these people and books:
+    [(run counts, probe())] per tick (probe: a sync read after each tick). flaky: the id of a job whose handler raises
+    on its first call. logs: a list that collects (instead of printing) what local_jobs logs. An error: its repr."""
+    async def go():
+        import logging
+        import local_jobs
+        from sql import local_job_runs as runs_db
+        stubenv.patch_loaded_modules()
+        orig_p, orig_b = runs_db.person_subjects, runs_db.book_subjects
+
+        async def only_people():
+            return [s for s in await orig_p() if s[0] in people]
+
+        async def only_books():
+            return [s for s in await orig_b() if s[0] in books]
+        job = next((j for j in local_jobs.LOCAL_JOBS if j.id == flaky), None)
+        orig_handler = job.handler if job else None
+        calls = []
+
+        async def raises_once(subject_id, today, tz):
+            calls.append(subject_id)
+            if len(calls) == 1:
+                raise RuntimeError("handler fails once")
+            return await orig_handler(subject_id, today, tz)
+        class Keep(logging.Handler):
+            def emit(self, record):
+                logs.append(record.getMessage())
+        log, keep = logging.getLogger("local_jobs"), Keep()
+        if logs is not None:
+            log.addHandler(keep)
+            log.propagate = False
+        runs_db.person_subjects, runs_db.book_subjects = only_people, only_books
+        if job:
+            job.handler = raises_once
+        try:
+            out = []
+            for now in nows:
+                counts = await local_jobs.run_due_local_jobs(now=now)
+                out.append((counts, probe() if probe else None))
+            return out
+        finally:
+            runs_db.person_subjects, runs_db.book_subjects = orig_p, orig_b
+            log.removeHandler(keep)
+            log.propagate = True
+            if job:
+                job.handler = orig_handler
+    try:
+        return _backend_async(go)
+    except Exception as e:  # noqa: BLE001
+        return repr(e)[:300]
+
+
+def _runs(ticks, job_id):
+    """How many times `job_id` ran in each tick of a _ticks result (None when the ticks failed)."""
+    return [t[0].get(job_id) for t in ticks] if isinstance(ticks, list) else None
+
+
+def _probes(ticks):
+    return [t[1] for t in ticks] if isinstance(ticks, list) else ticks
+
+
+def _reminders(p, goal_id):
+    return db.sql("SELECT message, reminder_threshold, book_id FROM notifications WHERE user_id = %s "
+                  "AND type = 'goal_approaching_date' AND goal_id = %s", p["id"], goal_id)
+
+
+def _goal(c, p, target, family=False):
+    r = c.post("/api/goals", headers={**p["h"], **(FAMILY if family else {})},
+               json={"name": f"Goal {uuid.uuid4().hex[:6]}", "target_amount": 1000, "goal_type": "savings",
+                     "currency": "usd", "target_date": target.isoformat()})
+    return r.json().get("id") if r.status_code == 200 else f"{r.status_code} {r.text[:200]}"
+
+
+def _claimed(job, subject, day):
+    return bool(db.sql("SELECT 1 FROM local_job_runs WHERE job = %s AND subject_id = %s AND local_date = %s",
+                       job, subject, day))
+
+
+def _finished_budget(book_id, end, label):
+    """An auto-create (no AI) monthly budget of the book whose last day is `end`; its id."""
+    bid = f"cd-roll-{label}-{uuid.uuid4().hex[:6]}"
+    now = datetime.now(UTC)
+    db.budgets.insert_one({
+        "_id": bid, "book_id": book_id, "name": f"Roll {label}", "period": "custom", "currency": "usd",
+        "start_date": end - timedelta(days=6), "end_date": end,
+        "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
+                              "percentage_used": 0, "is_exceeded": False}],
+        "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+        "status": "completed", "is_active": False, "auto_create_enabled": True, "auto_create_with_ai": False,
+        "created_at": now, "updated_at": now})
+    return bid
+
+
+def _children(parent_id):
+    return db.sql("SELECT count(*) n FROM budgets WHERE parent_budget_id = %s", parent_id)[0]["n"]
+
+
+def _book_of(p):
+    return _one("SELECT id FROM books WHERE person_id = %s", p["id"]).get("id")
+
+
+def section_ticks():
+    c, made = _client(), []
+    try:
+        day = _today_in("Asia/Yangon")  # the jobs' own reads (status, rollover period) use the real clock: stay on it
+        target = day + timedelta(days=7)
+
+        # ---- once per local day: not before 09:00, once after it, never again that day
+        p = _person(c, made, "Tick", zone="Asia/Yangon")
+        gid = _goal(c, p, target)
+        ticks = _ticks([_at(day, 8, 50, YANGON), _at(day, 9, 5, YANGON), _at(day, 9, 20, YANGON)], people={p["id"]},
+                       probe=lambda: len(_reminders(p, gid)))
+        check(_probes(ticks) == [0, 1, 1] and _runs(ticks, "goal_deadline_reminders") == [0, 1, 0],
+              "ticks: a Yangon person's 7-days-left goal reminder is not sent at 08:50, sent once at 09:05 and not "
+              "again at 09:20 (the job runs once)", (_probes(ticks), _runs(ticks, "goal_deadline_reminders")))
+        got = _reminders(p, gid)
+        check(len(got) == 1 and got[0]["reminder_threshold"] == 7 and "7 days" in got[0]["message"],
+              "ticks: it is the 7-day reminder, counted from the person's today", got)
+        check(_claimed("goal_deadline_reminders", p["id"], day),
+              "ticks: the run is claimed in local_job_runs for (job, person, local date)")
+
+        # ---- a zone change after the day's run brings no second run that day
+        db.sql("UPDATE users SET timezone = 'Asia/Tokyo' WHERE id = %s", p["id"])  # 09:30 Yangon = 11:00 Tokyo
+        ticks = _ticks([_at(day, 9, 45, YANGON)], people={p["id"]}, probe=lambda: len(_reminders(p, gid)))
+        check(_runs(ticks, "goal_deadline_reminders") == [0] and _probes(ticks) == [1],
+              "ticks: after the zone changes from Asia/Yangon to Asia/Tokyo (11:00 there, same date) the next tick "
+              "runs nothing again", ticks)
+
+        # ---- a failed run releases its claim and the next tick retries it
+        q = _person(c, made, "Flaky", zone="Asia/Yangon")
+        qid, logs = _goal(c, q, target), []
+        ticks = _ticks([_at(day, 9, 5, YANGON), _at(day, 9, 20, YANGON)], people={q["id"]},
+                       probe=lambda: (len(_reminders(q, qid)), _claimed("goal_deadline_reminders", q["id"], day)),
+                       flaky="goal_deadline_reminders", logs=logs)
+        check(_probes(ticks) == [(0, False), (1, True)] and _runs(ticks, "goal_deadline_reminders") == [0, 1],
+              "ticks: a handler that raises releases its claim (nothing sent) and the next tick sends the reminder",
+              (_probes(ticks), _runs(ticks, "goal_deadline_reminders")))
+        check(len(logs) == 1 and "goal_deadline_reminders failed" in logs[0], "ticks: the failure is logged", logs)
+
+        # ---- a NULL-zone person's rollover runs at the 00:30 Yangon tick, not before
+        n = _person(c, made, "Rollnull")
+        check(_stored_zone(n) is None, "ticks: the rollover person has no saved zone", _stored_zone(n))
+        nbook = _book_of(n)
+        parent = _finished_budget(nbook, day - timedelta(days=1), "null")
+        ticks = _ticks([_at(day, 0, 15, YANGON), _at(day, 0, 35, YANGON)], books={nbook},
+                       probe=lambda: _children(parent))
+        check(_probes(ticks) == [0, 1] and _runs(ticks, "budget_rollovers") == [0, 1],
+              "ticks: a NULL-zone person's finished budget rolls over at the 00:30 Yangon tick, not at 00:15",
+              (_probes(ticks), _runs(ticks, "budget_rollovers")))
+
+        # ---- DST: exactly one 09:00 run on the America/New_York spring-forward day (02:00 -> 03:00)
+        ny = _person(c, made, "Newyork", zone="America/New_York")
+        dst = date(2027, 3, 14)
+        nid = _goal(c, ny, dst + timedelta(days=7))
+        start = _at(dst, 0, 0, NEW_YORK)
+        nows = [start + timedelta(minutes=15 * i) for i in range(int((_at(dst, 12, 0, NEW_YORK) - start)
+                                                                     / timedelta(minutes=15)) + 1)]
+        ticks = _ticks(nows, people={ny["id"]})
+        runs = _runs(ticks, "goal_deadline_reminders")
+        first = runs.index(1) if isinstance(runs, list) and 1 in runs else None
+        check(isinstance(runs, list) and sum(runs) == 1 and len(nows) == 45
+              and nows[first].astimezone(NEW_YORK).strftime("%H:%M") == "09:00",
+              "ticks: on 2027-03-14 (spring forward) an America/New_York person's 09:00 job runs exactly once, at "
+              "09:00 EDT, across the ticks from 00:00 to 12:00", (runs, len(nows), first))
+        check(len(_reminders(ny, nid)) == 1 and _claimed("goal_deadline_reminders", ny["id"], dst),
+              "ticks: that run sends the one reminder, claimed for the local date 2027-03-14", _reminders(ny, nid))
+    finally:
+        _cleanup(made)
+
+
+# ------------------------------------------------------------------------------------------------------ family jobs
+def section_family_jobs():
+    c, made = _client(), []
+    try:
+        owner = _person(c, made, "Fjowner", plan="plus", zone="Asia/Yangon")
+        member = _person(c, made, "Fjmember", zone="Asia/Tokyo")
+        r = c.post("/api/family", headers=owner["h"], json={"name": f"Jobs {uuid.uuid4().hex[:6]}"})
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        c.post("/api/family/invites", headers=owner["h"], json={"email": member["email"]})
+        invites = c.get("/api/family/invites/mine", headers=member["h"]).json().get("invites", [])
+        inv = next((i for i in invites if i.get("family_id", fid) == fid), None)
+        r = c.post(f"/api/family/invites/{inv['id']}/accept", headers=member["h"]) if inv else r
+        book = _one("SELECT id FROM books WHERE family_id = %s", fid).get("id") if fid else None
+        check(book is not None and r.status_code == 200, "family_jobs: owner (Yangon) and member (Tokyo) share a "
+              "family", f"{r.status_code} {r.text[:200]}")
+        if not book:
+            return
+        people, books = {owner["id"], member["id"]}, {book}
+        day = _today_in("Asia/Yangon")
+
+        # ---- the family budget rolls over at the owner's 00:30, not the member's
+        parent = _finished_budget(book, day - timedelta(days=1), "family")
+        ticks = _ticks([_at(day, 0, 35, TOKYO), _at(day, 0, 35, YANGON)], people=people, books=books,
+                       probe=lambda: _children(parent))
+        check(_probes(ticks) == [0, 1],
+              "family_jobs: the family budget rolls over at the owner's 00:30 (Yangon), not at the member's (Tokyo)",
+              (_probes(ticks), _runs(ticks, "budget_rollovers")))
+
+        # ---- a family goal 7 days away for Tokyo at Tokyo 09:00: each member's reminder in their own 09:00 run
+        target = day + timedelta(days=7)
+        gid = _goal(c, owner, target, family=True)
+        ticks = _ticks([_at(day, 9, 5, TOKYO), _at(day, 9, 5, YANGON)], people=people, books=books,
+                       probe=lambda: (len(_reminders(member, gid)), len(_reminders(owner, gid))))
+        check(_probes(ticks) == [(1, 0), (1, 1)],
+              "family_jobs: the member's reminder arrives in the Tokyo 09:00 tick and only to the member; the owner's "
+              "in the Yangon 09:00 tick", _probes(ticks) if isinstance(ticks, list) else ticks)
+        got = _reminders(member, gid)
+        check(len(got) == 1 and got[0]["reminder_threshold"] == 7 and "7 days" in got[0]["message"]
+              and got[0]["book_id"] == book,
+              "family_jobs: the member's reminder counts 7 days from Tokyo's today and links the family book", got)
+
+        # ---- the weekly family insight: once, at the owner's Monday 05:00
+        monday = day + timedelta(days=7 - day.weekday())
+
+        def weekly():
+            return db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND insight_type = 'weekly'", book)[0]["n"]
+        before = weekly()
+        ticks = _ticks([_at(monday, 5, 5, TOKYO), _at(monday, 5, 5, YANGON), _at(monday, 5, 20, YANGON)],
+                       people=people, books=books, probe=lambda: weekly() - before)
+        check(_probes(ticks) == [0, 1, 1] and _runs(ticks, "weekly_insights") == [0, 1, 0],
+              "family_jobs: the weekly family insight is generated once, at the owner's Monday 05:00 (not at the "
+              "member's)", (_probes(ticks), _runs(ticks, "weekly_insights")))
+    finally:
+        _cleanup(made)
+
+
+# ------------------------------------------------------------------------------------------------------ plan dates
+def section_plan_dates():
+    c, made = _client(), []
+    try:
+        p = _person(c, made, "Plandate", plan="plus", zone=KIRITIMATI)
+        # 12:00 UTC is 18:30 in Yangon and 02:00 the next day in Kiritimati (UTC+14).
+        utc_day = datetime.now(UTC).date() + timedelta(days=2)
+        ends = datetime(utc_day.year, utc_day.month, utc_day.day, 12, 0, tzinfo=UTC)
+        db.sql("UPDATE users SET subscription_expires_at = %s, plan_reminder_3d_for = NULL, "
+               "plan_reminder_last_for = NULL WHERE id = %s", ends, p["id"])
+
+        async def remind():
+            import subscription_service as ss
+            from plans.access import format_date
+            stubenv.patch_loaded_modules()
+            await ss.send_plan_renewal_reminders()
+            return format_date(ends, "en", ZoneInfo(KIRITIMATI)), format_date(ends, "en", YANGON)
+        try:
+            kiri, yangon = _backend_async(remind)
+        except Exception as e:  # noqa: BLE001
+            kiri, yangon = repr(e)[:300], None
+        got = db.sql("SELECT message FROM notifications WHERE user_id = %s AND type = 'plan_ending_soon'", p["id"])
+        check(len(got) == 1 and kiri in got[0]["message"] and yangon not in got[0]["message"],
+              f"plan_dates: a Kiritimati person's renewal reminder shows the end date on their calendar ({kiri}), not "
+              f"the default zone's ({yangon})", got)
+    finally:
+        _cleanup(made)
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "header": section_header,
-            "today": section_today, "family": section_family}
+            "today": section_today, "family": section_family, "ticks": section_ticks,
+            "family_jobs": section_family_jobs, "plan_dates": section_plan_dates}
 
 
 def main():

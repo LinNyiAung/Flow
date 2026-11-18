@@ -143,9 +143,10 @@ async def find_transactions(book_id: str, *, type_: Optional[str] = None, curren
     return [transaction_doc(r) for r in await fetch_all(stmt)]
 
 
-async def recurring_parents() -> List[Dict[str, Any]]:
-    """Every transaction with recurrence enabled (input of the recurring job)."""
-    return [transaction_doc(r) for r in await fetch_all(select(t).where(t.c.recurrence_enabled.is_(True)).order_by(t.c.id))]
+async def recurring_parents(book_id: str) -> List[Dict[str, Any]]:
+    """The book's transactions with recurrence enabled (input of the book's recurring run)."""
+    stmt = select(t).where(t.c.book_id == book_id, t.c.recurrence_enabled.is_(True)).order_by(t.c.id)
+    return [transaction_doc(r) for r in await fetch_all(stmt)]
 
 
 async def child_exists_between(book_id: str, parent_id: str, start: datetime, end: datetime) -> bool:

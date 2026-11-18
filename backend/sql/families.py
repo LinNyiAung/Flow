@@ -4,7 +4,7 @@ family_invites, transaction_beneficiaries). Plain Core queries; the rules live i
 Rows come back as plain dicts with `id` (not `_id`). Every helper joins the caller's transaction() when inside one.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 
@@ -36,26 +36,6 @@ async def delete_family(family_id: str) -> int:
 async def family_for_book(book_id: str) -> Optional[Dict[str, Any]]:
     """The family whose book this is, or None (a personal book, or not a book id)."""
     return await fetch_one(select(f).select_from(f.join(bk, bk.c.family_id == f.c.id)).where(bk.c.id == book_id))
-
-
-async def books_with_paid_owner(plans: Sequence[str]) -> List[Dict[str, Any]]:
-    """Every family whose active owner's stored plan is one of `plans` (the scheduled insight jobs), oldest first:
-    `book_id` (the family book), `family_id`, `family_name` and `owner`, the owner's user fields that effective_plan
-    and quota.over_cost_cap read (`_id`, subscription_type, subscription_expires_at, usage_reset_at). The caller still
-    checks the owner's effective plan (an expired paid plan is stored as paid until the expiry job runs)."""
-    stmt = (select(bk.c.id.label("book_id"), f.c.id.label("family_id"), f.c.name.label("family_name"),
-                   users.c.id.label("owner_id"), users.c.subscription_type, users.c.subscription_expires_at,
-                   users.c.usage_reset_at)
-            .select_from(f.join(bk, bk.c.family_id == f.c.id)
-                         .join(fm, and_(fm.c.family_id == f.c.id, fm.c.role == "owner", fm.c.status == "active"))
-                         .join(users, users.c.id == fm.c.user_id))
-            .where(users.c.subscription_type.in_(list(plans)))
-            .order_by(f.c.created_at, f.c.id))
-    return [{"book_id": r["book_id"], "family_id": r["family_id"], "family_name": r["family_name"],
-             "owner": {"_id": r["owner_id"], "subscription_type": r["subscription_type"],
-                       "subscription_expires_at": r["subscription_expires_at"],
-                       "usage_reset_at": r["usage_reset_at"]}}
-            for r in await fetch_all(stmt)]
 
 
 async def owner_user(family_id: str) -> Optional[Dict[str, Any]]:

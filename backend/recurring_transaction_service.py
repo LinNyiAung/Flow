@@ -1,7 +1,7 @@
 import calendar
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, tzinfo, UTC
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from pydantic import ValidationError
@@ -12,15 +12,15 @@ from sql import transactions as transactions_db
 from sql import books as books_db
 from sql.db import transaction as db_transaction
 from notification_service import create_notification
-from tz_utils import as_calendar_date, as_wall_clock, day_bounds, default_zone, local_today
+from tz_utils import as_calendar_date, as_wall_clock, day_bounds
 
 logger = logging.getLogger(__name__)
 
 # Safety cap: max occurrences generated for a single recurring transaction per job run.
 MAX_CATCHUP_OCCURRENCES = 366
 
-# Catch-up window: missed occurrences older than this many days (relative to today in the
-# app timezone) are skipped instead of being back-filled in one burst.
+# Catch-up window: missed occurrences older than this many days (relative to the book's
+# today) are skipped instead of being back-filled in one burst.
 CATCHUP_WINDOW_DAYS = 31
 
 # Hard bound on how many stale occurrences we will step over in one run (defensive; a
@@ -151,20 +151,18 @@ class OccurrencePlan(NamedTuple):
 def plan_due_occurrences(
     last_created: datetime,
     config: RecurrenceConfig,
-    now: datetime,
+    today: date,
     limit: int = MAX_CATCHUP_OCCURRENCES,
     catchup_days: Optional[int] = CATCHUP_WINDOW_DAYS,
 ) -> OccurrencePlan:
     """
     Pure helper: occurrences after last_created (a local wall-clock datetime; the occurrences
-    keep its time of day) whose calendar date is <= today in the default zone (so today's
-    occurrence is due today even when the job runs at 06:00 Yangon = 23:30 UTC the previous
-    day). `now` is an instant.
+    keep its time of day) whose calendar date is <= `today` (the book's today, so today's
+    occurrence is due at the book's 06:00 run whatever the UTC date).
 
     Occurrences dated before (today - catchup_days) are skipped (counted, not returned;
     they don't count towards `limit`). At most `limit` occurrences are returned.
     """
-    today: date = local_today(default_zone(), now)
     cutoff: Optional[date] = today - timedelta(days=catchup_days) if catchup_days is not None else None
     dates: List[datetime] = []
     skipped = 0
@@ -190,15 +188,15 @@ def plan_due_occurrences(
 def due_occurrences(
     last_created: datetime,
     config: RecurrenceConfig,
-    now: datetime,
+    today: date,
     limit: int = MAX_CATCHUP_OCCURRENCES,
 ) -> Tuple[List[datetime], bool]:
     """
-    Pure helper: all occurrences after last_created whose calendar date is <= today in the
-    app timezone (no catch-up window), capped at `limit`.
+    Pure helper: all occurrences after last_created whose calendar date is <= `today`
+    (no catch-up window), capped at `limit`.
     Returns (dates, ended) where ended=True means the recurrence has no further occurrences.
     """
-    plan = plan_due_occurrences(last_created, config, now, limit=limit, catchup_days=None)
+    plan = plan_due_occurrences(last_created, config, today, limit=limit, catchup_days=None)
     return plan.dates, plan.ended
 
 
@@ -226,9 +224,11 @@ async def _child_exists_on_date(transaction: dict, occ_date: datetime) -> bool:
 async def _process_recurring_transaction(
     transaction: dict,
     now: datetime,
+    today: date,
     affected: Dict[str, Dict[str, List[datetime]]],
 ) -> int:
-    """Create all due occurrences for one recurring transaction. Returns number created."""
+    """Create all due occurrences (dated up to its book's `today`) for one recurring transaction. Returns number
+    created. `now`: the instant stamped on the children."""
     recurrence = transaction.get("recurrence") or {}
     config_data = recurrence.get("config")
     if not config_data:
@@ -251,7 +251,7 @@ async def _process_recurring_transaction(
     pointer = recurrence.get("last_created_date")
     last_created = datetime.combine(as_calendar_date(pointer), parent_date.time()) if pointer else parent_date
 
-    plan = plan_due_occurrences(last_created, config, now)
+    plan = plan_due_occurrences(last_created, config, today)
     dates, ended = plan.dates, plan.ended
 
     if plan.skipped and plan.last_skipped is not None:
@@ -375,31 +375,31 @@ async def _refresh_book_after_recurring(book_id: str, per_currency: Dict[str, Li
             logger.error(f"Budget refresh after recurring creation failed for book {book_id}: {e}")
 
 
-async def check_and_create_recurring_transactions():
-    """Check all recurring transactions and create every due occurrence (catch-up)."""
+async def recurring_for_book(book_id: str, today: date, tz: tzinfo) -> int:
+    """The book's daily recurring run (local_jobs, 06:00 on the book's clock: a personal book's person's, a family
+    book's owner's): create every due occurrence of its recurring transactions (catch-up), dated up to the book's
+    `today`. Returns how many were created. Each occurrence has a deterministic id and the pointer moves after each one,
+    so a retried run never creates one twice."""
     now = datetime.now(UTC)
-
-    parents = await transactions_db.recurring_parents()
-
     created_count = 0
     # book_id -> currency -> [occurrence dates]
     affected: Dict[str, Dict[str, List[datetime]]] = defaultdict(lambda: defaultdict(list))
 
-    for transaction in parents:
+    for transaction in await transactions_db.recurring_parents(book_id):
         try:
-            created_count += await _process_recurring_transaction(transaction, now, affected)
+            created_count += await _process_recurring_transaction(transaction, now, today, affected)
         except Exception as e:
-            # One bad row must never abort the whole job.
+            # One bad row must never abort the whole run.
             logger.exception(f"Error processing recurring transaction {transaction.get('_id')}: {e}")
 
-    for book_id, per_currency in affected.items():
+    for affected_book, per_currency in affected.items():
         try:
-            await _refresh_book_after_recurring(book_id, per_currency)
+            await _refresh_book_after_recurring(affected_book, per_currency)
         except Exception as e:
-            logger.exception(f"Error refreshing book {book_id} after recurring creation: {e}")
+            logger.exception(f"Error refreshing book {affected_book} after recurring creation: {e}")
 
     if created_count > 0:
-        logger.info(f"✅ Created {created_count} recurring transactions")
+        logger.info(f"✅ Created {created_count} recurring transactions in book {book_id}")
 
     return created_count
 

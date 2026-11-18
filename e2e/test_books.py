@@ -907,32 +907,19 @@ def section_jobs():
             _seed_tx(b, "40.00", "outflow")
 
         # ---- weekly job covers each book once (and family insight spend is on the book)
-        ours = {P1["id"], P2["id"], F["id"]}
-
         async def weekly():
-            import insights_service as ins
-            stubenv.patch_loaded_modules()
-            orig_list, orig_books = ins.users_db.list_fields, ins.families_db.books_with_paid_owner
-
-            async def only_people(fields, *where):  # the job runs on this test's people and family only
-                return [u for u in await orig_list(fields, *where) if u["_id"] in ours]
-
-            async def only_family(plans):
-                return [b for b in await orig_books(plans) if b["book_id"] == fbook]
-            ins.users_db.list_fields, ins.families_db.books_with_paid_owner = only_people, only_family
-            try:
-                targets = await ins._job_targets("insight_weekly")
-                await ins.generate_weekly_insights_for_all_users()
-            finally:
-                ins.users_db.list_fields, ins.families_db.books_with_paid_owner = orig_list, orig_books
-            return sorted((t[0], t[1]["_id"], t[2]) for t in targets)
+            from sql import local_job_runs as runs_db
+            zones = dict(await runs_db.book_subjects())  # the tick's book subjects, with the zone name of each
+            for b in books.values():
+                await stubenv.run_local_job("weekly_insights", b)
+            return {name: (b in zones, zones.get(b)) for name, b in books.items()}
         try:
-            targets = _backend_async(weekly)
+            subjects = _backend_async(weekly)
         except Exception as e:  # noqa: BLE001
-            targets = repr(e)[:300]
-        want = sorted([(P1["book"], P1["id"], False), (P2["book"], P2["id"], False), (fbook, P1["id"], True)])
-        check(targets == want, "weekly job covers each book once: _job_targets is (book, plan user, is_family) for P1's "
-                               "and P2's personal books and P1's family book, nothing for Free", (targets, want))
+            subjects = repr(e)[:300]
+        check(subjects == {name: (True, None) for name in books},
+              "weekly job covers each book once: the tick's book subjects hold P1's, P2's and F's personal books and "
+              "P1's family book (each on its zone: none saved here)", subjects)
         counts = {name: db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND insight_type = 'weekly'", b)[0]["n"]
                   for name, b in books.items()}
         check(counts == {"P1": 1, "P2": 1, "F": 0, "family": 1},
@@ -981,7 +968,7 @@ def section_jobs():
                     return await orig(feature, **kw)
                 bs._runner.run = spy
                 try:
-                    await bs.process_due_budget_rollovers()
+                    await stubenv.run_local_job("budget_rollovers", fbook)
                 finally:
                     bs._runner.run = orig
                 return seen
@@ -1026,7 +1013,8 @@ def section_jobs():
             import notification_service as ns
             stubenv.patch_loaded_modules()
             await ns.analyze_unusual_spending(fbook)
-            await ns.analyze_all_unusual_spending()
+            for person in (P1, P2):  # the daily job of the family's members: their personal books only
+                await stubenv.run_local_job("unusual_spending", person["id"])
         try:
             _backend_async(unusual)
             err = None
@@ -1058,9 +1046,7 @@ def section_jobs():
             db.sql("UPDATE books SET ai_data_stale = false WHERE id = %s", fbook)
 
             async def recurring():
-                import recurring_transaction_service as rts
-                stubenv.patch_loaded_modules()
-                await rts.check_and_create_recurring_transactions()
+                await stubenv.run_local_job("recurring_transactions", fbook)
             try:
                 _backend_async(recurring)
                 err = None
@@ -1299,25 +1285,12 @@ def section_notification_links():
 
         # ---- insight notices dedupe per book
         _seed_tx(fbook, "40.00", "outflow")
-        ours = {P["id"], Q["id"]}
 
         async def weekly_twice():
-            import insights_service as ins
             import notification_service as ns
-            stubenv.patch_loaded_modules()
-            orig_list, orig_books = ins.users_db.list_fields, ins.families_db.books_with_paid_owner
-
-            async def only_people(fields, *where):
-                return [u for u in await orig_list(fields, *where) if u["_id"] in ours]
-
-            async def only_family(plans):
-                return [b for b in await orig_books(plans) if b["book_id"] == fbook]
-            ins.users_db.list_fields, ins.families_db.books_with_paid_owner = only_people, only_family
-            try:
-                await ins.generate_weekly_insights_for_all_users()
-                await ins.generate_weekly_insights_for_all_users()
-            finally:
-                ins.users_db.list_fields, ins.families_db.books_with_paid_owner = orig_list, orig_books
+            for _ in range(2):  # the weekly job of each of these books, twice
+                for b in (P["book"], Q["book"], fbook):
+                    await stubenv.run_local_job("weekly_insights", b)
             for b in (P["book"], fbook):  # a direct repeat within the hour is dropped as well
                 await ns.notify_weekly_insights_generated(b)
         try:

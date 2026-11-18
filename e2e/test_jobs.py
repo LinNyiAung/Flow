@@ -17,7 +17,6 @@ import stubenv  # noqa: E402
 os.chdir(stubenv.BACKEND)
 warnings.simplefilter("always", RuntimeWarning)
 
-import recurring_transaction_service as rts  # noqa: E402
 import notification_service as ns  # noqa: E402
 import insights_service as ins  # noqa: E402
 B = __import__("pgcompat").async_collection("budgets")  # budgets live in PostgreSQL
@@ -57,6 +56,12 @@ async def run_job(label, coro_fn, *args):
     return exc, out, never_awaited
 
 
+async def budget_period_jobs():
+    """The daily budget notices: A's "ending soon" reminders and the "now active" check of A's book."""
+    await stubenv.run_local_job("budget_ending_reminders", A)
+    await stubenv.run_local_job("budget_now_active", BOOK_A)
+
+
 def errlines(out, pats=("Error", "error", "Traceback", "Critical", "TypeError", "can't", "not iterable")):
     return [l for l in out.splitlines() if any(p in l for p in pats)][:6]
 
@@ -69,7 +74,7 @@ async def main():
     before_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     currency = parent.get("currency", "usd")
     outflow_before = (await get_book_balance(BOOK_A, currency))["total_outflow"]
-    exc, out, na = await run_job("recurring", rts.check_and_create_recurring_transactions)
+    exc, out, na = await run_job("recurring", stubenv.run_local_job, "recurring_transactions", BOOK_A)
     after_children = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     rec("recurring job ran without exception", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
     rec("daily recurrence started 3 days ago: occurrences created in one run", "INFO",
@@ -85,7 +90,7 @@ async def main():
     else:
         rec("balance reflects the auto-created recurring transactions", "PASS")
 
-    exc, out, na = await run_job("recurring-2", rts.check_and_create_recurring_transactions)
+    exc, out, na = await run_job("recurring-2", stubenv.run_local_job, "recurring_transactions", BOOK_A)
     again = await T.count_documents({"parent_transaction_id": state["rec_parent"]})
     rec("second run same day is idempotent-ish", "INFO", f"total children now {again}")
 
@@ -96,10 +101,10 @@ async def main():
                         "recurrence": {"enabled": True, "config": {"frequency": "daily"}, "last_created_date": None}})
     await T.insert_one({**base, "_id": good_id, "date": now - timedelta(days=2), "created_at": now - timedelta(days=29),
                         "recurrence": {"enabled": True, "config": {"frequency": "daily"}, "last_created_date": now - timedelta(days=2)}})
-    exc, out, na = await run_job("recurring-bad", rts.check_and_create_recurring_transactions)
+    exc, out, na = await run_job("recurring-bad", stubenv.run_local_job, "recurring_transactions", BOOK_A)
     good_children = await T.count_documents({"parent_transaction_id": good_id})
     if exc is not None or good_children == 0:
-        rec("one recurrence with last_created_date=null aborts the whole job (other users' recurrences skipped)", "BUG",
+        rec("one recurrence with last_created_date=null aborts the whole job (the book's other recurrences skipped)", "BUG",
             f"exception={exc!r}; healthy recurrence children={good_children}; {errlines(out)}")
     else:
         rec("job survives a malformed recurrence row", "PASS")
@@ -110,10 +115,10 @@ async def main():
     # ---------------- goal target dates
     await G.update_one({"_id": state["goal_id"]}, {"$set": {"target_date": now + timedelta(days=7), "status": "active"}})
     n0 = await N.count_documents({"user_id": A})
-    exc, out, na = await run_job("targets", ns.check_approaching_target_dates)
+    exc, out, na = await run_job("targets", stubenv.run_local_job, "goal_deadline_reminders", A)
     n1 = await N.count_documents({"user_id": A})
     if exc is not None:
-        rec("check_approaching_target_dates crashes (goal deadline reminders never sent)", "BUG", repr(exc))
+        rec("the goal deadline reminders job crashes (goal deadline reminders never sent)", "BUG", repr(exc))
     else:
         rec("goal 7-days-left reminder created", "PASS" if n1 > n0 else "FAIL", "" if n1 > n0 else f"no notification; {errlines(out)}")
 
@@ -131,10 +136,10 @@ async def main():
                         "category_budgets": [], "total_budget": 10, "total_spent": 0, "remaining_budget": 10, "percentage_used": 0,
                         "status": "upcoming", "is_active": False, "created_at": now, "updated_at": now})
     n0 = await N.count_documents({"user_id": A})
-    exc, out, na = await run_job("budgets", ns.check_budget_period_notifications)
+    exc, out, na = await run_job("budgets", budget_period_jobs)
     n1 = await N.count_documents({"user_id": A})
     if exc is not None:
-        rec("check_budget_period_notifications crashes (ending-soon & now-active notifications never sent)", "BUG", repr(exc))
+        rec("the budget ending / now active jobs crash (ending-soon & now-active notifications never sent)", "BUG", repr(exc))
     else:
         rec("budget period job produced notifications", "PASS" if n1 > n0 else "BUG", "" if n1 > n0 else f"0 notifications for budget ending in 2.5 days and one that just started; {errlines(out)}")
     await B.delete_many({"_id": {"$in": [bid, uid]}})
@@ -147,9 +152,9 @@ async def main():
     await T.insert_one({"_id": "nodesc", "user_id": A, "type": "outflow", "main_category": "Entertainment & Leisure",
                         "sub_category": "Subscriptions", "description": None, "amount": 1, "currency": "usd",
                         "date": now - timedelta(days=5), "created_at": now, "updated_at": now})
-    exc, out, na = await run_job("payments", ns.detect_and_notify_recurring_payments)
+    exc, out, na = await run_job("payments", stubenv.run_local_job, "payment_reminders", A)
     if exc is not None:
-        rec("detect_and_notify_recurring_payments crashes", "BUG", f"{exc!r}")
+        rec("the payment reminders job crashes", "BUG", f"{exc!r}")
     else:
         rec("recurring payment detection job", "INFO", f"ran; {errlines(out)}")
     await T.delete_many({"_id": {"$in": ["netflix-1", "netflix-2", "netflix-3", "nodesc"]}})
@@ -159,14 +164,14 @@ async def main():
     rec("analyze_unusual_spending", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
 
     # ---------------- weekly insights for all users (trial user A has expiry)
-    exc, out, na = await run_job("weekly-all", ins.generate_weekly_insights_for_all_users)
+    exc, out, na = await run_job("weekly-all", stubenv.run_local_job, "weekly_insights", BOOK_A)
     ai_calls = [l for l in open(stubenv.OUTBOX, encoding="utf-8") if '"ai_call"' in l] if os.path.exists(stubenv.OUTBOX) else []
     tz_err = [l for l in out.splitlines() if "offset-naive" in l or "can't compare" in l]
     if tz_err:
         rec("weekly insight job skips premium users with an expiry date (naive/aware compare)", "BUG", tz_err[:2])
     else:
         rec("weekly insight job reached premium users", "PASS", errlines(out))
-    exc, out, na = await run_job("monthly-all", ins.generate_monthly_insights_for_all_users)
+    exc, out, na = await run_job("monthly-all", stubenv.run_local_job, "monthly_insights", BOOK_A)
     tz_err = [l for l in out.splitlines() if "offset-naive" in l or "can't compare" in l]
     if tz_err:
         rec("monthly insight job skips premium users with an expiry date (naive/aware compare)", "BUG", tz_err[:2])

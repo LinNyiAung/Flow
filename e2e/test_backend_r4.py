@@ -26,21 +26,20 @@ def user(premium=False):
 
 
 async def rollover():
-    import budget_service as bs
-    stubenv.patch_loaded_modules()
     tok, uid = user()
     db.budgets.insert_one({"_id": "r4-parent-" + uid[:6], "user_id": uid, "name": "Groceries", "period": "monthly", "currency": "usd",
                            "start_date": now.replace(day=1) - timedelta(days=31), "end_date": now.replace(day=1) - timedelta(seconds=1),
                            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50}], "total_budget": 50,
                            "total_spent": 0, "remaining_budget": 50, "percentage_used": 0, "status": "completed", "is_active": False,
                            "auto_create_enabled": True, "created_at": now, "updated_at": now})
-    await bs.process_due_budget_rollovers()
+    book = db.sql("SELECT id FROM books WHERE person_id = %s", uid)[0]["id"]
+    await stubenv.run_local_job("budget_rollovers", book)
     kids = list(db.budgets.find({"user_id": uid, "parent_budget_id": {"$exists": True, "$ne": None}}))
     print("children after first rollover:", len(kids))
     if kids:
         r = c.delete(f"/api/budgets/{kids[0]['_id']}", headers=H(tok))
         print("user deletes the auto-created budget:", r.status_code)
-    await bs.process_due_budget_rollovers()
+    await stubenv.run_local_job("budget_rollovers", book)
     again = db.budgets.count_documents({"user_id": uid, "parent_budget_id": {"$exists": True, "$ne": None}})
     print(("[BUG]" if again else "[PASS]") + f" deleted auto-created budget recreated by the nightly job: {again}")
 

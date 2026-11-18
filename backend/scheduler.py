@@ -1,17 +1,10 @@
 import logging
+from datetime import timezone
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # [CHANGED]
 from apscheduler.triggers.cron import CronTrigger
-from recurring_transaction_service import check_and_create_recurring_transactions
-from notification_service import (
-    analyze_all_unusual_spending,
-    check_approaching_target_dates,
-    check_budget_period_notifications,
-    detect_and_notify_recurring_payments
-)
-from budget_service import process_due_budget_rollovers
-from insights_service import generate_weekly_insights_for_all_users, generate_monthly_insights_for_all_users
 from custom_insights_service import fail_stuck_reports
-from insight_schedule import WEEKLY_INSIGHT_CRON, MONTHLY_INSIGHT_CRON
+from local_jobs import run_due_local_jobs
 from subscription_service import expire_paid_plans, send_plan_renewal_reminders, send_trial_reminders
 from device_jobs import delete_stale_devices, send_sign_in_reminders
 from tz_utils import default_zone
@@ -23,9 +16,9 @@ def start_scheduler():
     """Start the async scheduler for notifications"""
     # [CHANGED] Use AsyncIOScheduler instead of BackgroundScheduler
     # This allows jobs to run on the MAIN event loop, reusing the global DB client.
-    # Explicit timezone (SCHEDULER_TIMEZONE, default Asia/Yangon) so cron times like
-    # "Monday 05:00" mean local time regardless of the server's TZ. insights_service
-    # computes the "previous week/month" with the same timezone (tz_utils).
+    # The daily jobs that follow a person's or a book's clock (reminders, rollovers, recurring transactions, insights)
+    # run from one 15-minute tick (local_jobs). The jobs below work on instants; the one that runs at a time of day
+    # keeps the default zone (SCHEDULER_TIMEZONE, default Asia/Yangon).
     app_tz = default_zone()
     scheduler = AsyncIOScheduler(timezone=app_tz)
 
@@ -34,53 +27,19 @@ def start_scheduler():
 
     # --- ADD JOBS ---
 
-    # Check for approaching goal target dates daily at 9 AM
+    # The local-time jobs (local_jobs.LOCAL_JOBS: goal, budget and payment reminders at 09:00, unusual spending at
+    # 08:00, budget rollovers at 00:30, recurring transactions at 06:00, weekly and monthly insights), every 15 minutes
+    # in UTC (every zone's offset is a multiple of 15 minutes). Each run is claimed per subject and local date, so a
+    # late, missed or overlapping tick never runs one twice; one tick at a time, a missed one runs once.
     scheduler.add_job(
-        check_approaching_target_dates, # Pass the async function directly
-        trigger=CronTrigger(timezone=app_tz, hour=9, minute=0),
-        id="check_target_dates",
-        name="Check approaching goal target dates",
-        replace_existing=True
-    )
-    
-    # Check for budget period notifications daily at 9 AM
-    scheduler.add_job(
-        check_budget_period_notifications,
-        trigger=CronTrigger(timezone=app_tz, hour=9, minute=0),
-        id="check_budget_periods",
-        name="Check budget periods for notifications",
-        replace_existing=True
-    )
-    
-    # Check for unusual spending patterns daily at 8 AM (every person's personal book; family books are left out)
-    scheduler.add_job(
-        analyze_all_unusual_spending,
-        trigger=CronTrigger(timezone=app_tz, hour=8, minute=0),
-        id="analyze_unusual_spending",
-        name="Analyze unusual spending patterns",
-        replace_existing=True
-    )
-    
-    # Check for recurring payment reminders daily at 9 AM
-    scheduler.add_job(
-        detect_and_notify_recurring_payments,
-        trigger=CronTrigger(timezone=app_tz, hour=9, minute=0),
-        id="payment_reminders",
-        name="Check for upcoming recurring payments",
-        replace_existing=True
-    )
-    
-    # Roll over finished auto-create budgets daily at 00:30 (app timezone): budgets whose
-    # end date has passed and that have no next-period child get it created here instead
-    # of only when something happens to recompute them. Failures are retried next run.
-    scheduler.add_job(
-        process_due_budget_rollovers,
-        trigger=CronTrigger(timezone=app_tz, hour=0, minute=30),
-        id="budget_rollovers",
-        name="Create next-period budgets for finished auto-create budgets",
+        run_due_local_jobs,
+        trigger=CronTrigger(minute="*/15", timezone=timezone.utc),
+        id="local_jobs_tick",
+        name="Run the jobs due on each person's and each book's clock",
         replace_existing=True,
-        misfire_grace_time=6 * 3600,
         coalesce=True,
+        misfire_grace_time=15 * 60,
+        max_instances=1,
     )
 
     # Downgrade expired Plus/Pro plans to free and notify the user, hourly so the "plan has ended"
@@ -133,7 +92,7 @@ def start_scheduler():
         coalesce=True,
     )
 
-    # Forget devices not seen for 60 days, daily at 03:15 (app timezone).
+    # Forget devices not seen for 60 days, daily at 03:15 (default zone).
     scheduler.add_job(
         delete_stale_devices,
         trigger=CronTrigger(timezone=app_tz, hour=3, minute=15),
@@ -142,33 +101,6 @@ def start_scheduler():
         replace_existing=True,
         misfire_grace_time=6 * 3600,
         coalesce=True,
-    )
-
-    # Check recurring transactions daily at 6 AM
-    scheduler.add_job(
-        check_and_create_recurring_transactions,
-        trigger=CronTrigger(timezone=app_tz, hour=6, minute=0),
-        id="check_recurring_transactions",
-        name="Check and create recurring transactions",
-        replace_existing=True
-    )
-    
-    # Generate weekly insights every Monday at 5 AM
-    scheduler.add_job(
-        generate_weekly_insights_for_all_users,
-        trigger=CronTrigger(timezone=app_tz, **WEEKLY_INSIGHT_CRON),
-        id="weekly_insights_generation",
-        name="Generate weekly insights for all users",
-        replace_existing=True
-    )
-    
-    # Generate monthly insights on 1st of every month at 6 AM
-    scheduler.add_job(
-        generate_monthly_insights_for_all_users,
-        trigger=CronTrigger(timezone=app_tz, **MONTHLY_INSIGHT_CRON),
-        id="monthly_insights_generation",
-        name="Generate monthly insights for all users",
-        replace_existing=True
     )
 
     # Fail custom insights still pending 20 minutes after they were created (a job lost to a restart), every
@@ -185,5 +117,5 @@ def start_scheduler():
 
     scheduler.start()
     logger.info(f"✅ Async Notification scheduler started (timezone: {app_tz})")
-    
+
     return scheduler

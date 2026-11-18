@@ -44,10 +44,11 @@ async def main():
     # user opens the Budgets screen before the scheduled job
     r = await c.get("/api/budgets", headers=H)
     print("status after list:", next(b["status"] for b in r.json() if b["id"] == bid))
-    await ns.check_budget_period_notifications()
+    book = __import__("pgcompat").get_db().sql("SELECT id FROM books WHERE person_id = %s", carol["_id"])[0]["id"]
+    await stubenv.run_local_job("budget_now_active", book)
     n = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "budget_id": bid})
     print(("[PASS]" if n == 1 else "[BUG]") + f" exactly one 'budget now active' notification after list view + job: {n}")
-    await ns.check_budget_period_notifications()
+    await stubenv.run_local_job("budget_now_active", book)
     n2 = await N.count_documents({"user_id": carol["_id"], "type": STARTED, "budget_id": bid})
     print(("[PASS]" if n2 == 1 else "[BUG]") + f" a second job run doesn't send it again: {n2}")
     await c.delete(f"/api/budgets/{bid}", headers=H)

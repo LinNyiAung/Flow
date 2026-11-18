@@ -1,0 +1,121 @@
+"""Daily jobs that run at a local time: each person's or each book's own clock (spec:
+docs/superpowers/specs/2026-11-18-calendar-dates-design.md, "Scheduled jobs").
+
+One scheduler job (scheduler.py) calls run_due_local_jobs every 15 minutes. For every job and every subject it reads
+the subject's wall clock; once the job's local time has passed today (and the date matches a weekly or monthly job's
+day), it claims (job, subject, local date) in local_job_runs and runs the job's handler for that subject. The claim
+makes the job run exactly once per local date, also when ticks are missed or late, when a person's zone changes during
+the day (the new zone's date was already claimed, or is a new date) or a family changes owner. A handler that raises
+releases its claim, so the next tick retries it; each handler's own duplicate guards (a notice already sent, a
+recurring occurrence id, a rollover child) keep a retry from doing anything twice.
+
+Subjects:
+- "person": every person with a personal book, on their own zone (user_zones.user_zone); what is sent to a person.
+- "book": every personal book (its person's zone) and every family book with an active owner (the owner's zone,
+  user_zones.book_zone); work done once for a whole book.
+"""
+import asyncio
+import logging
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, tzinfo
+from typing import Awaitable, Callable, Dict, List, Literal, Optional
+
+import budget_service as bs
+import insights_service as ins
+import notification_service as ns
+import recurring_transaction_service as rts
+from insight_schedule import MONTHLY_INSIGHT_CRON, WEEKLY_INSIGHT_CRON
+from sql import local_job_runs as runs_db
+from tz_utils import as_utc, local_now, utc_now, zone_for
+
+logger = logging.getLogger(__name__)
+
+TICK_CONCURRENCY = 5  # handlers of one job running at once (the insight jobs call the AI)
+KEEP_CLAIMS_DAYS = 7  # claims of local dates this many days before the tick's UTC date are deleted
+
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+@dataclass
+class LocalJob:
+    """A daily job run for each subject at `at` on the subject's clock; weekday (0 = Monday) or day (of the month)
+    limit it to that day."""
+    id: str
+    at: time
+    subject: Literal["person", "book"]
+    handler: Callable[[str, date, tzinfo], Awaitable[None]]
+    weekday: Optional[int] = None
+    day: Optional[int] = None
+
+    def is_due(self, wall: datetime) -> bool:
+        """True when the job is due on the subject's wall clock `wall` (naive local date and time)."""
+        if self.weekday is not None and wall.weekday() != self.weekday:
+            return False
+        if self.day is not None and wall.day != self.day:
+            return False
+        return wall.time() >= self.at
+
+
+def _cron_job(job_id: str, cron: dict, handler) -> LocalJob:
+    """A book job at the time and day of an insight cron (insight_schedule): the "Next insight" line reads the same."""
+    weekday = _WEEKDAYS.index(cron["day_of_week"]) if "day_of_week" in cron else None
+    return LocalJob(job_id, time(cron["hour"], cron["minute"]), "book", handler, weekday=weekday, day=cron.get("day"))
+
+
+LOCAL_JOBS: List[LocalJob] = [
+    LocalJob("goal_deadline_reminders", time(9, 0), "person", ns.goal_deadline_reminders_for_person),
+    LocalJob("budget_ending_reminders", time(9, 0), "person", ns.budget_ending_reminders_for_person),
+    LocalJob("payment_reminders", time(9, 0), "person", ns.payment_reminders_for_person),
+    LocalJob("unusual_spending", time(8, 0), "person", ns.unusual_spending_for_person),
+    LocalJob("budget_now_active", time(9, 0), "book", ns.budget_now_active_for_book),
+    LocalJob("budget_rollovers", time(0, 30), "book", bs.budget_rollovers_for_book),
+    LocalJob("recurring_transactions", time(6, 0), "book", rts.recurring_for_book),
+    _cron_job("weekly_insights", WEEKLY_INSIGHT_CRON, ins.weekly_insight_for_book),
+    _cron_job("monthly_insights", MONTHLY_INSIGHT_CRON, ins.monthly_insight_for_book),
+]
+
+
+async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: asyncio.Semaphore) -> int:
+    """Claim the job's day for the subject and run it: 1 when it ran, 0 when it was claimed already or failed (a
+    failure is logged and its claim released, so the next tick runs it again)."""
+    async with slots:
+        if not await runs_db.claim(job.id, subject_id, today):
+            return 0
+        try:
+            await job.handler(subject_id, today, tz)
+            return 1
+        except Exception:  # noqa: BLE001 - one subject's failure must not stop the others
+            logger.exception(f"Local job {job.id} failed for {subject_id} on {today}; the next tick retries it")
+            try:
+                await runs_db.release(job.id, subject_id, today)
+            except Exception:  # noqa: BLE001
+                logger.exception(f"Could not release the claim of {job.id} for {subject_id} on {today}")
+            return 0
+
+
+async def run_due_local_jobs(now: Optional[datetime] = None) -> Dict[str, int]:
+    """The tick: run every job for every subject whose local time for it has passed today and whose local date it hasn't
+    run for yet. `now`: the instant of the tick (default: now). Returns how many runs each job made (by job id).
+    Earlier local times run first (a catch-up tick rolls budgets over before it announces them)."""
+    now = as_utc(now) if now is not None else utc_now()
+    subjects = {"person": await runs_db.person_subjects(), "book": await runs_db.book_subjects()}
+    # Every subject's local date is the UTC date, the day before or the day after.
+    claimed = await runs_db.claimed_since(now.date() - timedelta(days=1))
+    zones: Dict[Optional[str], tzinfo] = {}
+    slots = asyncio.Semaphore(TICK_CONCURRENCY)
+    counts = {job.id: 0 for job in LOCAL_JOBS}
+    for job in sorted(LOCAL_JOBS, key=lambda j: j.at):
+        due = []
+        for subject_id, zone_name in subjects[job.subject]:
+            if zone_name not in zones:
+                zones[zone_name] = zone_for(zone_name)
+            tz = zones[zone_name]
+            wall = local_now(tz, now)
+            if job.is_due(wall) and (job.id, subject_id, wall.date()) not in claimed:
+                due.append(_run(job, subject_id, wall.date(), tz, slots))
+        counts[job.id] = sum(await asyncio.gather(*due))
+    try:
+        await runs_db.forget_before(now.date() - timedelta(days=KEEP_CLAIMS_DAYS))
+    except Exception:  # noqa: BLE001 - old claims are only clutter
+        logger.exception("Could not delete old local job claims")
+    return counts

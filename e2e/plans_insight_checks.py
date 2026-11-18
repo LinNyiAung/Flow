@@ -40,6 +40,7 @@ async def run(t):
     """t: the test_plans module (check, connect, make_admins, admin_login, default_body)."""
     import stubenv
     from plans import periods, store
+    from tz_utils import default_zone
 
     check = t.check
     c = httpx.Client(base_url=BASE, timeout=120)
@@ -69,7 +70,7 @@ async def run(t):
         return c.put(f"/api/admin/users/{uid}/subscription", headers=AD, json=body).status_code == 200
 
     def used(uid, feature, period="month"):
-        start = periods.period_start(period, datetime.now(UTC))
+        start = periods.period_start(period, datetime.now(UTC), default_zone())
         with t.connect() as conn:
             row = conn.execute("SELECT used FROM usage_counters WHERE user_id = %s AND feature = %s AND period = %s "
                                "AND period_start = %s", (uid, feature, period, start)).fetchone()
@@ -85,7 +86,7 @@ async def run(t):
             for period in ("week", "month"):
                 conn.execute("INSERT INTO usage_counters (user_id, feature, period, period_start, used) VALUES (%s, %s, %s, %s, %s) "
                              "ON CONFLICT (user_id, feature, period, period_start) DO UPDATE SET used = EXCLUDED.used",
-                             (uid, feature, period, periods.period_start(period, now), n))
+                             (uid, feature, period, periods.period_start(period, now, default_zone()), n))
 
     def add_cost(uid, usd):
         with t.connect() as conn:
@@ -511,14 +512,14 @@ async def run(t):
 
         # ---- next_insight_at: when the next insight arrives, from the scheduler's own cron fields
         import insight_schedule
-        from tz_utils import default_zone
-        tz = default_zone()
+                tz = default_zone()
 
         def local(*a):
             return datetime(*a, tzinfo=tz).astimezone(UTC)
 
         # fixed instants (2026-11-02 is a Monday), Yangon time unless the suite is run with another SCHEDULER_TIMEZONE
-        sched = insight_schedule.next_scheduled_insight_at
+        def sched(insight_type, now):
+            return insight_schedule.next_scheduled_insight_at(insight_type, tz, now)
         cases = [
             ("weekly Mon 04:59 -> today 05:00", sched("weekly", local(2026, 11, 2, 4, 59)), local(2026, 11, 2, 5, 0)),
             ("weekly Mon 05:00 sharp -> next Monday", sched("weekly", local(2026, 11, 2, 5, 0)), local(2026, 11, 9, 5, 0)),
@@ -528,19 +529,21 @@ async def run(t):
             ("monthly 1st 06:00 sharp -> next month", sched("monthly", local(2026, 11, 1, 6, 0)), local(2026, 12, 1, 6, 0)),
             ("monthly mid-month -> the 1st", sched("monthly", local(2026, 11, 20, 9, 0)), local(2026, 12, 1, 6, 0)),
             ("monthly in December -> January 1st", sched("monthly", local(2026, 12, 15, 9, 0)), local(2027, 1, 1, 6, 0)),
-            ("on-demand mid-month -> start of next month", insight_schedule.next_on_demand_insight_at(local(2026, 11, 20, 9, 0)),
+            ("on-demand mid-month -> start of next month", insight_schedule.next_on_demand_insight_at(tz, local(2026, 11, 20, 9, 0)),
              local(2026, 12, 1, 0, 0)),
-            ("on-demand on the 1st 00:10 -> next month", insight_schedule.next_on_demand_insight_at(local(2026, 11, 1, 0, 10)),
+            ("on-demand on the 1st 00:10 -> next month", insight_schedule.next_on_demand_insight_at(tz, local(2026, 11, 1, 0, 10)),
              local(2026, 12, 1, 0, 0)),
         ]
         for label, got, want in cases:
             check(got == want and got.tzinfo is not None and got.utcoffset() == timedelta(0),
                   f"next_insight_at: {label}", f"{got} != {want}")
-        import scheduler as sched_mod
-        import inspect
-        src = inspect.getsource(sched_mod.start_scheduler)
-        check("**WEEKLY_INSIGHT_CRON" in src and "**MONTHLY_INSIGHT_CRON" in src and "day_of_week" not in src,
-              "next_insight_at: the scheduler builds its insight jobs from the same cron fields")
+        import local_jobs
+        jobs = {j.id: (j.at.hour, j.at.minute, j.weekday, j.day, j.subject) for j in local_jobs.LOCAL_JOBS}
+        check(jobs.get("weekly_insights") == (5, 0, 0, None, "book") and jobs.get("monthly_insights") == (6, 0, None, 1, "book")
+              and local_jobs.WEEKLY_INSIGHT_CRON is insight_schedule.WEEKLY_INSIGHT_CRON
+              and local_jobs.MONTHLY_INSIGHT_CRON is insight_schedule.MONTHLY_INSIGHT_CRON,
+              "next_insight_at: the local-time insight jobs are built from the same cron fields (Monday 05:00, the 1st "
+              "06:00, on the book's clock)", jobs)
 
         def expect_next(kind):
             n = datetime.now(UTC).astimezone(tz)
@@ -588,7 +591,7 @@ async def run(t):
             await store.load()
             import main as backend_main
             from plans import quota
-            user = db.users.find_one({"_id": nfid})
+                        user = db.users.find_one({"_id": nfid})
             check(ok and quota.is_locked(user, "insight_monthly") and quota.is_locked(user, "insight_weekly"),
                   "next_insight_at: quota.is_locked sees the owner's lock on Free monthly (and Free weekly)")
             check(backend_main._next_insight_at(user, "monthly") is None and backend_main._next_insight_at(user, "weekly") is None,
@@ -618,7 +621,6 @@ async def run(t):
         await store.load()
 
         # ---- scheduler_skips_free_and_capped: the jobs select Plus and Pro, skip ended plans and users at the cost cap
-        import insights_service as ins
         from ai_providers import runner
         stubenv.patch_loaded_modules()
         now = datetime.now(UTC)
@@ -635,36 +637,32 @@ async def run(t):
         add_cost(sch["reset"], 4.0)        # over the Pro cap ...
         r = c.post(f"/api/admin/users/{sch['reset']}/reset-usage", headers=AD)  # ... until the admin resets usage
         check(r.status_code == 200, "scheduler_skips_free_and_capped: the admin reset gives one Pro user a fresh cap", r.status_code)
-        ours = set(sch.values())
-        orig_run, orig_list = runner.run, ins.users_db.list_fields
-        seen, listed = [], []
+        from sql import books as books_db
+        sch_books = [await books_db.ensure_personal_book(uid) for uid in sch.values()]
+        orig_run = runner.run
+        seen = []
 
         async def spy(feature, **kw):
             seen.append((feature, kw.get("user_id"), kw.get("background")))
             return await orig_run(feature, **kw)
 
-        async def only_ours(fields, *where):
-            got = [u for u in await orig_list(fields, *where) if u["_id"] in ours]
-            listed.append({u["_id"] for u in got})
-            return got
+        async def job(insight_type):
+            """The scheduled insight job of `insight_type` for each of these users' books (each book's own tick)."""
+            for book in sch_books:
+                await stubenv.run_local_job(f"{insight_type}_insights", book)
 
         try:
-            runner.run, ins.users_db.list_fields = spy, only_ours
-            for label, job, feature in (("weekly", ins.generate_weekly_insights_for_all_users, "insight_weekly"),
-                                        ("monthly", ins.generate_monthly_insights_for_all_users, "insight_monthly")):
+            runner.run = spy
+            for label, feature in (("weekly", "insight_weekly"), ("monthly", "insight_monthly")):
                 seen.clear()
-                await job()
+                await job(label)
                 ran = {u for f, u, bg in seen if f == feature}
                 want = {sch["plus"], sch["pro"], sch["reset"]}
                 check(ran == want and all(bg for f, u, bg in seen if f == feature),
                       f"scheduler_skips_free_and_capped: the {label} job generates for Plus, Pro and a reset Pro user only (in the background)",
                       sorted(k for k, v in sch.items() if v in ran))
-                names = {k for k, v in sch.items() if v in listed[-1]}
-                check(names == {"plus", "pro", "expired", "capped", "reset", "procapped"},
-                      f"scheduler_skips_free_and_capped: the {label} job's selection is the Plus and Pro plan rows (free users never listed)",
-                      sorted(names))
         finally:
-            runner.run, ins.users_db.list_fields = orig_run, orig_list
+            runner.run = orig_run
         check(all(rows(sch[k], "weekly") == 0 and rows(sch[k], "monthly") == 0 for k in ("free", "expired", "capped", "procapped", "freecapped")),
               "scheduler_skips_free_and_capped: no insight was stored for Free, an ended plan or a user at the cap")
         check(all(rows(sch[k], "weekly") == 1 and rows(sch[k], "monthly") == 1 for k in ("plus", "pro", "reset")),
@@ -681,10 +679,10 @@ async def run(t):
             conn.execute("UPDATE ai_usage SET estimated_cost_usd = 0.6 WHERE user_id = %s", (sch["plus"],))
         seen.clear()
         try:
-            runner.run, ins.users_db.list_fields = spy, only_ours
-            await ins.generate_weekly_insights_for_all_users()
+            runner.run = spy
+            await job("weekly")
         finally:
-            runner.run, ins.users_db.list_fields = orig_run, orig_list
+            runner.run = orig_run
         ran = {u for f, u, bg in seen if f == "insight_weekly"}
         check(sch["plus"] not in ran and sch["pro"] in ran,
               "scheduled_spend_recorded: once a user's recorded spend reaches the plan's cap the next job run skips them", sorted(ran))
@@ -696,11 +694,10 @@ async def run(t):
             check(ok, "scheduler_skips_locked_type: the owner locks Plus weekly insights (admin API)")
             with t.connect() as conn:
                 conn.execute("DELETE FROM ai_usage WHERE user_id = %s", (sch["plus"],))  # Plus is under its cap again
-            runner.run, ins.users_db.list_fields = spy, only_ours
-            for job, feature in ((ins.generate_weekly_insights_for_all_users, "insight_weekly"),
-                                 (ins.generate_monthly_insights_for_all_users, "insight_monthly")):
+            runner.run = spy
+            for label, feature in (("weekly", "insight_weekly"), ("monthly", "insight_monthly")):
                 seen.clear()
-                await job()
+                await job(label)
                 ran = {u for f, u, bg in seen if f == feature}
                 want = {sch["pro"], sch["reset"]} if feature == "insight_weekly" else {sch["plus"], sch["pro"], sch["reset"]}
                 check(ran == want,
@@ -708,7 +705,7 @@ async def run(t):
                       f"{'Pro only' if feature == 'insight_weekly' else 'Plus and Pro (monthly is not locked)'}",
                       sorted(k for k, v in sch.items() if v in ran))
         finally:
-            runner.run, ins.users_db.list_fields = orig_run, orig_list
+            runner.run = orig_run
             c.put("/api/admin/plans", headers=AD, json=t.default_body())
             await store.load()
     finally:

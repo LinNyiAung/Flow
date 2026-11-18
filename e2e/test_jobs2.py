@@ -1,4 +1,4 @@
-"""Effect-based check: does the all-users weekly/monthly job generate insights for premium users with an expiry date?"""
+"""Effect-based check: does the scheduled weekly insight job generate insights for premium users with an expiry date?"""
 import asyncio
 import json
 import os
@@ -33,6 +33,7 @@ U = __import__("pgcompat").async_collection("users")  # users live in PostgreSQL
 stubenv.patch_loaded_modules()
 HERE = os.path.dirname(os.path.abspath(__file__))
 A = json.load(open(os.path.join(HERE, "api_results.json")))["state"]["A_id"]
+BOOK_A = __import__("pgcompat").get_db().sql("SELECT id FROM books WHERE person_id = %s", A)[0]["id"]
 RESULTS = []
 
 
@@ -49,11 +50,11 @@ async def main():
                           ("lifetime premium (no expiry)", None)):
         await U.update_one({"_id": A}, {"$set": {"subscription_type": "plus", "subscription_expires_at": expiry}})
         await I.delete_many({"user_id": A})
-        await ins.generate_weekly_insights_for_all_users()
+        await stubenv.run_local_job("weekly_insights", BOOK_A)
         n = await I.count_documents({"user_id": A, "insight_type": "weekly"})
-        rec(f"weekly all-users job generated insights for {label}", "PASS" if n else "BUG", f"{n} insight docs")
+        rec(f"weekly insight job generated insights for {label}", "PASS" if n else "BUG", f"{n} insight docs")
         # One insight per user per period (the insight_weekly provider chain), not one per provider.
-        rec(f"weekly all-users job generated exactly one insight for {label}", "PASS" if n == 1 else "BUG",
+        rec(f"weekly insight job generated exactly one insight for {label}", "PASS" if n == 1 else "BUG",
             f"{n} insight docs")
     await U.update_one({"_id": A}, {"$set": {"subscription_expires_at": datetime.now(UTC) + timedelta(days=20)}})
 

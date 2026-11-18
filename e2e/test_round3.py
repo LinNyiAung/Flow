@@ -55,7 +55,7 @@ import notification_service as ns  # noqa: E402
 stubenv.patch_loaded_modules()
 db.budgets.update_one({"_id": b["id"]}, {"$set": {"end_date": now + timedelta(days=2)}})
 db.notifications.delete_many({"user_id": uid, "type": {"$regex": "ending|end"}})
-asyncio.run(ns.check_budget_period_notifications())
+asyncio.run(stubenv.run_local_job("budget_ending_reminders", uid))
 ending = list(db.notifications.find({"user_id": uid, "type": {"$regex": "ending|end"}}))
 st = db.budgets.find_one({"_id": b["id"]})["status"]
 rec("over-budget ('exceeded') budget ending in 2 days gets no 'ending soon' alert", not ending, f"status={st}, alerts={[n['type'] for n in ending]}")
@@ -65,12 +65,11 @@ t = c.post("/api/transactions", headers=H(tok), json={"type": "outflow", "main_c
                                                       "date": (now - timedelta(days=20)).isoformat(), "amount": 1, "currency": "usd",
                                                       "recurrence": {"enabled": False}}).json()
 r = c.put(f"/api/transactions/{t['id']}", headers=H(tok), json={"recurrence": {"enabled": True, "config": {"frequency": "daily"}}})
-import recurring_transaction_service as rts  # noqa: E402
-asyncio.run(rts.check_and_create_recurring_transactions()) if False else None
 from recurring_transaction_service import plan_due_occurrences  # noqa: E402
+from tz_utils import default_zone, local_today  # noqa: E402
 from recurrence_models import RecurrenceConfig  # noqa: E402
 stored = db.transactions.find_one({"_id": t["id"]})["recurrence"]
-plan = plan_due_occurrences(stored["last_created_date"], RecurrenceConfig(frequency="daily"), now)
+plan = plan_due_occurrences(stored["last_created_date"], RecurrenceConfig(frequency="daily"), local_today(default_zone(), now))
 rec("turning recurrence on for a 20-day-old transaction would back-fill past occurrences", len(plan.dates) > 1,
     f"PUT {r.status_code}; pointer={stored['last_created_date']}; next run would create {len(plan.dates)}")
 
