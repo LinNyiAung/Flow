@@ -22,6 +22,7 @@ from sql import users as users_db
 from firebase_service import send_push
 from notification_service import create_notification, translate
 from plans.access import format_date, user_language
+from user_zones import user_zone
 from utils import ensure_utc_datetime
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,9 @@ def effectively_free_filter(now: Optional[datetime] = None):
     return users_db.effectively_free(now or datetime.now(UTC))
 
 
-def _format_end_date(expired_at: datetime, lang: str) -> str:
-    return format_date(expired_at, lang)
+def _format_end_date(expired_at: datetime, user: dict) -> str:
+    """The end date as the user reads it: their language, the calendar date in their zone."""
+    return format_date(expired_at, user_language(user), user_zone(user))
 
 
 def _plan_name(plan: str) -> str:
@@ -72,7 +74,7 @@ async def expire_paid_plans(now: Optional[datetime] = None) -> int:
     """
     now = now or datetime.now(UTC)
     candidates = await users_db.list_fields(
-        ["subscription_type", "subscription_expires_at", "language"],
+        ["subscription_type", "subscription_expires_at", "language", "timezone"],
         users_db.users.c.subscription_type.in_(PAID_PLANS),
         users_db.users.c.subscription_expires_at.isnot(None),
     )
@@ -103,7 +105,7 @@ async def expire_paid_plans(now: Optional[datetime] = None) -> int:
                 user_id=user["_id"],
                 notification_type="subscription_expired",
                 title=translate("subscription_expired_title", lang, plan=plan),
-                message=translate("subscription_expired_msg", lang, plan=plan, date=_format_end_date(expired_at, lang)),
+                message=translate("subscription_expired_msg", lang, plan=plan, date=_format_end_date(expired_at, user)),
             )
         except Exception as e:
             logger.error(f"Could not create plan-ended notification for user {user['_id']}: {e}")
@@ -135,7 +137,7 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
     """
     now = now or datetime.now(UTC)
     candidates = await users_db.list_fields(
-        ["subscription_type", "trial_ends_at", "language"],
+        ["subscription_type", "trial_ends_at", "language", "timezone"],
         users_db.active_paid(now),
         users_db.users.c.trial_ends_at.isnot(None),
         users_db.users.c.trial_ends_at > now,
@@ -157,7 +159,7 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
                 user_id=user["_id"],
                 notification_type=key,
                 title=translate(f"{key}_title", lang, plan=plan),
-                message=translate(f"{key}_msg", lang, plan=plan, date=_format_end_date(ends_at, lang)),
+                message=translate(f"{key}_msg", lang, plan=plan, date=_format_end_date(ends_at, user)),
             )
         except Exception as e:
             logger.error(f"Could not create trial reminder for user {user['_id']}: {e}")
@@ -179,7 +181,7 @@ async def send_plan_renewal_reminders(now: Optional[datetime] = None) -> int:
     """
     now = now or datetime.now(UTC)
     candidates = await users_db.list_fields(
-        ["subscription_type", "subscription_expires_at", "language"],
+        ["subscription_type", "subscription_expires_at", "language", "timezone"],
         users_db.active_paid(now),
         users_db.users.c.subscription_expires_at.isnot(None),
         users_db.users.c.subscription_expires_at > now,
@@ -202,7 +204,7 @@ async def send_plan_renewal_reminders(now: Optional[datetime] = None) -> int:
                 user_id=user["_id"],
                 notification_type=key,
                 title=translate(f"{key}_title", lang, plan=plan),
-                message=translate(f"{key}_msg", lang, plan=plan, date=_format_end_date(ends_at, lang)),
+                message=translate(f"{key}_msg", lang, plan=plan, date=_format_end_date(ends_at, user)),
             )
         except Exception as e:
             logger.error(f"Could not create plan renewal reminder for user {user['_id']}: {e}")
@@ -225,7 +227,7 @@ async def notify_plan_activated(user: dict, plan: str, expires_at: Optional[date
         if expires_at is None:
             message = translate("plan_activated_msg", lang, plan=name)
         else:
-            message = translate("plan_activated_msg_until", lang, plan=name, date=format_date(expires_at, lang))
+            message = translate("plan_activated_msg_until", lang, plan=name, date=_format_end_date(expires_at, user))
         await create_notification(
             user_id=user["_id"],
             notification_type="plan_activated",
