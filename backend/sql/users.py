@@ -135,9 +135,14 @@ async def update_user_returning(user_id: str, *conditions: ColumnElement, **fiel
     return row_to_doc(await write_returning(stmt))
 
 
-async def set_timezone(user_id: str, name: str) -> None:
-    """Save the person's IANA zone name (validated by the caller, user_zones.remember_timezone)."""
-    await update_user(user_id, timezone=name)
+async def set_timezone(user_id: str, name: str, now: datetime, last_change_before: datetime) -> bool:
+    """Save the person's IANA zone name (validated by the caller, user_zones.remember_timezone) and when it changed
+    (timezone_changed_at = now), only while it may change: no zone saved yet, or the last change was at or before
+    `last_change_before`. In one statement, so two requests racing with different zones save at most one. True when
+    saved."""
+    return await update_user(user_id, or_(users.c.timezone.is_(None), users.c.timezone_changed_at.is_(None),
+                                          users.c.timezone_changed_at <= last_change_before),
+                             timezone=name, timezone_changed_at=now) > 0
 
 
 async def timezone_of(user_id: str) -> Optional[str]:

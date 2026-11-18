@@ -20,7 +20,7 @@ database transaction as the status change, so a shutdown can lose only the notic
 import asyncio
 import logging
 import re
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from insights_service import (
@@ -35,7 +35,7 @@ from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import plans as plans_db
 from sql.db import transaction
-from tz_utils import as_calendar_date, day_bounds, default_zone, local_midnight_utc, local_today, utc_now
+from tz_utils import as_calendar_date, as_utc, day_bounds, default_zone, local_today, utc_now
 from user_zones import book_zone, person_zone
 
 logger = logging.getLogger(__name__)
@@ -463,15 +463,16 @@ async def fail_stuck_reports(now: datetime | None = None) -> int:
 
 # ---------------------------------------------------------------- the daily attempt window
 
-def attempts_window_start(now: datetime, tz: Optional[tzinfo] = None) -> datetime:
-    """Midnight today in `tz` (the asker's zone; default the default zone), in UTC: failed / refused attempts since then
-    count towards the daily limit."""
-    tz = tz if tz is not None else default_zone()
-    return local_midnight_utc(local_today(tz, now), tz)
+ATTEMPTS_WINDOW = timedelta(hours=24)
 
 
-def attempts_reset_at(now: datetime, tz: Optional[tzinfo] = None) -> datetime:
-    """The next midnight in `tz` (the asker's zone; default the default zone), in UTC: when the daily attempt limit
-    starts again."""
-    tz = tz if tz is not None else default_zone()
-    return local_midnight_utc(local_today(tz, now) + timedelta(days=1), tz)
+def attempts_window_start(now: datetime) -> datetime:
+    """Failed / refused attempts created in the last 24 hours count towards the limit: a rolling window, so no zone
+    (which the client can change) can move it."""
+    return as_utc(now) - ATTEMPTS_WINDOW
+
+
+def attempts_reset_at(attempt_times: list[datetime]) -> datetime:
+    """When the limit lifts, given the creation times of the attempts in the window (MAX_FAILED_ATTEMPTS_PER_DAY or
+    more, oldest first): once enough of the oldest have left the window that fewer than the maximum remain."""
+    return as_utc(attempt_times[len(attempt_times) - MAX_FAILED_ATTEMPTS_PER_DAY]) + ATTEMPTS_WINDOW

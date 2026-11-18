@@ -83,6 +83,14 @@ async def count_attempts_since(book_id: str, since: datetime) -> int:
         _c.book_id == book_id, _c.status.in_(_ATTEMPT_STATUSES), _c.created_at >= since)) or 0
 
 
+async def attempt_times_since(book_id: str, since: datetime) -> List[datetime]:
+    """The created_at of the failed and refused reports created at or after `since` (hidden ones too), oldest
+    first."""
+    rows = await fetch_all(select(_c.created_at).where(
+        _c.book_id == book_id, _c.status.in_(_ATTEMPT_STATUSES), _c.created_at >= since).order_by(_c.created_at))
+    return [r["created_at"] for r in rows]
+
+
 async def finish(report_id: str, *, status: str, now: datetime, content: Optional[str] = None,
                  ai_provider: Optional[str] = None, ai_model: Optional[str] = None,
                  input_tokens: Optional[int] = None, output_tokens: Optional[int] = None) -> Optional[Dict[str, Any]]:

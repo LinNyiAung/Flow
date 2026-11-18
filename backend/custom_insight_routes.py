@@ -137,9 +137,8 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     if instruction and _BAD_INSTRUCTION_CHARS.search(instruction):
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_instruction",
                      message_key="custom_insight_instruction_chars_msg")
-    tz = user_zone(current_user)  # the asker's today and day
     try:
-        cis.validate_range(data.start_date, data.end_date, local_today(tz))
+        cis.validate_range(data.start_date, data.end_date, local_today(user_zone(current_user)))  # the asker's today
     except cis.RangeError:
         raise _error(current_user, status.HTTP_422_UNPROCESSABLE_ENTITY, "custom_insight_invalid_range")
 
@@ -168,9 +167,10 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     if await ci.has_pending(book_id):
         raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_pending")
     now = utc_now()
-    if await ci.count_attempts_since(book_id, cis.attempts_window_start(now, tz)) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
+    attempts = await ci.attempt_times_since(book_id, cis.attempts_window_start(now))
+    if len(attempts) >= cis.MAX_FAILED_ATTEMPTS_PER_DAY:
         raise _error(current_user, status.HTTP_429_TOO_MANY_REQUESTS, "custom_insight_attempts",
-                     resets_at=cis.attempts_reset_at(now, tz))
+                     resets_at=cis.attempts_reset_at(attempts))
 
     reservation = await quota.reserve(current_user, cis.FEATURE)  # PlanError: limit reached, cost cap
     report_id = str(uuid.uuid4())

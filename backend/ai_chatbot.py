@@ -4,7 +4,7 @@ import threading
 import json
 from collections import OrderedDict
 from contextlib import aclosing
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta, timezone, tzinfo
 
 from langchain_openai import OpenAIEmbeddings
@@ -28,7 +28,7 @@ from sql import users as users_db
 from tz_utils import (
     as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, default_zone, local_now, local_today,
 )
-from user_zones import book_zone, user_zone
+from user_zones import user_zone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -120,14 +120,19 @@ class _StoreEntry:
         self.retired = False   # removed from the cache; delete once refs == 0
 
 
+def _zone_key(tz: Optional[tzinfo]) -> str:
+    return str(tz if tz is not None else default_zone())
+
+
 class BookVectorStoreCache:
     """
-    Bounded per-process cache of per-book in-memory vector stores (keyed by book id: a personal or a family book).
+    Bounded per-process cache of in-memory vector stores, one per book (a personal or a family book) and zone.
 
-    - LRU-capped (default 200 books).
-    - Entries are only valid for the calendar day they were built on, in the zone they were built
-      for (the book's, user_zones.book_zone), because the documents embed relative labels
-      ("TODAY", "N days ago", days remaining) that are computed at build time. A new day forces a rebuild.
+    - Keyed by (book id, zone): the documents embed relative labels ("TODAY", "N days ago", days remaining) computed
+      at build time in the zone of the person chatting (user_zones.user_zone), so the members of a family book in
+      different zones each get their own store. A personal book has one (its person's zone; a new one when it changes).
+    - LRU-capped (default 200 stores).
+    - Entries are only valid for the calendar day they were built on, in their zone. A new day forces a rebuild.
     - Concurrent first builds for the same book are serialized with an asyncio.Lock
       (striped by book id so the lock table stays bounded), so only one store is built.
     - Requests lease a store via acquire()/release. A store that leaves the cache
@@ -136,7 +141,7 @@ class BookVectorStoreCache:
     """
 
     def __init__(self, max_books: int = 200, lock_stripes: int = 64):
-        self._stores: "OrderedDict[str, _StoreEntry]" = OrderedDict()
+        self._stores: "OrderedDict[Tuple[str, str], _StoreEntry]" = OrderedDict()
         self._max_books = max_books
         self._locks = [asyncio.Lock() for _ in range(lock_stripes)]
 
@@ -144,7 +149,8 @@ class BookVectorStoreCache:
         return self._locks[hash(book_id) % len(self._locks)]
 
     def __contains__(self, book_id) -> bool:
-        return self._get_entry(book_id) is not None
+        """True when some zone's store of the book is cached and current."""
+        return any(self._get_entry(key) is not None for key in [k for k in self._stores if k[0] == book_id])
 
     def __len__(self) -> int:
         return len(self._stores)
@@ -163,32 +169,34 @@ class BookVectorStoreCache:
         if entry.retired and entry.refs <= 0:
             _schedule_vector_store_delete(entry.store)
 
-    def _get_entry(self, book_id: str) -> Optional[_StoreEntry]:
-        entry = self._stores.get(book_id)
+    def _get_entry(self, key: Tuple[str, str]) -> Optional[_StoreEntry]:
+        entry = self._stores.get(key)
         if entry is None:
             return None
         if entry.built_on != local_today(entry.tz):
-            self.invalidate(book_id)
+            self._retire(self._stores.pop(key))
             return None
-        self._stores.move_to_end(book_id)
+        self._stores.move_to_end(key)
         return entry
 
-    def get(self, book_id: str):
-        """Unleased lookup (the store may be retired at any time; prefer acquire())."""
-        entry = self._get_entry(book_id)
+    def get(self, book_id: str, tz: Optional[tzinfo] = None):
+        """Unleased lookup of the book's store for `tz` (the store may be retired at any time; prefer acquire())."""
+        entry = self._get_entry((book_id, _zone_key(tz)))
         return entry.store if entry is not None else None
 
     def _put_entry(self, book_id: str, store, tz: Optional[tzinfo]) -> _StoreEntry:
-        old = self._stores.pop(book_id, None)
+        tz = tz if tz is not None else default_zone()
+        key = (book_id, _zone_key(tz))
+        old = self._stores.pop(key, None)
         if old is not None and old.store is store:
             entry = old
         else:
             if old is not None:
                 self._retire(old)
-            entry = _StoreEntry(store, tz if tz is not None else default_zone())
-        self._stores[book_id] = entry
+            entry = _StoreEntry(store, tz)
+        self._stores[key] = entry
         while len(self._stores) > self._max_books:
-            evicted_book, evicted = self._stores.popitem(last=False)
+            (evicted_book, _), evicted = self._stores.popitem(last=False)
             self._retire(evicted)
             print(f"🧹 Evicted vector store for book {evicted_book} (LRU cap {self._max_books})")
         return entry
@@ -198,22 +206,23 @@ class BookVectorStoreCache:
         self._put_entry(book_id, store, tz)
 
     def invalidate(self, book_id: str) -> bool:
-        entry = self._stores.pop(book_id, None)
-        if entry is None:
-            return False
-        self._retire(entry)
-        return True
+        """Drop every zone's store of the book (its data changed). True when there was one."""
+        keys = [k for k in self._stores if k[0] == book_id]
+        for key in keys:
+            self._retire(self._stores.pop(key))
+        return bool(keys)
 
     async def acquire(self, book_id: str, builder, tz: Optional[tzinfo] = None):
         """
-        Lease the book's store, building it once via `await builder()` if needed (a store built for today in `tz`,
-        default the default zone).
+        Lease the book's store for `tz` (default the default zone), building it once via `await builder()` (a store
+        built for today in `tz`) if needed.
         Returns (store_or_None, release); call release() when done using the store.
         """
-        entry = self._get_entry(book_id)
+        key = (book_id, _zone_key(tz))
+        entry = self._get_entry(key)
         if entry is None:
             async with self._lock_for(book_id):
-                entry = self._get_entry(book_id)  # another coroutine may have built it meanwhile
+                entry = self._get_entry(key)  # another coroutine may have built it meanwhile
                 if entry is None:
                     store = await builder()
                     if store is None:
@@ -255,7 +264,7 @@ class FinancialDataProcessor:
     """Processes a book's financial data for RAG (a personal or a family book).
 
     tz: the zone of the "today" the data is labelled with (days remaining, "N days ago", this month): the person asking
-    for their chat, the book's zone for its cached documents and its insights; default the default zone."""
+    for their chat and its cached documents, the book's zone for its insights; default the default zone."""
 
     def __init__(self, book_id: str, tz: Optional[tzinfo] = None):
         self.book_id = book_id
@@ -1003,13 +1012,12 @@ class FinancialChatbot:
             print(f"❌ Error creating vector store: {e}")
             return None
 
-    async def _get_or_create_vector_store(self, book_id: str):
+    async def _get_or_create_vector_store(self, book_id: str, tz: tzinfo):
         """
-        Lease (building once, even under concurrent requests) the book's vector store. It is shared by everyone who
-        chats about the book, so its documents are labelled in the book's zone (a family's: its owner's).
+        Lease (building once, even under concurrent requests) the book's vector store for the zone `tz` of the person
+        chatting (its documents' "TODAY", "N days ago" and days remaining are theirs).
         Returns (store_or_None, release); call release() when done querying it.
         """
-        tz = await book_zone(book_id)
         return await self.book_vector_stores.acquire(
             book_id, lambda: self._build_vector_store(book_id, tz), tz
         )
@@ -1400,7 +1408,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             context = ""
 
             # [FIX] Await directly (it handles threading internally now)
-            vector_store, release_vector_store = await self._get_or_create_vector_store(book_id)
+            vector_store, release_vector_store = await self._get_or_create_vector_store(book_id, tz)
 
             if vector_store:
                 try:

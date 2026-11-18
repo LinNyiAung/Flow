@@ -59,7 +59,9 @@ NEW_TYPES = {
     ("insights", "month_start"): ("YES", DATE),
     ("insights", "month_end"): ("YES", DATE),
     ("users", "timezone"): ("YES", TEXT),
+    ("users", "timezone_changed_at"): ("YES", TS_TZ),
 }
+NEW_USER_COLUMNS = (("users", "timezone"), ("users", "timezone_changed_at"))  # added by the migration
 # Indexes on the converted columns, kept (rebuilt) on the new types.
 DATE_INDEXES = {
     "transactions": ("ix_transactions_book_date", "ix_transactions_book_type_date", "ix_transactions_parent_date"),
@@ -245,15 +247,18 @@ def _check_upgraded(ids, label):
     ins = _one("SELECT month_start, month_end FROM insights WHERE id = %s", ids["insight_m"])
     check((ins.get("month_start"), ins.get("month_end")) == (date(2026, 10, 1), date(2026, 10, 31)),
           f"migration ({label}): the monthly insight bounds become 2026-10-01 to 2026-10-31", ins)
-    tz = _one("SELECT timezone FROM users WHERE id = %s", ids["A"]) if "timezone" in _columns("users") else "no column"
-    check(tz == {"timezone": None}, f"migration ({label}): an existing person's timezone is NULL", tz)
+    tz = (_one("SELECT timezone, timezone_changed_at FROM users WHERE id = %s", ids["A"])
+          if {"timezone", "timezone_changed_at"} <= set(_columns("users")) else "no column")
+    check(tz == {"timezone": None, "timezone_changed_at": None},
+          f"migration ({label}): an existing person's timezone and timezone_changed_at are NULL", tz)
 
 
 def _check_downgraded(ids):
-    old = {k: (v[0], TS_TZ) for k, v in NEW_TYPES.items() if k != ("users", "timezone")}
+    old = {k: (v[0], TS_TZ) for k, v in NEW_TYPES.items() if k not in NEW_USER_COLUMNS}
     _check_types("migration (downgrade)", old)
     _check_indexes("migration (downgrade)")
-    check("timezone" not in _columns("users"), "migration (downgrade): users.timezone is dropped")
+    check(not {"timezone", "timezone_changed_at"} & set(_columns("users")),
+          "migration (downgrade): users.timezone and users.timezone_changed_at are dropped")
     check("local_job_runs" not in _tables(), "migration (downgrade): local_job_runs is dropped")
     tx = _one("SELECT date FROM transactions WHERE id = %s", ids["tx"]).get("date")
     check(tx == _utc("2026-11-18 23:40:00"), "migration (downgrade): the transaction is 2026-11-18 23:40:00+00 again", tx)
@@ -434,6 +439,22 @@ def _stored_zone(p):
     return _one("SELECT timezone FROM users WHERE id = %s", p["id"]).get("timezone", "no row")
 
 
+def _changed_at(p):
+    try:
+        return _one("SELECT timezone_changed_at FROM users WHERE id = %s", p["id"]).get("timezone_changed_at", "no row")
+    except Exception as e:  # noqa: BLE001  (no such column)
+        db._pg.rollback()
+        return type(e).__name__
+
+
+def _age_zone_change(p, interval):
+    """Move the person's last zone change `interval` (e.g. '25 hours') into the past."""
+    try:
+        db.sql("UPDATE users SET timezone_changed_at = now() - %s::interval WHERE id = %s", interval, p["id"])
+    except Exception:  # noqa: BLE001  (no such column: the checks after this report it)
+        pass
+
+
 def _cleanup(made):
     made = [m for m in made if m]
     if made:
@@ -461,9 +482,32 @@ def section_header():
             check(r.status_code == 200 and _stored_zone(p) == "Asia/Tokyo",
                   f"header: X-Timezone {label} gives 200 and leaves the stored zone unchanged",
                   (r.status_code, _stored_zone(p)))
-        r = c.get("/api/transactions", headers={**p["h"], TZ_HEADER: "Asia/Bangkok"})
-        check(r.status_code == 200 and _stored_zone(p) == "Asia/Bangkok",
-              "header: a different valid name on any authenticated route replaces it", (r.status_code, _stored_zone(p)))
+        changed = _changed_at(p)
+        check(isinstance(changed, datetime) and abs(datetime.now(UTC) - changed) < timedelta(minutes=5),
+              "header: saving the first zone records timezone_changed_at", changed)
+
+        # ---- the saved zone changes at most once per 24 hours (a zone-hopping client can't reset day limits early)
+        q = _person(c, made, "Hopper", zone=KIRITIMATI)
+        first = _changed_at(q)
+        check(_stored_zone(q) == KIRITIMATI and first is not None,
+              "header: a first zone (NULL before) is always accepted", (_stored_zone(q), first))
+        _age_zone_change(q, "1 minute")
+        before = _changed_at(q)
+        kiri_today = _today_in(KIRITIMATI)
+        got = _range_ok(c, q, kiri_today, {TZ_HEADER: MINUS_12})
+        check(got is True and _stored_zone(q) == KIRITIMATI and _changed_at(q) == before,
+              "header: a different zone 1 minute after the last change is not saved, and that request's today is the "
+              "saved zone's (a range ending today in Kiritimati is accepted)", (got, _stored_zone(q), _changed_at(q)))
+        r = c.get("/api/transactions", headers={**q["h"], TZ_HEADER: MINUS_12})
+        check(r.status_code == 200 and _stored_zone(q) == KIRITIMATI,
+              "header: on any other route too", (r.status_code, _stored_zone(q)))
+        _age_zone_change(q, "25 hours")
+        got = _range_ok(c, q, kiri_today, {TZ_HEADER: MINUS_12})
+        after = _changed_at(q)
+        check(got is False and _stored_zone(q) == MINUS_12 and isinstance(after, datetime)
+              and abs(datetime.now(UTC) - after) < timedelta(minutes=5),
+              "header: 25 hours after the last change a new zone is saved (timezone_changed_at = now) and that request "
+              "already uses it (the Kiritimati range is refused in UTC-12)", (got, _stored_zone(q), after))
 
         async def failing_save():
             import logging
@@ -495,7 +539,7 @@ def section_header():
         check(got == ("Asia/Tokyo", "Asia/Bangkok", "Asia/Tokyo", 1),
               "header: a failing save is logged, never raised, and the request still uses the header's zone; an "
               "invalid name keeps the stored one", got)
-        check(_stored_zone(p) == "Asia/Bangkok", "header: the failed save stored nothing", _stored_zone(p))
+        check(_stored_zone(p) == "Asia/Tokyo", "header: the failed save stored nothing", _stored_zone(p))
     finally:
         _cleanup(made)
 
@@ -584,10 +628,11 @@ def section_today():
               f"today: a range ending today in Tokyo ({tokyo_today}) is accepted for the Tokyo person and "
               f"{'accepted' if yangon_accepts else 'refused'} for the Yangon and NULL-zone people (Yangon is on "
               f"{_today_in('Asia/Yangon')})", got)
-        # The header's zone is used by the very request that brings it.
+        # The header's zone is used by the very request that brings it (once the 24-hour change limit allows it).
         switch = _person(c, made, "Switch", zone=MINUS_12)
-        got = (_range_ok(c, switch, kiri_today), _range_ok(c, switch, kiri_today, {TZ_HEADER: KIRITIMATI}),
-               _stored_zone(switch))
+        before = _range_ok(c, switch, kiri_today)
+        _age_zone_change(switch, "25 hours")
+        got = (before, _range_ok(c, switch, kiri_today, {TZ_HEADER: KIRITIMATI}), _stored_zone(switch))
         check(got == (False, True, KIRITIMATI), "today: a request that brings a new zone already uses it", got)
 
         # ---- a "week" report covers the person's own week
@@ -609,7 +654,6 @@ def section_today():
 
         # ---- the same rules at a pinned instant where Tokyo and Yangon are on different days
         async def pinned():
-            import custom_insights_service as cis
             from plans import periods
             from report_models import ReportPeriod
             from report_routes import calculate_report_dates
@@ -619,7 +663,6 @@ def section_today():
                 "week_reset": (periods.resets_at("week", PINNED, TOKYO), periods.resets_at("week", PINNED, YANGON)),
                 "report": (calculate_report_dates(ReportPeriod.WEEK, tz=TOKYO, now=PINNED)[0],
                            calculate_report_dates(ReportPeriod.WEEK, tz=YANGON, now=PINNED)[0]),
-                "attempts": (cis.attempts_window_start(PINNED, TOKYO), cis.attempts_window_start(PINNED, YANGON)),
                 "midnight": (local_midnight_utc(date(2026, 11, 30), TOKYO), local_midnight_utc(date(2026, 11, 23), YANGON)),
             }
             return out
@@ -637,9 +680,42 @@ def section_today():
         check(got.get("report") == (datetime(2026, 11, 23), datetime(2026, 11, 16)),
               "today (pinned): a week report starts Monday the 23rd in Tokyo and Monday the 16th in Yangon",
               got.get("report", got))
-        check(got.get("attempts") == (datetime(2026, 11, 22, 15, 0, tzinfo=UTC), datetime(2026, 11, 21, 17, 30, tzinfo=UTC)),
-              "today (pinned): the custom-insight attempt window starts at the person's own midnight",
-              got.get("attempts", got))
+
+        # ---- the custom-insight failed-attempts window is a rolling 24 hours, the same in every zone
+        hopper = people["kiri"]
+        book = _one("SELECT id FROM books WHERE person_id = %s", hopper["id"]).get("id")
+        start, end = date(2026, 11, 1), date(2026, 11, 14)
+        for hours in (23, 25):
+            db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, created_at) "
+                   "VALUES (%s, %s, %s, %s, 'failed', now() - %s::interval)",
+                   str(uuid.uuid4()), book, start, end, f"{hours} hours")
+
+        async def rolling():
+            import custom_insights_service as cis
+            from sql import custom_insights as ci
+            now = datetime.now(UTC)
+            t = [now - timedelta(hours=h) for h in (20, 10, 5, 3, 1)]
+            try:
+                reset = cis.attempts_reset_at(t)
+                reset6 = cis.attempts_reset_at([now - timedelta(hours=22)] + t)
+            except Exception as e:  # noqa: BLE001  (the old signature)
+                reset = reset6 = repr(e)[:120]
+            return {"start": (cis.attempts_window_start(now), now),
+                    "count": await ci.count_attempts_since(book, cis.attempts_window_start(now)),
+                    "reset": (reset, t[0] + timedelta(hours=24)), "reset6": (reset6, t[0] + timedelta(hours=24))}
+        try:
+            got = _backend_async(rolling)
+        except Exception as e:  # noqa: BLE001
+            got = {"error": repr(e)[:300]}
+        start_now = got.get("start")
+        check(bool(start_now) and start_now[0] == start_now[1] - timedelta(hours=24),
+              "today: the custom-insight attempt window starts 24 hours ago (no zone involved)", got)
+        check(got.get("count") == 1, "today: a failed attempt 23 hours ago counts and one 25 hours ago doesn't",
+              got.get("count", got))
+        check(got.get("reset", (0, 1))[0] == got.get("reset", (0, 1))[1]
+              and got.get("reset6", (0, 1))[0] == got.get("reset6", (0, 1))[1],
+              "today: the limit lifts 24 hours after the oldest attempt that keeps it reached (5 attempts: the oldest; "
+              "6: the second oldest)", (got.get("reset"), got.get("reset6")))
     finally:
         _cleanup(made)
 
@@ -691,6 +767,43 @@ def section_family():
         except Exception as e:  # noqa: BLE001
             got = repr(e)[:300]
         check(got == "Asia/Tokyo", "family: the family book's zone is now the new owner's (Asia/Tokyo)", got)
+
+        # The chat's cached documents ("TODAY", "N days ago", days remaining) are per book AND per member zone.
+        async def chat_cache():
+            from ai_chatbot import BookVectorStoreCache, FinancialChatbot
+            cache, built = BookVectorStoreCache(), []
+
+            def builder(tag):
+                async def build():
+                    built.append(tag)
+                    return object()
+                return build
+            got = []
+            for tag, zone in (("yangon", YANGON), ("tokyo", TOKYO), ("yangon again", YANGON)):
+                store, release = await cache.acquire(book_id, builder(tag), zone)
+                got.append(store)
+                release()
+            dropped = cache.invalidate(book_id)
+            store, release = await cache.acquire(book_id, builder("after invalidate"), TOKYO)
+            release()
+            bot, zones = FinancialChatbot.__new__(FinancialChatbot), []
+            bot.book_vector_stores = BookVectorStoreCache()
+
+            async def fake_build(bid, tz):
+                zones.append(str(tz))
+                return object()
+            bot._build_vector_store = fake_build
+            _, release = await bot._get_or_create_vector_store(book_id, TOKYO)
+            release()
+            return built, got[0] is got[2], got[0] is not got[1], dropped, zones
+        try:
+            got = _backend_async(chat_cache)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == (["yangon", "tokyo", "after invalidate"], True, True, True, ["Asia/Tokyo"]),
+              "family: the chat's cached documents are built once per member zone (a Tokyo member gets Tokyo's "
+              "TODAY on a Yangon-owned book), invalidating the book drops every zone's store, and the chatbot builds "
+              "them in the zone it is given (the asker's)", got)
 
         async def edges():
             import user_zones

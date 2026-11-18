@@ -67,6 +67,7 @@ users = Table(
     Column("default_currency", Text, nullable=False, server_default="usd"),
     Column("language", Text, nullable=False, server_default="en"),
     Column("timezone", Text),  # the person's IANA zone, read from their phone; NULL: the default zone (tz_utils)
+    Column("timezone_changed_at", TS),  # when timezone was last saved: it may change at most once per 24 hours
     Column("is_verified", Boolean, nullable=False, server_default=text("false")),
     Column("verified_at", TS),
     Column("verified_via", Text),

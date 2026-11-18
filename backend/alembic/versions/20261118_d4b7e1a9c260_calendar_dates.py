@@ -7,12 +7,12 @@ so dropping the label gives back exactly what each person entered:
   the insights' week / month bounds: timestamptz -> DATE (the UTC-labelled day). A budget's end becomes its inclusive
   last day: an end stored at 00:00 keeps its date (that day is now included), one at 23:59:59.999 keeps its date; a
   start time that isn't midnight widens to its whole day.
-Adds users.timezone (an IANA name; NULL means the default zone) and local_job_runs (one claim per local-time job,
-subject and local date).
+Adds users.timezone (an IANA name; NULL means the default zone), users.timezone_changed_at (when it was last saved: it
+may change at most once per 24 hours) and local_job_runs (one claim per local-time job, subject and local date).
 
 Downgrade labels the values UTC again: a wall-clock value as that UTC time, a budget end as 23:59:59.999999 of its day
-(the convention monthly and yearly budgets use) and every other date as midnight UTC; then drops users.timezone and
-local_job_runs. Each table is converted in one ALTER TABLE, so its CHECKs (budgets dates_ordered) and indexes are
+(the convention monthly and yearly budgets use) and every other date as midnight UTC; then drops users.timezone,
+users.timezone_changed_at and local_job_runs. Each table is converted in one ALTER TABLE, so its CHECKs (budgets dates_ordered) and indexes are
 rebuilt on the new types.
 
 Revision ID: d4b7e1a9c260
@@ -51,6 +51,7 @@ def upgrade() -> None:
     op.execute('ALTER TABLE insights ' + ', '.join(_to_day(c) for c in _INSIGHT_BOUNDS))
 
     op.add_column('users', sa.Column('timezone', sa.Text(), nullable=True))
+    op.add_column('users', sa.Column('timezone_changed_at', sa.DateTime(timezone=True), nullable=True))
     op.create_table(
         'local_job_runs',
         sa.Column('job', sa.Text(), nullable=False),
@@ -64,6 +65,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("LOCK TABLE transactions, budgets, goals, insights IN ACCESS EXCLUSIVE MODE")
     op.drop_table('local_job_runs')
+    op.drop_column('users', 'timezone_changed_at')
     op.drop_column('users', 'timezone')
 
     op.execute('ALTER TABLE transactions '

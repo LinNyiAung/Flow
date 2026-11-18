@@ -584,14 +584,16 @@ async def generation_checks(t, h):
               "generation_constants: presets, marker, 7 days, 300 characters, 5 a day, 20 minutes")
         check(stubenv.OFF_TOPIC_TEXT == cis.OFF_TOPIC_MARKER, "stub_marker_matches")
 
-        tz = default_zone()
-        noon = datetime(2026, 11, 4, 12, 0, tzinfo=tz)
-        check(cis.attempts_window_start(noon) == datetime(2026, 11, 4, tzinfo=tz).astimezone(UTC)
-              and cis.attempts_reset_at(noon) == datetime(2026, 11, 5, tzinfo=tz).astimezone(UTC)
+        tz = default_zone()  # the scheduler's zone (the sweeper check below)
+        noon = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+        five =[noon - timedelta(hours=h) for h in (23, 9, 5, 2, 1)]
+        check(cis.attempts_window_start(noon) == datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
               and cis.attempts_window_start(noon).utcoffset() == timedelta(0)
-              and cis.attempts_window_start(datetime(2026, 11, 5, 0, 1, tzinfo=tz).astimezone(UTC))
-              == datetime(2026, 11, 5, tzinfo=tz).astimezone(UTC),
-              "attempts_window: local midnight today and the next local midnight, in UTC")
+              and cis.attempts_reset_at(five) == datetime(2026, 11, 4, 13, 0, tzinfo=UTC)
+              and cis.attempts_reset_at([noon - timedelta(hours=23, minutes=30)] + five)
+              == datetime(2026, 11, 4, 13, 0, tzinfo=UTC),
+              "attempts_window: a rolling 24 hours (no zone); the limit lifts 24 hours after the oldest attempt that "
+              "keeps it reached")
 
         # ---- the prompt and the context
         p = cis.CUSTOM_SYSTEM_PROMPT
@@ -1443,8 +1445,9 @@ async def route_checks(t, h):
         failed.append(await attempt_row(u, "failed"))
         r5 = post(uh, instruction="the fifth failed")
         d = r5.json().get("detail") or {}
-        now = datetime.now(UTC)
-        check(code(r5) == (429, "custom_insight_attempts") and d.get("resets_at") == cis.attempts_reset_at(now).isoformat()
+        oldest = h.db.sql("SELECT min(created_at) AS t FROM custom_insights WHERE id = ANY(%s)", failed)[0]["t"]
+        check(code(r5) == (429, "custom_insight_attempts")
+              and d.get("resets_at") == (oldest + timedelta(hours=24)).astimezone(UTC).isoformat()
               and d.get("message") == "Today's limit of 5 custom insights that couldn't be created has been reached. Please try again tomorrow."
               and h.used(u) == 1, "attempts_limit_5_per_day", r5.text[:300])
         dl = c.delete(f"{CREATE}/{failed[0]}", headers=uh)
