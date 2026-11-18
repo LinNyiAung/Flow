@@ -15,6 +15,7 @@ import 'package:frontend/services/pending_fcm_unregister.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -146,6 +147,10 @@ void main() {
 
     testWidgets('detail shows the overdue state and the edit date picker opens', (tester) async {
       final goal = Goal.fromJson(_goalJson(targetDate: '2025-10-07T00:00:00+00:00'));
+      // The screen loads the goal's history.
+      SharedPreferences.setMockInitialValues({});
+      ApiService.httpClientOverride = MockClient((_) async => http.Response('{"entries": [], "total": 0}', 200));
+      addTearDown(() => ApiService.httpClientOverride = null);
       await tester.pumpWidget(
         MultiProvider(
           providers: [

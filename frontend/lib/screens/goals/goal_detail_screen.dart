@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
+import 'goal_history_section.dart';
 
 /// Mockup's `--accent`: identical to `--primary` in light, but a distinct,
 /// brighter teal in dark. See goals_screen.dart for the full rationale.
@@ -33,6 +34,7 @@ class GoalDetailScreen extends StatefulWidget {
 
 class _GoalDetailScreenState extends State<GoalDetailScreen> {
   final _contributionController = TextEditingController();
+  final _historyKey = GlobalKey<GoalHistorySectionState>();
   bool _isLoading = false;
   bool _isContributionLoading = false; // NEW: Separate loading state for contribution dialog
   late Goal _currentGoal;
@@ -107,6 +109,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       _contributionController.clear();
       if (!mounted) return;
       Navigator.pop(context); // Close sheet
+      _historyKey.currentState?.reload(); // The new entry, alongside the new amount
       await _refreshGoalData(); // Refresh the goal data
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -668,6 +671,9 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             ],
             const SizedBox(height: 20),
             _buildDetailsCard(),
+            const SizedBox(height: 16),
+            // Who added or took out money, and when (everyone can read it).
+            GoalHistorySection(key: _historyKey, goal: _currentGoal),
             const SizedBox(height: 16),
             _buildHeldFundsBanner(),
             const SizedBox(height: 20),

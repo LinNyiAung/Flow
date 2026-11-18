@@ -234,15 +234,27 @@ Finder get _edit => find.byIcon(Icons.edit_rounded);
 Finder get _delete => find.byIcon(Icons.delete_rounded);
 Finder get _note => find.byKey(const ValueKey('family-admins-only-note'));
 
+/// Taps [finder] after scrolling it into view (the goal screen's money
+/// button sits below its History card).
+Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({'access_token': 'tok'});
     _requests.clear();
     _respond = (_) async => _json({});
+    // Every call (the goal screen's history too) goes to the fake server.
+    ApiService.httpClientOverride = _mock;
     ApiService.bookMode = BookMode.personal;
     ApiService.onNoFamily = null;
   });
   tearDown(() {
+    ApiService.httpClientOverride = null;
     ApiService.bookMode = BookMode.personal;
     ApiService.onNoFamily = null;
   });
@@ -423,8 +435,7 @@ void main() {
       await _pumpAs(tester, GoalDetailScreen(goal: _goal()), mode: BookMode.personal);
       expect(_edit, findsOneWidget);
       expect(_delete, findsOneWidget);
-      await tester.tap(find.text(_en.manageFunds));
-      await tester.pumpAndSettle();
+      await _tapVisible(tester, find.text(_en.manageFunds));
       expect(find.text(_en.add), findsWidgets);
       expect(find.text(_en.withdraw), findsWidgets);
     });
@@ -434,8 +445,7 @@ void main() {
       expect(_edit, findsNothing);
       expect(_delete, findsNothing);
       expect(find.text(_en.manageFunds), findsNothing);
-      await tester.tap(find.text(_en.addMoney));
-      await tester.pumpAndSettle();
+      await _tapVisible(tester, find.text(_en.addMoney));
       expect(find.text(_en.withdraw), findsNothing);
       expect(find.widgetWithText(ElevatedButton, _en.add), findsOneWidget);
     });
@@ -455,8 +465,7 @@ void main() {
       await _pumpAs(tester, GoalDetailScreen(goal: _goal()), mode: BookMode.family, role: FamilyMember.roleAdmin);
       expect(_edit, findsOneWidget);
       expect(_delete, findsOneWidget);
-      await tester.tap(find.text(_en.manageFunds));
-      await tester.pumpAndSettle();
+      await _tapVisible(tester, find.text(_en.manageFunds));
       expect(find.text(_en.withdraw), findsWidgets);
     });
 

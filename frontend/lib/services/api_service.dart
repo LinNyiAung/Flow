@@ -11,6 +11,7 @@ import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/models/family.dart';
 import 'package:frontend/models/feedback.dart';
 import 'package:frontend/models/goal.dart';
+import 'package:frontend/models/goal_entry.dart';
 import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/notification_preferences.dart';
@@ -1630,6 +1631,20 @@ class ApiService {
       return Goal.fromJson(jsonDecode(response.body));
     } else {
       throw apiError(response, 'Failed to contribute to goal');
+    }
+  }
+
+  /// A page of [goalId]'s history, newest first.
+  static Future<GoalHistoryPage> getGoalHistory(String goalId, {int limit = 10, int offset = 0}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/goals/$goalId/history?limit=$limit&offset=$offset'),
+      headers: await _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return GoalHistoryPage.fromJson(jsonDecode(response.body));
+    } else {
+      throw apiError(response, 'Failed to load goal history');
     }
   }
 

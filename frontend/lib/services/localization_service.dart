@@ -295,6 +295,13 @@ class AppLocalizations {
 
       // goal detail screen
       'goalInformation': 'Goal Information',
+      'goalHistory': 'History',
+      'goalHistoryTitle': 'Goal history',
+      'goalEntryStartedWith': 'Started with',
+      'goalEntryCarriedOver': 'Balance before history began',
+      'goalHistoryEmpty': 'No money added yet',
+      'goalHistoryShowAll': 'Show all ({n})',
+      'goalHistoryLoadFailed': "Couldn't load history",
       'fundsAddedSuccessfully': 'Funds added successfully!',
       'fundsWithdrawnSuccessfully': 'Funds withdrawn successfully!',
       'manageFunds': 'Manage Funds',
@@ -1576,6 +1583,13 @@ class AppLocalizations {
 
       // goal detail screen
       'goalInformation': 'ရည်မှန်းချက် အချက်အလက်',
+      'goalHistory': 'မှတ်တမ်း', // needs native review
+      'goalHistoryTitle': 'ရည်မှန်းချက် မှတ်တမ်း', // needs native review
+      'goalEntryStartedWith': 'စတင်ထည့်ငွေ', // needs native review
+      'goalEntryCarriedOver': 'မှတ်တမ်းမစမီ လက်ကျန်', // needs native review
+      'goalHistoryEmpty': 'ငွေ မထည့်ရသေးပါ', // needs native review
+      'goalHistoryShowAll': 'အားလုံးကြည့်ရန် ({n})', // needs native review
+      'goalHistoryLoadFailed': 'မှတ်တမ်းကို ဖွင့်၍မရပါ', // needs native review
       'fundsAddedSuccessfully': 'ငွေဖြည့်သွင်းမှု အောင်မြင်ပါသည်',
       'fundsWithdrawnSuccessfully': 'ငွေထုတ်ယူမှု အောင်မြင်ပါသည်',
       'manageFunds': 'ငွေဖြည့်/ငွေထုတ်',
@@ -2884,6 +2898,13 @@ class AppLocalizations {
   String get failedToDeleteGoal => translate('failedToDeleteGoal');
   String get goalDetails => translate('goalDetails');
   String get goalInformation => translate('goalInformation');
+  String get goalHistory => translate('goalHistory');
+  String get goalHistoryTitle => translate('goalHistoryTitle');
+  String get goalEntryStartedWith => translate('goalEntryStartedWith');
+  String get goalEntryCarriedOver => translate('goalEntryCarriedOver');
+  String get goalHistoryEmpty => translate('goalHistoryEmpty');
+  String goalHistoryShowAll(int n) => translate('goalHistoryShowAll').replaceAll('{n}', '$n');
+  String get goalHistoryLoadFailed => translate('goalHistoryLoadFailed');
 
 
   //budgets screen getter
