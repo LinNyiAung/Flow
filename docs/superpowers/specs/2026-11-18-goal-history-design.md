@@ -197,7 +197,7 @@ History
   - a matching method in `GoalProvider`, or a small dedicated loader. *(Builder's choice.)*
 - **`goal_detail_screen.dart`:**
   - the "History" section, as sketched;
-  - it reloads after a successful Add/Withdraw and on pull-to-refresh.
+  - it loads when the screen opens and reloads after a successful Add/Withdraw. The screen has no pull-to-refresh today, and none is added.
 - **New "Goal history" screen:** the full list with paging (50 per page).
 - **Strings** for the section title, "Started with", "Balance before history began", "No money added yet", "Show all ({n})" and the screen title.
 
