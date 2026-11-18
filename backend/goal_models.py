@@ -3,7 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
-from models import Currency, FiniteAmount, NonNegativeAmount, PositiveAmount
+from models import AddedBy, Currency, FiniteAmount, NonNegativeAmount, PositiveAmount
 
 class GoalType(str, Enum):
     SAVINGS = "savings"
@@ -57,6 +57,19 @@ class GoalResponse(BaseModel):
     updated_at: datetime
     achieved_at: Optional[datetime] = None
     currency: Currency  # NEW
+
+class GoalEntryResponse(BaseModel):
+    id: str
+    kind: str  # start | add | withdraw | carried_over
+    amount: float  # signed: negative for a withdraw
+    created_at: datetime
+    added_by: Optional[AddedBy] = None  # the family member who moved the money; none in a personal book
+
+
+class GoalHistoryResponse(BaseModel):
+    entries: List[GoalEntryResponse]  # newest first
+    total: int  # every entry of the goal, not just this page
+
 
 class GoalsSummary(BaseModel):
     total_goals: int

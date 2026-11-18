@@ -37,6 +37,7 @@ from plans import store
 from plans.access import effective_plan, user_language
 from plans.catalog import PAID_PLANS
 from sql import books as books_db
+from sql import goal_entries as goal_entries_db
 from sql import families as fdb
 from sql import users as users_db
 from sql.db import transaction
@@ -289,7 +290,7 @@ async def _notify(user_id: Optional[str], kind: str, key: str, subject: Dict[str
 async def remove_member(user: Mapping[str, Any], member_id: str) -> Dict[str, Any]:
     """Admins remove members and placeholders; only the owner removes an admin; the owner (and the caller themselves:
     use leave) can't be removed. An account member becomes former (role kept) and is notified; a placeholder becomes
-    former when entries are tagged with it, else it is deleted. Runs under the family lock with fresh rows, so it
+    former when entries or goal entries are tagged with it, else it is deleted. Runs under the family lock with fresh rows, so it
     can't race a handover into a former owner, or delete a placeholder an accept is claiming."""
     _, family = await _context(user)
     now = _now()
@@ -305,7 +306,7 @@ async def remove_member(user: Mapping[str, Any], member_id: str) -> Dict[str, An
         if target["role"] == "admin" and target["status"] == "active" and me["role"] != "owner":
             _fail(user, "not_allowed")
         if target["kind"] == "placeholder":
-            if not await fdb.has_tags(target["id"]):
+            if not await fdb.has_tags(target["id"]) and not await goal_entries_db.member_has_entries(target["id"]):
                 await fdb.delete_member(target["id"])
             elif target["status"] == "active":
                 await fdb.set_former(target["id"], now)

@@ -10,6 +10,10 @@ Sections:
     column back with the same values, and up again works (Task 1). Needs the stub server on 127.0.0.1:8765.
   money -- create, contribute, refusals, cents, withdrawing everything, target edits, who a family entry records, two
     racing adds, delete, and the sql/goal_entries helpers (Task 1). Needs the stub server.
+  history -- GET /api/goals/{id}/history: order, paging and past the end, limit and offset bounds, 404, who an entry
+    names (personal book: nobody; family: the adder, still after they leave; carried_over: nobody, last), a read-only
+    family can read it but not add, and removing a placeholder that has goal entries keeps it as former (Task 2).
+    Needs the stub server.
 """
 import os
 import sys
@@ -555,7 +559,157 @@ def section_money():
             db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
 
 
-SECTIONS = {"schema": section_schema, "migration": section_migration, "money": section_money}
+# --------------------------------------------------------------------------------------------------------- history
+def section_history():
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _people(c, tag, made)
+    ins = "INSERT INTO goal_entries (id, goal_id, kind, amount, added_by_member_id, created_at) VALUES (%s, %s, %s, %s, %s, %s)"
+    base = datetime.now(UTC) - timedelta(days=2)
+
+    def history(headers, goal_id, **params):
+        return c.get(f"/api/goals/{goal_id}/history", headers=headers, params=params)
+
+    try:
+        A = register("Ann")
+        if A is None:
+            return
+        g = _goal(c, A["h"], "Hist", 100000).get("id")
+        for i in range(12):  # 12 adds of 1..12, one minute apart, oldest first
+            db.sql(ins, str(uuid.uuid4()), g, "add", Decimal(i + 1), None, base + timedelta(minutes=i))
+
+        # ---- order and paging
+        r = history(A["h"], g)
+        body = r.json() if r.status_code == 200 else {}
+        got = [e.get("amount") for e in body.get("entries", [])]
+        check(r.status_code == 200 and got == [float(n) for n in range(12, 2, -1)] and body.get("total") == 12,
+              "history: the default call returns the 10 newest first, total 12", f"{r.status_code} {r.text[:240]}")
+        first = (body.get("entries") or [{}])[0]
+        check(set(first) == {"id", "kind", "amount", "created_at", "added_by"} and first.get("kind") == "add"
+              and first.get("added_by") is None and isinstance(first.get("created_at"), str),
+              "history: an entry has id, kind, amount, created_at and added_by", first)
+        r = history(A["h"], g, limit=5, offset=10)
+        got = [e.get("amount") for e in r.json().get("entries", [])] if r.status_code == 200 else r.text[:200]
+        check(got == [2.0, 1.0] and r.json().get("total") == 12, "history: limit 5 offset 10 returns the 2 oldest", got)
+        r = history(A["h"], g, offset=12)
+        check(r.status_code == 200 and r.json() == {"entries": [], "total": 12},
+              "history: offset 12 (past the end) returns no entries and total 12", f"{r.status_code} {r.text[:200]}")
+        r = history(A["h"], g, limit=50, offset=0)
+        check(r.status_code == 200 and len(r.json().get("entries", [])) == 12, "history: limit 50 returns all 12",
+              f"{r.status_code} {r.text[:120]}")
+        # the same created_at: id descending
+        tie = base + timedelta(hours=1)
+        g_tie = _goal(c, A["h"], "Ties", 1000).get("id")
+        tie_ids = sorted(str(uuid.uuid4()) for _ in range(3))
+        for eid in tie_ids:
+            db.sql(ins, eid, g_tie, "add", Decimal(1), None, tie)
+        r = history(A["h"], g_tie)
+        check(r.status_code == 200 and [e["id"] for e in r.json().get("entries", [])] == tie_ids[::-1],
+              "history: entries with the same created_at come id descending", f"{r.status_code} {r.text[:240]}")
+
+        # ---- limits
+        for label, params in (("limit=0", {"limit": 0}), ("limit=51", {"limit": 51}), ("offset=-1", {"offset": -1})):
+            r = history(A["h"], g, **params)
+            check(r.status_code == 422, f"history: {label} is a 422", f"{r.status_code} {r.text[:120]}")
+
+        # ---- another book's goal / unknown goal
+        B = register("Bob")
+        if B:
+            r = history(B["h"], g)
+            check(r.status_code == 404 and r.json().get("detail") == "Goal not found",
+                  "history: another book's goal is 404 \"Goal not found\"", f"{r.status_code} {r.text[:200]}")
+        r = history(A["h"], str(uuid.uuid4()))
+        check(r.status_code == 404 and r.json().get("detail") == "Goal not found", "history: an unknown goal is 404", r.status_code)
+
+        # ---- personal book: nobody is named
+        _inflow(c, A["h"], 100)
+        c.post(f"/api/goals/{g_tie}/contribute", headers=A["h"], json={"amount": 5})
+        r = history(A["h"], g_tie)
+        check(r.status_code == 200 and r.json().get("total") == 4 and all(e["added_by"] is None for e in r.json()["entries"]),
+              "history: in a personal book every added_by is null", f"{r.status_code} {r.text[:240]}")
+
+        # ---- family book
+        O, M = register("Owen", "plus"), register("Mia")
+        if not (O and M):
+            return
+        r = c.post("/api/family", json={"name": f"GH {tag}"}, headers=O["h"])
+        check(r.status_code == 200, "history: the owner creates a family", f"{r.status_code} {r.text[:200]}")
+        c.post("/api/family/invites", headers=O["h"], json={"email": M["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=M["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=M["h"])
+        mid = {p: (c.get("/api/family", headers=P["h"]).json().get("me") or {}).get("member_id") for p, P in (("O", O), ("M", M))}
+        fid = (db.sql("SELECT family_id FROM family_members WHERE user_id = %s", O["id"]) or [{}])[0].get("family_id")
+        check(all(mid.values()) and fid, "history: owner and member have member ids", (mid, fid))
+        OF, MF = {**O["h"], **FAMILY}, {**M["h"], **FAMILY}
+        _inflow(c, OF, 500)
+        fg = _goal(c, OF, "Family trip", 300, initial=30).get("id")
+        r = c.post(f"/api/goals/{fg}/contribute", headers=MF, json={"amount": 20})
+        check(r.status_code == 200, "history: the member adds 20", f"{r.status_code} {r.text[:200]}")
+        db.sql(ins, str(uuid.uuid4()), fg, "carried_over", Decimal("7"), None, datetime.now(UTC) - timedelta(days=30))
+        r = history(OF, fg)
+        es = r.json().get("entries", []) if r.status_code == 200 else []
+        check([(e["kind"], e["amount"], (e["added_by"] or {}).get("display_name")) for e in es]
+              == [("add", 20.0, "Mia"), ("start", 30.0, "Owen"), ("carried_over", 7.0, None)] and r.json().get("total") == 3,
+              "history: family entries name their adder; carried_over names nobody and sorts last", f"{r.status_code} {r.text[:400]}")
+        check(es and es[0]["added_by"] == {"member_id": mid["M"], "display_name": "Mia"},
+              "history: added_by is {member_id, display_name}", es[:1])
+
+        # ---- read-only family (Review Focus 4): the owner's plan lapses
+        n_before = db.sql("SELECT count(*) AS n FROM goal_entries WHERE goal_id = %s", fg)[0]["n"]
+        db.sql("UPDATE users SET subscription_expires_at = now() - interval '1 day' WHERE id = %s", O["id"])
+        try:
+            r = history(MF, fg)
+            check(r.status_code == 200 and r.json().get("total") == 3,
+                  "history: a read-only family's member reads the history (200)", f"{r.status_code} {r.text[:200]}")
+            r = c.post(f"/api/goals/{fg}/contribute", headers=MF, json={"amount": 1})
+            detail = r.json().get("detail") if r.status_code == 403 else None
+            n_after = db.sql("SELECT count(*) AS n FROM goal_entries WHERE goal_id = %s", fg)[0]["n"]
+            check(r.status_code == 403 and isinstance(detail, dict) and detail.get("code") == "family_read_only"
+                  and n_after == n_before,
+                  "history: read-only: an Add is refused (family_read_only) and writes no entry",
+                  f"{r.status_code} {r.text[:200]} {n_before}->{n_after}")
+        finally:
+            db.sql("UPDATE users SET subscription_expires_at = now() + interval '30 days' WHERE id = %s", O["id"])
+
+        # ---- placeholders: one with a goal entry is kept as former, one with nothing is deleted
+        for name in ("Grandma", "Grandpa"):
+            r = c.post("/api/family/placeholders", headers=O["h"], json={"display_name": name})
+            check(r.status_code == 200, f"history: the owner adds placeholder {name}", f"{r.status_code} {r.text[:200]}")
+        ph = {n: (db.sql("SELECT id FROM family_members WHERE family_id = %s AND display_name = %s", fid, n) or [{}])[0].get("id")
+              for n in ("Grandma", "Grandpa")}
+        db.sql(ins, str(uuid.uuid4()), fg, "add", Decimal("3"), ph["Grandma"], datetime.now(UTC))
+        r = c.delete(f"/api/family/members/{ph['Grandma']}", headers=O["h"])
+        row = db.sql("SELECT kind, status FROM family_members WHERE id = %s", ph["Grandma"])
+        check(r.status_code == 200 and row and row[0]["status"] == "former",
+              "history: removing a placeholder with a goal entry keeps it as former", f"{r.status_code} {row}")
+        r = history(OF, fg)
+        names = [(e["added_by"] or {}).get("display_name") for e in r.json().get("entries", [])] if r.status_code == 200 else r.text[:200]
+        check(names and names[0] == "Grandma", "history: that entry still names the former placeholder", names)
+        r = c.delete(f"/api/family/members/{ph['Grandpa']}", headers=O["h"])
+        gone = db.sql("SELECT count(*) AS n FROM family_members WHERE id = %s", ph["Grandpa"])[0]["n"]
+        check(r.status_code == 200 and gone == 0, "history: a placeholder with no tags and no entries is still deleted",
+              f"{r.status_code} {gone}")
+
+        # ---- a member who leaves keeps their name on their entries
+        r = c.post("/api/family/leave", headers=M["h"])
+        check(r.status_code == 200, "history: Mia leaves the family", f"{r.status_code} {r.text[:200]}")
+        r = history(OF, fg)
+        es = r.json().get("entries", []) if r.status_code == 200 else []
+        mia = [e for e in es if e["kind"] == "add" and e["amount"] == 20.0]
+        check(mia and (mia[0]["added_by"] or {}).get("display_name") == "Mia",
+              "history: after Mia leaves, her entry still returns her display_name", f"{r.status_code} {r.text[:300]}")
+    finally:
+        if made:
+            db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+SECTIONS = {"schema": section_schema, "migration": section_migration, "money": section_money,
+            "history": section_history}
 
 
 def main():

@@ -3,12 +3,12 @@ from datetime import datetime, UTC, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends, Path
+from fastapi import APIRouter, HTTPException, status, Depends, Path, Query
 
-from models import Currency
+from models import AddedBy, Currency
 from families.book import Book, get_book, require_admin, require_writable
 from utils import get_book_balance, get_book_money_lock
-from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
+from goal_models import CurrencySummary, GoalContribution, GoalCreate, GoalEntryResponse, GoalHistoryResponse, GoalResponse, GoalStatus, GoalType, GoalUpdate, GoalsSummary, MultiCurrencyGoalsSummary
 
 from notification_service import (
     check_goal_notifications,
@@ -18,6 +18,7 @@ from notification_service import (
 from sql import goal_entries as goal_entries_db
 from sql import goals as goals_db
 from sql import books as books_db
+from sql import families as families_db
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
@@ -208,6 +209,38 @@ async def get_goal(
         created_at=goal["created_at"],
         updated_at=goal.get("updated_at", goal["created_at"]),
         achieved_at=goal.get("achieved_at")
+    )
+
+
+@router.get("/{goal_id}/history", response_model=GoalHistoryResponse)
+async def get_goal_history(
+    goal_id: str = Path(...),
+    limit: int = Query(10, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    book: Book = Depends(get_book)
+):
+    """A page of the goal's money movements, newest first (readable by anyone who can read the book)"""
+    if not await goals_db.get_goal(goal_id, book.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
+
+    entries = await goal_entries_db.list_entries(goal_id, limit, offset)
+    total = await goal_entries_db.count_entries(goal_id)
+    # Former members keep their names, so every member row counts; an id with no row names nobody.
+    names = {m["id"]: m["display_name"] for m in await families_db.list_members(book.family["id"])} if book.is_family else {}
+
+    return GoalHistoryResponse(
+        entries=[
+            GoalEntryResponse(
+                id=e["_id"],
+                kind=e["kind"],
+                amount=e["amount"],
+                created_at=e["created_at"],
+                added_by=AddedBy(member_id=e["added_by_member_id"], display_name=names[e["added_by_member_id"]])
+                if e["added_by_member_id"] in names else None,
+            )
+            for e in entries
+        ],
+        total=total,
     )
 
 
