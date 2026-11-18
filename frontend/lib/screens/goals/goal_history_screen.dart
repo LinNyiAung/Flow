@@ -25,11 +25,16 @@ class _GoalHistoryScreenState extends State<GoalHistoryScreen> {
 
   final _scroll = ScrollController();
   final _entries = <GoalEntry>[];
+  final _ids = <String>{};
+
+  /// Where the next page starts: every entry the server has sent, shown or
+  /// skipped as a repeat.
+  int _offset = 0;
   int? _total;
   bool _loading = true; // the first page loads on open
   bool _failed = false;
 
-  bool get _hasMore => _total == null || _entries.length < _total!;
+  bool get _hasMore => _total == null || _offset < _total!;
 
   @override
   void initState() {
@@ -61,12 +66,15 @@ class _GoalHistoryScreenState extends State<GoalHistoryScreen> {
 
   Future<void> _fetchPage() async {
     try {
-      final page = await ApiService.getGoalHistory(widget.goal.id, limit: _pageSize, offset: _entries.length);
+      final page = await ApiService.getGoalHistory(widget.goal.id, limit: _pageSize, offset: _offset);
       if (!mounted) return;
       setState(() {
-        _entries.addAll(page.entries);
+        // Money added while this screen is open shifts every entry down one, so
+        // a page can start with the last entry of the one before: show it once.
+        _entries.addAll(page.entries.where((e) => _ids.add(e.id)));
+        _offset += page.entries.length;
         // An empty page ends the list even if the total says otherwise.
-        _total = page.entries.isEmpty ? _entries.length : page.total;
+        _total = page.entries.isEmpty ? _offset : page.total;
         _loading = false;
       });
       // A page that doesn't fill the screen can't be scrolled to load the next.

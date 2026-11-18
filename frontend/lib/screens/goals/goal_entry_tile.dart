@@ -36,7 +36,7 @@ class GoalEntryTile extends StatelessWidget {
     final label = switch (entry.kind) {
       GoalEntryKind.start => name == null ? l.goalEntryStartedWith : '${l.goalEntryStartedWith} · $name',
       GoalEntryKind.carriedOver => l.goalEntryCarriedOver,
-      GoalEntryKind.add || GoalEntryKind.withdraw => name,
+      GoalEntryKind.add || GoalEntryKind.withdraw || GoalEntryKind.other => name,
     };
 
     return Row(

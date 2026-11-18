@@ -200,9 +200,43 @@ void main() {
       expect(page.entries[0].createdAt, DateTime.parse(_at).toLocal());
       expect(page.entries[0].createdAt.isUtc, isFalse);
     });
+
+    test('a kind this app does not know is "other", not a failure', () {
+      final page = GoalHistoryPage.fromJson({
+        'entries': [_entry('x', 'refund', -500), _entry('a', 'add', 50000)],
+        'total': 2,
+      });
+      expect([for (final e in page.entries) e.kind], [GoalEntryKind.other, GoalEntryKind.add]);
+      expect(page.entries[0].amount, -500.0);
+    });
   });
 
   group('History section', () {
+    testWidgets('10 rows: the money button is on screen without scrolling', (tester) async {
+      _historyTotal = 10;
+      await _pump(tester, GoalDetailScreen(goal: _goal()));
+
+      expect(find.text(_plus(1)), findsOneWidget, reason: 'all 10 rows are in');
+      final button = tester.getRect(find.ancestor(
+          of: find.text(_en.manageFunds), matching: find.byWidgetPredicate((w) => w is ElevatedButton)));
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(button.top, greaterThanOrEqualTo(0));
+      expect(button.bottom, lessThanOrEqualTo(screen.height));
+    });
+
+    testWidgets('an unknown kind shows like an add or withdraw, by its sign', (tester) async {
+      const at = '2026-11-18T05:00:00+00:00';
+      _history = [
+        _entry('x', 'refund', -500, at: at, by: _by('m1', 'Maya')),
+        _entry('a', 'add', 50000),
+      ];
+      await _pump(tester, GoalDetailScreen(goal: _goal()), family: true);
+
+      expect(find.text(_en.goalHistoryLoadFailed), findsNothing);
+      expect(find.text(_minus(500)), findsOneWidget);
+      expect(find.text('Maya'), findsOneWidget);
+      expect(find.text(_local(at)), findsWidgets);
+    });
     testWidgets('personal goal: signs, "Started with", local time, no names', (tester) async {
       const addAt = '2026-11-18T02:44:00+00:00';
       _history = [
@@ -345,6 +379,25 @@ void main() {
       await tester.drag(find.byType(Scrollable), const Offset(0, -20000));
       await tester.pumpAndSettle();
       expect(find.text(_plus(60)), findsOneWidget, reason: 'the last row');
+      expect(_historyRequests, hasLength(2), reason: 'no request past the end');
+    });
+
+    testWidgets('a page that repeats the last entry of the one before shows it once', (tester) async {
+      // Money was added between the two pages: the second starts with e49 again.
+      _history = [
+        for (var i = 0; i < 50; i++) _entry('e$i', 'add', i + 1),
+        _entry('e49', 'add', 50),
+        for (var i = 50; i < 60; i++) _entry('e$i', 'add', i + 1),
+      ];
+      await _pump(tester, GoalHistoryScreen(goal: _goal()));
+      for (var i = 0; i < 2; i++) {
+        await tester.drag(find.byType(Scrollable), const Offset(0, -20000));
+        await tester.pumpAndSettle();
+      }
+
+      expect(_historyRequests.map((r) => r.url.queryParameters['offset']), ['0', '50']);
+      expect(find.text(_plus(60)), findsOneWidget, reason: 'the last row');
+      expect(find.text(_plus(50)), findsOneWidget, reason: 'e49 once (it is on screen, ten rows up)');
       expect(_historyRequests, hasLength(2), reason: 'no request past the end');
     });
   });

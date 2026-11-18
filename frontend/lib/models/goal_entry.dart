@@ -2,19 +2,22 @@ import 'package:frontend/models/family.dart';
 import 'package:frontend/utils/date_parsing.dart';
 
 /// What a goal entry records: the money a goal started with, an Add, a
-/// Withdraw, or the balance carried over when history began.
+/// Withdraw, or the balance carried over when history began. [other] is a
+/// kind this app doesn't know yet (a newer server): it shows like an Add or a
+/// Withdraw, by the amount's sign, instead of failing the whole history.
 enum GoalEntryKind {
   start,
   add,
   withdraw,
-  carriedOver;
+  carriedOver,
+  other;
 
   static GoalEntryKind fromJson(String value) => switch (value) {
         'start' => start,
         'add' => add,
         'withdraw' => withdraw,
         'carried_over' => carriedOver,
-        _ => throw FormatException('Unknown goal entry kind: $value'),
+        _ => other,
       };
 }
 

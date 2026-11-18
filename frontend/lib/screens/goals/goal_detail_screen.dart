@@ -672,16 +672,13 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             const SizedBox(height: 20),
             _buildDetailsCard(),
             const SizedBox(height: 16),
-            // Who added or took out money, and when (everyone can read it).
-            GoalHistorySection(key: _historyKey, goal: _currentGoal),
-            const SizedBox(height: 16),
             _buildHeldFundsBanner(),
             const SizedBox(height: 20),
 
             // Action Button
             // A member (family book) can only add money, so an achieved goal has
             // nothing for them; nobody can add while the family is read-only.
-            if (canAdd && (_currentGoal.status == GoalStatus.active || (canManage && _currentGoal.currentAmount > 0)))
+            if (canAdd && (_currentGoal.status == GoalStatus.active || (canManage && _currentGoal.currentAmount > 0))) ...[
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -690,6 +687,12 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                   label: Text(canManage ? localizations.manageFunds : localizations.addMoney),
                 ),
               ),
+              const SizedBox(height: 20),
+            ],
+
+            // Who added or took out money, and when (everyone can read it). Last, so a
+            // long history never pushes the money button below the fold.
+            GoalHistorySection(key: _historyKey, goal: _currentGoal),
           ],
         ),
       ),
