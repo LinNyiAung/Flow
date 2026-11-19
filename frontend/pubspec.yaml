@@ -63,6 +63,7 @@ dependencies:
   web: ^1.1.1
   fetch_client: ^1.2.1
   flutter_svg: ^2.2.3
+  flutter_timezone: ^5.1.1
 
 dev_dependencies:
   flutter_test:

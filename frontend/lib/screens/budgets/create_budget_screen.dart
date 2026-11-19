@@ -21,6 +21,27 @@ import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'ai_budget_suggestion_screen.dart';
 
+/// The last day (included) of a weekly, monthly or yearly budget starting on
+/// [start], a local calendar date; null for custom (the user picks it).
+@visibleForTesting
+DateTime? periodEndFor(BudgetPeriod period, DateTime start) {
+  switch (period) {
+    case BudgetPeriod.weekly:
+      return DateTime(start.year, start.month, start.day + 6);
+    case BudgetPeriod.monthly:
+      // Day 0 of the next month is the last day of this one.
+      return DateTime(start.year, start.month + 1, 0);
+    case BudgetPeriod.yearly:
+      return DateTime(start.year, 12, 31);
+    case BudgetPeriod.custom:
+      return null;
+  }
+}
+
+/// A custom budget's default last day: 30 days in all, the end date included.
+@visibleForTesting
+DateTime defaultCustomEnd(DateTime start) => DateTime(start.year, start.month, start.day + 29);
+
 class CreateBudgetScreen extends StatefulWidget {
   @override
   _CreateBudgetScreenState createState() => _CreateBudgetScreenState();
@@ -33,9 +54,9 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   final _contextController = TextEditingController();
 
   BudgetPeriod _selectedPeriod = BudgetPeriod.monthly;
-  // Budget dates are wall-clock dates: the user's LOCAL calendar day,
-  // encoded as a UTC DateTime with the same y/m/d fields.
-  DateTime _startDate = _todayWallClock();
+  // Budget dates are calendar dates: local midnight of the user's first and
+  // last day (the end date is included).
+  DateTime _startDate = _today();
   DateTime? _endDate;
   List<CategoryBudget> _categoryBudgets = [];
 
@@ -67,65 +88,34 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     super.dispose();
   }
 
-  /// Today's local calendar date as a wall-clock-as-UTC value.
-  static DateTime _todayWallClock() {
+  /// Today's local calendar date (midnight).
+  static DateTime _today() {
     final now = DateTime.now();
-    return DateTime.utc(now.year, now.month, now.day);
+    return DateTime(now.year, now.month, now.day);
   }
 
   /// Sets the Start and End dates to the "Current" period range based on Today.
   void _updateDatesForPeriod(BudgetPeriod period) {
-    // Local date (not DateTime.now().toUtc(), which is the previous/next
-    // day for users far from UTC around midnight).
-    final now = DateTime.now();
-    // Normalize today to start of day (00:00:00), wall-clock-as-UTC.
-    final todayStart = DateTime.utc(now.year, now.month, now.day);
+    final today = _today();
 
     DateTime newStart;
-    DateTime newEnd;
-
     switch (period) {
       case BudgetPeriod.weekly:
-        // Start of current week (Monday)
-        // DateTime.weekday: Monday=1, Sunday=7
-        final daysToSubtract = now.weekday - 1;
-        newStart = todayStart.subtract(Duration(days: daysToSubtract));
-
-        // End is Sunday (Start + 6 days) at 23:59:59
-        newEnd = newStart.add(
-          Duration(
-            days: 6,
-            hours: 23,
-            minutes: 59,
-            seconds: 59,
-            milliseconds: 999,
-          ),
-        );
+        // Start of current week (Monday); DateTime.weekday: Monday=1, Sunday=7.
+        newStart = DateTime(today.year, today.month, today.day - (today.weekday - 1));
         break;
-
       case BudgetPeriod.monthly:
-        // Start of current month (1st day)
-        newStart = DateTime.utc(now.year, now.month, 1);
-
-        // End of current month (Last day)
-        final startOfNextMonth = DateTime.utc(now.year, now.month + 1, 1);
-        newEnd = startOfNextMonth.subtract(Duration(milliseconds: 1));
+        newStart = DateTime(today.year, today.month, 1);
         break;
-
       case BudgetPeriod.yearly:
-        // Start of current year (Jan 1st)
-        newStart = DateTime.utc(now.year, 1, 1);
-
-        // End of current year (Dec 31st)
-        newEnd = DateTime.utc(now.year, 12, 31, 23, 59, 59, 999);
+        newStart = DateTime(today.year, 1, 1);
         break;
-
       case BudgetPeriod.custom:
         // Keep existing dates or default if null
         newStart = _startDate;
-        newEnd = _endDate ?? _startDate.add(Duration(days: 30));
         break;
     }
+    final newEnd = periodEndFor(period, newStart) ?? _endDate ?? defaultCustomEnd(newStart);
 
     setState(() {
       _selectedPeriod = period;
@@ -136,40 +126,10 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
   /// Recalculates the End Date based on the current _startDate and _selectedPeriod.
   /// This is used when the user changes start date but keeps the Period type (if aligned).
+  /// Custom is left as it is.
   void _recalculateEndDateForStandardPeriod() {
-    switch (_selectedPeriod) {
-      case BudgetPeriod.weekly:
-        // End is 6 days after start
-        _endDate = _startDate.add(
-          Duration(
-            days: 6,
-            hours: 23,
-            minutes: 59,
-            seconds: 59,
-            milliseconds: 999,
-          ),
-        );
-        break;
-
-      case BudgetPeriod.monthly:
-        // End is last day of the started month
-        final nextMonth = DateTime.utc(
-          _startDate.year,
-          _startDate.month + 1,
-          1,
-        );
-        _endDate = nextMonth.subtract(Duration(milliseconds: 1));
-        break;
-
-      case BudgetPeriod.yearly:
-        // End is Dec 31st of the started year
-        _endDate = DateTime.utc(_startDate.year, 12, 31, 23, 59, 59, 999);
-        break;
-
-      case BudgetPeriod.custom:
-        // Do nothing automatically for custom
-        break;
-    }
+    final end = periodEndFor(_selectedPeriod, _startDate);
+    if (end != null) _endDate = end;
   }
 
   Future<void> _selectStartDate() async {
@@ -195,15 +155,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     );
 
     if (picked != null) {
-      // Set start date to beginning of day in UTC
-      final newStart = DateTime.utc(
-        picked.year,
-        picked.month,
-        picked.day,
-        0,
-        0,
-        0,
-      );
+      // The picked local calendar day.
+      final newStart = DateTime(picked.year, picked.month, picked.day);
 
       setState(() {
         _startDate = newStart;
@@ -236,9 +189,9 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
             _selectedPeriod = BudgetPeriod.custom;
             // Ensure end date is valid (after start date)
             if (_endDate != null && _endDate!.isBefore(_startDate)) {
-              _endDate = _startDate.add(Duration(days: 30));
+              _endDate = defaultCustomEnd(_startDate);
             } else if (_endDate == null) {
-              _endDate = _startDate.add(Duration(days: 30));
+              _endDate = defaultCustomEnd(_startDate);
             }
           } else {
             // It aligns (e.g., user picked 1st of NEXT month for a Monthly budget),
@@ -248,7 +201,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
         } else {
           // Already custom, just ensure end date validity
           if (_endDate != null && _endDate!.isBefore(_startDate)) {
-            _endDate = _startDate.add(Duration(days: 1)); // Default to next day
+            // Default to next day
+            _endDate = DateTime(_startDate.year, _startDate.month, _startDate.day + 1);
           }
         }
       });
@@ -262,11 +216,11 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     // fixed now + 365 limit and trip showDatePicker's assertion: allow up to
     // a year after the start date as well, and clamp the initial date.
     final bounds = DatePickerBounds.clamped(
-      initialDate: _endDate ?? _startDate.add(Duration(days: 30)),
+      initialDate: _endDate ?? defaultCustomEnd(_startDate),
       firstDate: _startDate,
       lastDate: laterDate(
         DateTime.now().add(Duration(days: 365)),
-        _startDate.add(Duration(days: 365)),
+        DateTime(_startDate.year, _startDate.month, _startDate.day + 365),
       ),
     );
     final picked = await showDatePicker(
@@ -286,16 +240,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
 
     if (picked != null) {
       setState(() {
-        // Set end date to end of day in UTC
-        _endDate = DateTime.utc(
-          picked.year,
-          picked.month,
-          picked.day,
-          23,
-          59,
-          59,
-          999,
-        );
+        // The picked local calendar day: the budget's last day, included.
+        _endDate = DateTime(picked.year, picked.month, picked.day);
       });
     }
   }

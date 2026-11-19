@@ -95,16 +95,27 @@ class Budget {
     required this.currency,  // NEW
   });
 
-  /// [startDate] is a wall-clock date parsed as a local DateTime, so it is
-  /// compared with the local now.
+  /// [startDate] and [endDate] are calendar dates (local midnight of the
+  /// first and the last day), so they are compared with the local now.
   bool get isUpcoming => DateTime.now().isBefore(startDate);
+
+  /// The first moment after the budget: it runs through the whole of its
+  /// last day, [endDate].
+  DateTime get endsAt => DateTime(endDate.year, endDate.month, endDate.day + 1);
+
+  /// Whether the budget's last day is over at [now].
+  bool hasEndedAt(DateTime now) => !now.isBefore(endsAt);
+
+  /// Whole days from [now]'s date to the last day: 0 on the last day ("ends
+  /// today"), 1 the day before, negative once it has ended.
+  int daysLeftOn(DateTime now) => calendarDaysBetween(now, endDate);
 
   /// Whether this budget feeds the insights health score at [now]: an
   /// enabled budget that is running (active), over its cap (exceeded), or
   /// whose window contains [now] (whatever status the server reported).
   /// Budgets whose window already ended never count.
   bool countsTowardHealthScore(DateTime now) {
-    if (!isActive || now.isAfter(endDate)) return false;
+    if (!isActive || hasEndedAt(now)) return false;
     if (status == BudgetStatus.active || status == BudgetStatus.exceeded) {
       return true;
     }
@@ -132,8 +143,8 @@ class Budget {
       bookId: json['book_id'],
       name: json['name'],
       period: BudgetPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: parseWallClock(json['start_date']),
-      endDate: parseWallClock(json['end_date']),
+      startDate: parseCalendarDate(json['start_date']),
+      endDate: parseCalendarDate(json['end_date']),
       categoryBudgets: (json['category_budgets'] as List)
           .map((cat) => CategoryBudget.fromJson(cat))
           .toList(),
@@ -266,8 +277,8 @@ class AIBudgetSuggestion {
     return AIBudgetSuggestion(
       suggestedName: json['suggested_name'],
       period: BudgetPeriod.values.firstWhere((e) => e.name == json['period']),
-      startDate: parseWallClock(json['start_date']),
-      endDate: parseWallClock(json['end_date']),
+      startDate: parseCalendarDate(json['start_date']),
+      endDate: parseCalendarDate(json['end_date']),
       categoryBudgets: (json['category_budgets'] as List)
           .map((cat) => CategoryBudget.fromJson(cat))
           .toList(),

@@ -144,15 +144,15 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
-  // Transaction dates are wall-clock values stored tagged as UTC, so the
-  // filter must send the picked calendar days as UTC day boundaries
-  // (00:00:00 / 23:59:59) — the same convention the analytics screens use.
+  // Transaction dates are local date-times, so the filter sends the picked
+  // calendar days as local day boundaries (00:00:00 / 23:59:59) — the same
+  // convention the analytics screens use.
   DateTime? get _apiStartDate => _selectedStartDate == null
       ? null
-      : DateTime.utc(_selectedStartDate!.year, _selectedStartDate!.month, _selectedStartDate!.day);
+      : DateTime(_selectedStartDate!.year, _selectedStartDate!.month, _selectedStartDate!.day);
   DateTime? get _apiEndDate => _selectedEndDate == null
       ? null
-      : DateTime.utc(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day, 23, 59, 59);
+      : DateTime(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day, 23, 59, 59);
 
   Future<void> _fetchTransactionsWithFilter() async {
     final requestId = ++_requestId;

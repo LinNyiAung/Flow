@@ -41,15 +41,6 @@ double? _doubleOrNull(dynamic value) {
   return null;
 }
 
-/// `"2026-10-31"` as a local date-only [DateTime].
-DateTime _date(dynamic value) {
-  final d = parseWallClock(value);
-  return DateTime(d.year, d.month, d.day);
-}
-
-String _formatDate(DateTime d) =>
-    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
 /// One of a currency's biggest spending categories in the range.
 class CategoryAmount {
   final String mainCategory;
@@ -134,8 +125,8 @@ class CustomInsightFigures {
   factory CustomInsightFigures.fromJson(Map<String, dynamic> json) {
     final list = json['currencies'];
     return CustomInsightFigures(
-      previousStart: _date(json['previous_start']),
-      previousEnd: _date(json['previous_end']),
+      previousStart: parseCalendarDate(json['previous_start']),
+      previousEnd: parseCalendarDate(json['previous_end']),
       currencies: list is List
           ? [
               for (final c in list)
@@ -193,8 +184,8 @@ class CustomInsight {
     final figures = json['figures'];
     return CustomInsight(
       id: json['id'].toString(),
-      startDate: _date(json['start_date']),
-      endDate: _date(json['end_date']),
+      startDate: parseCalendarDate(json['start_date']),
+      endDate: parseCalendarDate(json['end_date']),
       preset: preset is String && preset.isNotEmpty ? preset : null,
       instruction: instruction is String && instruction.isNotEmpty ? instruction : null,
       status: _statusOf(json['status']),
@@ -274,8 +265,8 @@ class CustomInsightRequest {
   Map<String, dynamic> toJson() {
     final text = instruction?.trim() ?? '';
     return {
-      'start_date': _formatDate(startDate),
-      'end_date': _formatDate(endDate),
+      'start_date': toCalendarDateString(startDate),
+      'end_date': toCalendarDateString(endDate),
       if (preset != null) 'preset': preset,
       if (text.isNotEmpty) 'instruction': text,
     };

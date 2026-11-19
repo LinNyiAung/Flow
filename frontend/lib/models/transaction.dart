@@ -86,7 +86,7 @@ class Transaction {
       'type': type.name,
       'main_category': mainCategory,
       'sub_category': subCategory,
-      'date': date.toIso8601String(),
+      'date': toWallClockString(date),
       'description': description,
       'amount': amount,
       'currency': currency.name, // NEW

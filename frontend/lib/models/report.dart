@@ -114,12 +114,10 @@ class FinancialReport {
 }
 
 /// Number of calendar days from [start]'s date to [end]'s date, both
-/// included; at least 1. Times of day are ignored (a report ends at 23:59:59)
-/// and so are DST shifts (dates are compared as UTC calendar dates).
+/// included; at least 1. Times of day are ignored (a report ends at
+/// 23:59:59.999999 local time on its last day) and so are DST shifts.
 int inclusiveCalendarDays(DateTime start, DateTime end) {
-  final from = DateTime.utc(start.year, start.month, start.day);
-  final to = DateTime.utc(end.year, end.month, end.day);
-  final days = to.difference(from).inDays + 1;
+  final days = calendarDaysBetween(start, end) + 1;
   return days < 1 ? 1 : days;
 }
 

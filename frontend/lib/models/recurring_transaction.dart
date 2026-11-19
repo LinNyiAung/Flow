@@ -67,7 +67,7 @@ class RecurrenceConfig {
       dayOfMonth: json['day_of_month'],
       month: json['month'],
       dayOfYear: json['day_of_year'],
-      endDate: parseWallClockOrNull(json['end_date']),
+      endDate: parseCalendarDateOrNull(json['end_date']),
     );
   }
 
@@ -78,7 +78,7 @@ class RecurrenceConfig {
       if (dayOfMonth != null) 'day_of_month': dayOfMonth,
       if (month != null) 'month': month,
       if (dayOfYear != null) 'day_of_year': dayOfYear,
-      if (endDate != null) 'end_date': endDate!.toIso8601String(),
+      if (endDate != null) 'end_date': toCalendarDateString(endDate!),
     };
   }
 
@@ -131,9 +131,7 @@ class TransactionRecurrence {
     return TransactionRecurrence(
       enabled: json['enabled'] ?? false,
       config: json['config'] != null ? RecurrenceConfig.fromJson(json['config']) : null,
-      lastCreatedDate: json['last_created_date'] != null
-          ? parseWallClock(json['last_created_date'])
-          : null,
+      lastCreatedDate: parseCalendarDateOrNull(json['last_created_date']),
       parentTransactionId: json['parent_transaction_id'],
     );
   }
@@ -142,7 +140,7 @@ class TransactionRecurrence {
     return {
       'enabled': enabled,
       if (config != null) 'config': config!.toJson(),
-      if (lastCreatedDate != null) 'last_created_date': lastCreatedDate!.toIso8601String(),
+      if (lastCreatedDate != null) 'last_created_date': toCalendarDateString(lastCreatedDate!),
       if (parentTransactionId != null) 'parent_transaction_id': parentTransactionId,
     };
   }

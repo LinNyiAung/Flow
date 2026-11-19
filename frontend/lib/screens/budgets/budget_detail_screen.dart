@@ -174,12 +174,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     }
   }
 
-  // Budget start/end are wall-clock dates parsed as LOCAL DateTimes
-  // (parseWallClock), so they are compared with the local DateTime.now().
+  // Budget start/end are calendar dates (local midnight of the first and the
+  // last day), compared with the local DateTime.now(). The budget runs
+  // through the whole of its last day.
   String _calculateDaysRemaining() {
     final now = DateTime.now();
     final startDate = _budget.startDate;
-    final endDate = _budget.endDate;
     final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
@@ -187,13 +187,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       return '${localizations.startsInDaysPrefix} $daysUntilStart ${localizations.daysSuffix}';
     }
 
-    if (now.isAfter(endDate)) {
-      final daysEnded = now.difference(endDate).inDays;
+    if (_budget.hasEndedAt(now)) {
+      final daysEnded = now.difference(_budget.endsAt).inDays;
       return '${localizations.endedDaysAgoPrefix} $daysEnded${localizations.daysAgoSuffix}';
     }
 
-    final daysRemaining = endDate.difference(now).inDays;
-    return '$daysRemaining ${localizations.daysRemainingSuffix}';
+    return '${_budget.daysLeftOn(now)} ${localizations.daysRemainingSuffix}';
   }
 
   // Same three states as _calculateDaysRemaining(), but without repeating the
@@ -203,28 +202,26 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
   String _daysRemainingValueOnly() {
     final now = DateTime.now();
     final startDate = _budget.startDate;
-    final endDate = _budget.endDate;
 
     final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
       return localizations.daysCount(startDate.difference(now).inDays);
     }
-    if (now.isAfter(endDate)) {
-      return localizations.daysAgoCount(now.difference(endDate).inDays);
+    if (_budget.hasEndedAt(now)) {
+      return localizations.daysAgoCount(now.difference(_budget.endsAt).inDays);
     }
-    return localizations.daysCount(endDate.difference(now).inDays);
+    return localizations.daysCount(_budget.daysLeftOn(now));
   }
 
   String _getBudgetStatusLabel() {
     final now = DateTime.now();
     final startDate = _budget.startDate;
-    final endDate = _budget.endDate;
     final localizations = AppLocalizations.of(context);
 
     if (now.isBefore(startDate)) {
       return localizations.startsIn;
-    } else if (now.isAfter(endDate)) {
+    } else if (_budget.hasEndedAt(now)) {
       return localizations.ended;
     } else {
       return localizations.daysRemaining;
@@ -542,7 +539,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 body: null,
               ),
             ] else if (!_budget.isActive &&
-                DateTime.now().isAfter(_budget.endDate)) ...[
+                _budget.hasEndedAt(DateTime.now())) ...[
               const SizedBox(height: 16),
               _buildBanner(
                 icon: Icons.check_circle_rounded,

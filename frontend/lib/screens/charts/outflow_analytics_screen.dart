@@ -107,8 +107,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
         break;
     }
 
-    startDate = DateTime.utc(startDate.year, startDate.month, startDate.day);
-    endDate = DateTime.utc(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+    startDate = DateTime(startDate.year, startDate.month, startDate.day);
+    endDate = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
 
     try {
       // Fetched locally (not via TransactionProvider) so this 10k-row,

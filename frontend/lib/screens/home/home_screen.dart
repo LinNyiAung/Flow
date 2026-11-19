@@ -712,7 +712,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final over = budget.percentageUsed > 100;
     final tint = over ? scheme.errorContainer : scheme.secondaryContainer;
     final ink = over ? scheme.error : scheme.primary;
-    final daysRemaining = budget.endDate.difference(DateTime.now()).inDays;
+    final daysRemaining = budget.daysLeftOn(DateTime.now());
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1052,7 +1052,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap = () => Navigator.pushNamed(context, '/insights');
     } else if (worst != null) {
       final over = (worst.percentageUsed - 100).toStringAsFixed(0);
-      final daysLeft = worst.endDate.difference(DateTime.now()).inDays;
+      final daysLeft = worst.daysLeftOn(DateTime.now());
       headline = daysLeft >= 0
           ? localizations.budgetOverCapWithDays
               .replaceAll('{name}', worst.name)

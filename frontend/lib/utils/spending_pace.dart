@@ -27,8 +27,9 @@ class SpendingPace {
 }
 
 /// Buckets [transactions] (outflows only) into the 7 days ending on [today].
-/// Transaction dates are wall-clock values, so the day is read from their
-/// date fields directly.
+/// Transaction dates are local date-times (the person's own clock), so the
+/// day is read from their date fields directly: 23:40 on the 18th counts on
+/// the 18th.
 SpendingPace buildSpendingPace(List<Transaction> transactions, {required DateTime today}) {
   final start = DateTime(today.year, today.month, today.day);
   final days = List.generate(7, (i) => DateTime(start.year, start.month, start.day - 6 + i));

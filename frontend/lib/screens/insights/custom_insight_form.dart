@@ -22,20 +22,17 @@ Future<void> openCustomInsightReport(BuildContext context, String reportId) {
 
 // ── The create form ─────────────────────────────────────────────────────
 
-/// Today's date (date-only) in the app timezone the server checks ranges in:
-/// Asia/Yangon, UTC+06:30 with no daylight saving. The device's own date can
-/// be a day behind or ahead of it, and the server refuses a range that ends
-/// after its today. This must match the server's SCHEDULER_TIMEZONE default
-/// (Asia/Yangon, UTC+06:30): if the server is configured for another zone,
-/// change it here too.
-DateTime customInsightToday([DateTime? nowUtc]) {
-  final yangon = (nowUtc ?? DateTime.now().toUtc()).add(const Duration(hours: 6, minutes: 30));
-  return DateTime(yangon.year, yangon.month, yangon.day);
+/// Today's date (date-only) on the phone. The server refuses a range that
+/// ends after the asker's today, which it reads in the phone's zone (the
+/// X-Timezone header), so the two agree.
+DateTime customInsightToday([DateTime? now]) {
+  final local = (now ?? DateTime.now()).toLocal();
+  return DateTime(local.year, local.month, local.day);
 }
 
 /// Opens the "New custom insight" sheet. A created report is announced with a
 /// snackbar; a reused one (the user already has it) is opened. [today] is for
-/// tests; it defaults to today in the app timezone ([customInsightToday]).
+/// tests; it defaults to the phone's today ([customInsightToday]).
 Future<void> showCustomInsightForm(BuildContext context, {DateTime? today}) async {
   final messenger = ScaffoldMessenger.of(context);
   final l = AppLocalizations.of(context);

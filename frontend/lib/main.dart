@@ -81,6 +81,8 @@ void main() async {
   // an English flash.
   final languageCode = await LocalizationService.getSelectedLanguage();
   ApiService.currentLanguage = languageCode;
+  // Every request carries the phone's timezone (its "today" on the server).
+  ApiService.enableDeviceTimezone();
 
   // No Firebase / push / local notifications on the web.
   if (!PlatformInfo.isWeb) {

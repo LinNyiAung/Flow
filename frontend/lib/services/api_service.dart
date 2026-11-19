@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/models/app_version.dart';
 import 'package:frontend/models/budget.dart';
@@ -613,11 +614,55 @@ class ApiService {
   /// call (an entry added to the other book).
   static Future<Map<String, String>> _getHeaders({BookMode? book}) async {
     final token = await getToken();
+    final timezone = await _deviceTimezone();
     return {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
       if ((book ?? bookMode) == BookMode.family) 'X-Book': 'family',
+      // The phone's zone decides the person's "today" on the server.
+      if (timezone != null) 'X-Timezone': timezone,
     };
+  }
+
+  static Future<String> Function()? _timezoneReader;
+  static bool _deviceTimezoneEnabled = false;
+  static String? _timezone;
+  static final RegExp _headerSafe = RegExp(r'^[\x21-\x7E]{1,64}$');
+
+  /// Called once by `main()`: from then on requests carry the phone's zone,
+  /// read with [FlutterTimezone.getLocalTimezone] (on web, the browser's).
+  /// Widget tests never run `main()`, so they never wait on the plugin.
+  static void enableDeviceTimezone() => _deviceTimezoneEnabled = true;
+
+  /// Test seam: replaces the phone's timezone reader; a reader that throws
+  /// stands for a failed read. Setting it forgets the zone read so far.
+  @visibleForTesting
+  static Future<String> Function()? get timezoneOverride => _timezoneReader;
+
+  @visibleForTesting
+  static set timezoneOverride(Future<String> Function()? reader) {
+    _timezoneReader = reader;
+    _timezone = null;
+  }
+
+  static Future<String> _readPlatformTimezone() async =>
+      (await FlutterTimezone.getLocalTimezone()).identifier;
+
+  /// The phone's IANA zone name (e.g. `Asia/Bangkok`), read once and kept.
+  /// Null when it cannot be read (tried again on the next request): the
+  /// request then goes without it and the server keeps the saved zone.
+  static Future<String?> _deviceTimezone() async {
+    final known = _timezone;
+    if (known != null) return known;
+    final reader = _timezoneReader ?? (_deviceTimezoneEnabled ? _readPlatformTimezone : null);
+    if (reader == null) return null;
+    try {
+      final name = await reader();
+      if (!_headerSafe.hasMatch(name)) return null;
+      return _timezone = name;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ==================== APP VERSION ====================
@@ -1102,7 +1147,7 @@ class ApiService {
       'type': type.name,
       'main_category': mainCategory,
       'sub_category': subCategory,
-      'date': date.toIso8601String(),
+      'date': toWallClockString(date),
       'description': description,
       'amount': amount,
       'currency': currency.name, // NEW
@@ -1161,11 +1206,10 @@ class ApiService {
       throw Exception('Recurrence config is required');
     }
 
-    // Build the request body with all config fields. Dates are wall-clock
-    // values (same convention as transaction dates): keep the local fields
-    // and tag them as UTC rather than shifting by the device offset.
+    // Build the request body with all config fields: the start is a local
+    // date-time (as transaction dates are), the end a calendar date.
     final requestBody = {
-      'start_date': wallClockToUtcIso(startDate),
+      'start_date': toWallClockString(startDate),
       'frequency': recurrence.config!.frequency.name,
       if (recurrence.config!.dayOfWeek != null)
         'day_of_week': recurrence.config!.dayOfWeek,
@@ -1175,7 +1219,7 @@ class ApiService {
       if (recurrence.config!.dayOfYear != null)
         'day_of_year': recurrence.config!.dayOfYear,
       if (recurrence.config!.endDate != null)
-        'end_date': wallClockToUtcIso(recurrence.config!.endDate!),
+        'end_date': toCalendarDateString(recurrence.config!.endDate!),
     };
 
     final response = await _client.post(
@@ -1210,19 +1254,12 @@ class ApiService {
       // NEW
       url += '&currency=${currency.name}';
     }
-    // Transaction dates are wall-clock values stored tagged as UTC, so the
-    // filter bounds must be the same wall-clock fields tagged as UTC (NOT
-    // local midnight converted to UTC, which shifts the day for UTC+ users).
+    // Transaction dates are local date-times, so the filter bounds are too.
     if (startDate != null) {
-      final iso = startDate.isUtc
-          ? startDate.toIso8601String()
-          : wallClockToUtcIso(startDate);
-      url += '&start_date=${Uri.encodeComponent(iso)}';
+      url += '&start_date=${Uri.encodeComponent(toWallClockString(startDate))}';
     }
     if (endDate != null) {
-      final iso =
-          endDate.isUtc ? endDate.toIso8601String() : wallClockToUtcIso(endDate);
-      url += '&end_date=${Uri.encodeComponent(iso)}';
+      url += '&end_date=${Uri.encodeComponent(toWallClockString(endDate))}';
     }
     final response = await _client.get(
       Uri.parse(url),
@@ -1267,7 +1304,7 @@ class ApiService {
     if (type != null) updateData['type'] = type.name;
     if (mainCategory != null) updateData['main_category'] = mainCategory;
     if (subCategory != null) updateData['sub_category'] = subCategory;
-    if (date != null) updateData['date'] = date.toIso8601String();
+    if (date != null) updateData['date'] = toWallClockString(date);
     if (description != null) updateData['description'] = description;
     if (amount != null) updateData['amount'] = amount;
     if (currency != null) updateData['currency'] = currency.name; // NEW
@@ -1492,7 +1529,7 @@ class ApiService {
       body: jsonEncode({
         'name': name,
         'target_amount': targetAmount,
-        'target_date': targetDate?.toIso8601String(),
+        'target_date': targetDate == null ? null : toCalendarDateString(targetDate),
         'goal_type': goalType.name,
         'initial_contribution': initialContribution,
         'currency': currency.name, // NEW
@@ -1597,7 +1634,7 @@ class ApiService {
     if (name != null) updateData['name'] = name;
     if (targetAmount != null) updateData['target_amount'] = targetAmount;
     if (targetDate != null)
-      updateData['target_date'] = targetDate.toIso8601String();
+      updateData['target_date'] = toCalendarDateString(targetDate);
     if (goalType != null) updateData['goal_type'] = goalType.name;
 
     if (updateData.isEmpty) {
@@ -1864,12 +1901,9 @@ class ApiService {
     DateTime? endDate,
     Currency? currency, // NEW parameter
   }) async {
-    final Map<String, dynamic> requestBody = {
-      'period': period.name,
-      // Minutes east of UTC, so the server computes week/month/year
-      // boundaries in the user's local time.
-      'timezone_offset': DateTime.now().timeZoneOffset.inMinutes,
-    };
+    // Week/month/year boundaries are in the person's zone (the X-Timezone
+    // header); a custom range is its first and last day.
+    final Map<String, dynamic> requestBody = {'period': period.name};
 
     if (currency != null) {
       // NEW
@@ -1882,25 +1916,8 @@ class ApiService {
           'Start date and end date are required for custom period',
         );
       }
-      final utcStart = DateTime.utc(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        0,
-        0,
-        0,
-      );
-      final utcEnd = DateTime.utc(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-        23,
-        59,
-        59,
-      );
-
-      requestBody['start_date'] = utcStart.toIso8601String();
-      requestBody['end_date'] = utcEnd.toIso8601String();
+      requestBody['start_date'] = toCalendarDateString(startDate);
+      requestBody['end_date'] = toCalendarDateString(endDate);
     }
 
     final response = await _client.post(
@@ -1922,13 +1939,7 @@ class ApiService {
     DateTime? endDate,
     Currency? currency, // NEW parameter
   }) async {
-    final now = DateTime.now();
-    final timezoneOffset = now.timeZoneOffset.inMinutes;
-
-    final Map<String, dynamic> requestBody = {
-      'period': period.name,
-      'timezone_offset': timezoneOffset,
-    };
+    final Map<String, dynamic> requestBody = {'period': period.name};
 
     if (currency != null) {
       // NEW
@@ -1941,25 +1952,8 @@ class ApiService {
           'Start date and end date are required for custom period',
         );
       }
-      final utcStart = DateTime.utc(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        0,
-        0,
-        0,
-      );
-      final utcEnd = DateTime.utc(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-        23,
-        59,
-        59,
-      );
-
-      requestBody['start_date'] = utcStart.toIso8601String();
-      requestBody['end_date'] = utcEnd.toIso8601String();
+      requestBody['start_date'] = toCalendarDateString(startDate);
+      requestBody['end_date'] = toCalendarDateString(endDate);
     }
 
     final response = await _client.post(
@@ -1985,10 +1979,7 @@ class ApiService {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    final Map<String, dynamic> requestBody = {
-      'period': period.name,
-      'timezone_offset': DateTime.now().timeZoneOffset.inMinutes,
-    };
+    final Map<String, dynamic> requestBody = {'period': period.name};
 
     if (period == ReportPeriod.custom) {
       if (startDate == null || endDate == null) {
@@ -1996,25 +1987,8 @@ class ApiService {
           'Start date and end date are required for custom period',
         );
       }
-      final utcStart = DateTime.utc(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-        0,
-        0,
-        0,
-      );
-      final utcEnd = DateTime.utc(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-        23,
-        59,
-        59,
-      );
-
-      requestBody['start_date'] = utcStart.toIso8601String();
-      requestBody['end_date'] = utcEnd.toIso8601String();
+      requestBody['start_date'] = toCalendarDateString(startDate);
+      requestBody['end_date'] = toCalendarDateString(endDate);
     }
 
     final response = await _client.post(
@@ -2222,13 +2196,13 @@ class ApiService {
   }) async {
     final Map<String, dynamic> requestBody = {
       'period': period.name,
-      'start_date': wallClockToUtcIso(startDate),
+      'start_date': toCalendarDateString(startDate),
       'analysis_months': analysisMonths,
       'currency': currency.name, // NEW
     };
 
     if (endDate != null) {
-      requestBody['end_date'] = wallClockToUtcIso(endDate);
+      requestBody['end_date'] = toCalendarDateString(endDate);
     }
 
     if (includeCategories != null && includeCategories.isNotEmpty) {
@@ -2270,7 +2244,7 @@ class ApiService {
     final Map<String, dynamic> requestBody = {
       'name': name,
       'period': period.name,
-      'start_date': wallClockToUtcIso(startDate),
+      'start_date': toCalendarDateString(startDate),
       'category_budgets': categoryBudgets.map((cat) => cat.toJson()).toList(),
       'total_budget': totalBudget,
       'auto_create_enabled': autoCreateEnabled,
@@ -2279,7 +2253,8 @@ class ApiService {
     };
 
     if (endDate != null) {
-      requestBody['end_date'] = wallClockToUtcIso(endDate);
+      // The budget's last day, included.
+      requestBody['end_date'] = toCalendarDateString(endDate);
     }
 
     if (description != null) {
@@ -2665,10 +2640,9 @@ class ApiService {
   /// Spending per person it was for, [start]..[end] as whole calendar days,
   /// in [currency] (default: the user's default currency).
   static Future<FamilyBreakdown> getFamilyBreakdown(DateTime start, DateTime end, {Currency? currency}) async {
-    String day(DateTime d) => DateTime.utc(d.year, d.month, d.day).toIso8601String();
     final uri = _familyUri('/breakdown').replace(queryParameters: {
-      'start_date': day(start),
-      'end_date': day(end),
+      'start_date': toCalendarDateString(start),
+      'end_date': toCalendarDateString(end),
       if (currency != null) 'currency': currency.name,
     });
     final response = await _client.get(uri, headers: await _getHeaders());
@@ -2697,7 +2671,7 @@ class ApiService {
         'direction': direction.wireName,
         'amount': amount,
         'currency': currency.name,
-        'date': date.toIso8601String(),
+        'date': toWallClockString(date),
         if (description != null && description.trim().isNotEmpty) 'description': description.trim(),
       }),
     );

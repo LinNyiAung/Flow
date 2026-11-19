@@ -396,8 +396,8 @@ void main() {
           ));
       final r = _requests.single;
       expect(r.url.path, '/api/family/breakdown');
-      expect(r.url.queryParameters['start_date'], '2026-11-01T00:00:00.000Z');
-      expect(r.url.queryParameters['end_date'], '2026-11-30T00:00:00.000Z');
+      expect(r.url.queryParameters['start_date'], '2026-11-01');
+      expect(r.url.queryParameters['end_date'], '2026-11-30');
       expect(r.url.queryParameters['currency'], 'mmk');
       expect(b.currency, Currency.mmk);
       expect(b.totalSpent, 90000);
@@ -425,7 +425,7 @@ void main() {
       expect(body['direction'], 'to_personal');
       expect(body['amount'], 5000);
       expect(body['currency'], 'mmk');
-      expect(body['date'], DateTime(2026, 11, 10, 9, 30).toIso8601String());
+      expect(body['date'], '2026-11-10T09:30:00.000');
       expect(body['description'], 'Market cash');
       expect(result.transferId, 'tr1');
       expect(result.personalTransactionId, 'p1');

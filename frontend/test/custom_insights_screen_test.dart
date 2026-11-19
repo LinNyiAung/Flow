@@ -584,11 +584,12 @@ void main() {
     });
   });
 
-  test('today is the date in the app timezone (Asia/Yangon, UTC+06:30)', () {
-    // 17:29 UTC is 23:59 in Yangon; one minute later it is the next day there.
-    expect(customInsightToday(DateTime.utc(2026, 11, 4, 17, 29)), DateTime(2026, 11, 4));
-    expect(customInsightToday(DateTime.utc(2026, 11, 4, 17, 30)), DateTime(2026, 11, 5));
-    expect(customInsightToday(DateTime.utc(2026, 12, 31, 18)), DateTime(2027, 1, 1));
+  test('today is the phone\'s date (the server reads ranges in the phone\'s zone)', () {
+    expect(customInsightToday(DateTime(2026, 11, 4, 23, 59)), DateTime(2026, 11, 4));
+    expect(customInsightToday(DateTime(2026, 11, 5, 0, 1)), DateTime(2026, 11, 5));
+    final instant = DateTime.utc(2026, 12, 31, 18);
+    final local = instant.toLocal();
+    expect(customInsightToday(instant), DateTime(local.year, local.month, local.day));
   });
 
   group('Create form', () {

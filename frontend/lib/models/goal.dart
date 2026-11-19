@@ -45,7 +45,7 @@ class Goal {
       name: json['name'],
       targetAmount: json['target_amount'].toDouble(),
       currentAmount: json['current_amount'].toDouble(),
-      targetDate: parseWallClockOrNull(json['target_date']),
+      targetDate: parseCalendarDateOrNull(json['target_date']),
       goalType: GoalType.values.firstWhere((e) => e.name == json['goal_type']),
       status: GoalStatus.values.firstWhere((e) => e.name == json['status']),
       progressPercentage: json['progress_percentage'].toDouble(),
@@ -56,7 +56,7 @@ class Goal {
     );
   }
   
-  /// An active goal whose (wall-clock) target date is before [now]'s
+  /// An active goal whose (calendar) target date is before [now]'s
   /// calendar day. A goal due today is not overdue yet.
   bool isOverdueOn(DateTime now) {
     final due = targetDate;

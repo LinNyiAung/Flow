@@ -7,8 +7,8 @@
 /// into range instead (and widens `lastDate` if it is before `firstDate`).
 ///
 /// All three dates are returned as local midnight of their calendar day
-/// (a UTC-tagged wall-clock date keeps its year/month/day), so mixing UTC
-/// and local inputs cannot shift a bound by a day.
+/// (any input keeps its year/month/day), so a time of day on an input cannot
+/// shift a bound by a day.
 class DatePickerBounds {
   final DateTime initialDate;
   final DateTime firstDate;

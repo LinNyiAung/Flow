@@ -257,8 +257,8 @@ Future<bool> updateTransaction({
 }
 
   // Fetch every outflow from the last 7 calendar days (all currencies) for
-  // the Spending pace card. Bounds are UTC day boundaries, as the list
-  // screen's filter uses (transaction dates are wall-clock tagged as UTC).
+  // the Spending pace card. Bounds are the phone's local day boundaries, as
+  // the list screen's filter uses (transaction dates are local date-times).
   Future<void> fetchWeekSpending({DateTime? today}) async {
     final gen = _generation;
     final requestId = ++_weekRequestId;
@@ -266,8 +266,8 @@ Future<bool> updateTransaction({
     try {
       final result = await ApiService.getTransactions(
         type: TransactionType.outflow,
-        startDate: DateTime.utc(now.year, now.month, now.day - 6),
-        endDate: DateTime.utc(now.year, now.month, now.day, 23, 59, 59),
+        startDate: DateTime(now.year, now.month, now.day - 6),
+        endDate: DateTime(now.year, now.month, now.day, 23, 59, 59),
         limit: 10000,
       );
       if (gen != _generation || requestId != _weekRequestId) return;
