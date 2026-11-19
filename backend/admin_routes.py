@@ -882,8 +882,8 @@ async def get_user_stats(current_admin: dict = Depends(require_moderator_or_abov
 
     active_users_last_7_days = len(active_user_ids)
 
-    total_transactions = await transactions_db.count_transactions()
-    total_goals = await goals_db.count_goals()
+    total_transactions = await transactions_db.count_transactions(None)
+    total_goals = await goals_db.count_goals(None)
 
     return UserStatsResponse(
         total_users=total_users,
@@ -923,9 +923,9 @@ async def get_system_stats(current_admin: dict = Depends(require_moderator_or_ab
     active_today.update(await chat_db.active_user_ids(today_start))
     active_week.update(await chat_db.active_user_ids(week_start))
 
-    total_transactions = await transactions_db.count_transactions()
-    total_goals = await goals_db.count_goals()
-    total_budgets = await budgets_db.count_budgets()
+    total_transactions = await transactions_db.count_transactions(None)
+    total_goals = await goals_db.count_goals(None)
+    total_budgets = await budgets_db.count_budgets(None)
     total_chat_sessions = await chat_db.count_sessions()
     total_notifications = await notifications_db.count_all()
 

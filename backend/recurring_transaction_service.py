@@ -242,7 +242,7 @@ async def _process_recurring_transaction(
 
     if not is_config_complete(config):
         logger.warning(f"Recurring tx {transaction['_id']}: incomplete config, disabling recurrence")
-        await transactions_db.disable_recurrence(transaction["_id"])
+        await transactions_db.disable_recurrence(transaction["_id"], transaction["book_id"])
         return 0
 
     # The pointer is the date of the last occurrence handled; occurrences keep the parent's time of day. A key that
@@ -344,7 +344,7 @@ async def _process_recurring_transaction(
             logger.error(f"Failed to notify recurring creation for {transaction['_id']}: {e}")
 
     if ended:
-        await transactions_db.disable_recurrence(transaction["_id"])
+        await transactions_db.disable_recurrence(transaction["_id"], transaction["book_id"])
         if recipient:
             try:
                 await create_notification(
@@ -414,7 +414,7 @@ async def disable_recurrence_for_parent(parent_transaction_id: str, book_id: str
     disabled = await transactions_db.disable_recurrence(parent_transaction_id, book_id)
 
     if disabled:
-        parent_tx = await transactions_db.get_transaction(parent_transaction_id)
+        parent_tx = await transactions_db.get_transaction(parent_transaction_id, book_id)
         # A family book's entry: only the member who added it is told (see _notice_recipient).
         recipient = await _notice_recipient(parent_tx) if parent_tx else None
         if parent_tx and recipient:

@@ -21,6 +21,9 @@ Sections:
     data carry subject_id and book, never goal_id; deleting the subject or the family keeps the notice unlinked; a
     notice about a subject already gone is stored unlinked; insight notices dedupe per book (Task 5). Needs the stub
     server.
+  scoped_helpers -- the SQL helpers for one budget, goal, transaction or custom insight require the book (no default):
+    a call without it fails, another book finds and changes nothing; the count and list helpers take None (every book)
+    only when it is passed explicitly. Needs the stub server.
 """
 import os
 import sys
@@ -1619,9 +1622,86 @@ def section_ai_spend():
         db.admins.delete_many({"email": admin_email})
 
 
+def section_scoped_helpers():
+    """The SQL helpers that read or write one budget, goal, transaction or custom insight take the book as a required
+    argument (no default): a call that forgets it fails, and another book's id finds nothing. The count and list
+    helpers take it too; None (every book) must be passed explicitly."""
+    import inspect
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _api_people(c, tag, made)
+    try:
+        P, Q = register("ScopeP"), register("ScopeQ")
+        if P is None or Q is None:
+            return
+        som = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        tx = c.post("/api/transactions", headers=P["h"], json={
+            "type": "inflow", "main_category": "Employment Income", "sub_category": "Salary",
+            "date": som.replace(tzinfo=None).isoformat(), "amount": 100, "currency": "usd", "description": "scoped",
+            "recurrence": {"enabled": True, "config": {"frequency": "monthly"}}}).json().get("id")
+        budget = c.post("/api/budgets", headers=P["h"], json={
+            "name": "Scoped", "period": "monthly", "start_date": som.date().isoformat(), "currency": "usd",
+            "total_budget": 100, "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100}]}
+        ).json().get("id")
+        goal = c.post("/api/goals", headers=P["h"], json={
+            "name": "Scoped", "target_amount": 500, "goal_type": "savings", "currency": "usd"}).json().get("id")
+        check(all((tx, budget, goal)), "scoped helpers: P has a transaction, a budget and a goal", (tx, budget, goal))
+
+        async def go():
+            from sql import budgets, custom_insights, goals, transactions
+            stubenv.patch_loaded_modules()
+            helpers = {"budgets.get_budget": budgets.get_budget, "budgets.update_budget": budgets.update_budget,
+                       "budgets.count_budgets": budgets.count_budgets, "goals.get_goal": goals.get_goal,
+                       "goals.list_goals": goals.list_goals, "goals.count_goals": goals.count_goals,
+                       "transactions.get_transaction": transactions.get_transaction,
+                       "transactions.disable_recurrence": transactions.disable_recurrence,
+                       "transactions.count_transactions": transactions.count_transactions,
+                       "custom_insights.get": custom_insights.get}
+            defaults = {name: inspect.signature(f).parameters["book_id"].default is inspect.Parameter.empty
+                        for name, f in helpers.items()}
+            refused = []
+            for name, call in (("get_budget", lambda: budgets.get_budget(budget)),
+                               ("get_goal", lambda: goals.get_goal(goal)),
+                               ("get_transaction", lambda: transactions.get_transaction(tx)),
+                               ("count_goals", lambda: goals.count_goals())):
+                try:
+                    await call()
+                except TypeError:
+                    refused.append(name)
+            other = {
+                "get_budget": await budgets.get_budget(budget, Q["book"]),
+                "get_goal": await goals.get_goal(goal, Q["book"]),
+                "get_transaction": await transactions.get_transaction(tx, Q["book"]),
+                "update_budget": await budgets.update_budget(budget, {"name": "Taken"}, book_id=Q["book"]),
+                "disable_recurrence": await transactions.disable_recurrence(tx, Q["book"]),
+            }
+            own = (bool(await budgets.get_budget(budget, P["book"])), bool(await goals.get_goal(goal, P["book"])),
+                   bool(await transactions.get_transaction(tx, P["book"])),
+                   await goals.count_goals(None) >= await goals.count_goals(P["book"]) == 1)
+            return defaults, refused, other, own
+        defaults, refused, other, own = _backend_async(go)
+        check(all(defaults.values()), "scoped helpers: every helper's book_id has no default", defaults)
+        check(refused == ["get_budget", "get_goal", "get_transaction", "count_goals"],
+              "scoped helpers: a call without the book fails (TypeError) instead of reading any book", refused)
+        check(other == {"get_budget": None, "get_goal": None, "get_transaction": None, "update_budget": 0,
+                        "disable_recurrence": False},
+              "scoped helpers: Q's book finds none of P's rows and changes none", other)
+        stored = db.sql("SELECT b.name, t.recurrence_enabled FROM budgets b, transactions t WHERE b.id = %s AND t.id = %s",
+                        budget, tx)
+        check(own == (True, True, True, True) and stored == [{"name": "Scoped", "recurrence_enabled": True}],
+              "scoped helpers: P's own book finds them, the budget and the recurrence are unchanged, and None counts "
+              "every book", (own, stored))
+    finally:
+        _drop_people(made)
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "books_in_requests": section_books_in_requests,
             "api_shape": section_api_shape, "books_api": section_books_api, "jobs": section_jobs,
-            "notification_links": section_notification_links, "ai_spend": section_ai_spend}
+            "notification_links": section_notification_links, "ai_spend": section_ai_spend,
+            "scoped_helpers": section_scoped_helpers}
 
 
 def main():

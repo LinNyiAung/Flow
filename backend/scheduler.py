@@ -4,7 +4,7 @@ from datetime import timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # [CHANGED]
 from apscheduler.triggers.cron import CronTrigger
 from custom_insights_service import fail_stuck_reports
-from local_jobs import run_due_local_jobs
+from local_jobs import DAILY_JOBS, INSIGHT_JOBS, run_due_local_jobs
 from subscription_service import expire_paid_plans, send_plan_renewal_reminders, send_trial_reminders
 from device_jobs import delete_stale_devices, send_sign_in_reminders
 from tz_utils import default_zone
@@ -17,7 +17,7 @@ def start_scheduler():
     # [CHANGED] Use AsyncIOScheduler instead of BackgroundScheduler
     # This allows jobs to run on the MAIN event loop, reusing the global DB client.
     # The daily jobs that follow a person's or a book's clock (reminders, rollovers, recurring transactions, insights)
-    # run from one 15-minute tick (local_jobs). The jobs below work on instants; the one that runs at a time of day
+    # run from two 15-minute ticks (local_jobs). The jobs below work on instants; the one that runs at a time of day
     # keeps the default zone (SCHEDULER_TIMEZONE, default Asia/Yangon).
     app_tz = default_zone()
     scheduler = AsyncIOScheduler(timezone=app_tz)
@@ -31,16 +31,23 @@ def start_scheduler():
     # 08:00, budget rollovers at 00:30, recurring transactions at 06:00, weekly and monthly insights), every 15 minutes
     # in UTC (every zone's offset is a multiple of 15 minutes). Each run is claimed per subject and local date, so a
     # late, missed or overlapping tick never runs one twice; one tick at a time, a missed one runs once.
-    scheduler.add_job(
-        run_due_local_jobs,
-        trigger=CronTrigger(minute="*/15", timezone=timezone.utc),
-        id="local_jobs_tick",
-        name="Run the jobs due on each person's and each book's clock",
-        replace_existing=True,
-        coalesce=True,
-        misfire_grace_time=15 * 60,
-        max_instances=1,
-    )
+    # The insight jobs call the AI and can run for minutes, so they tick on their own: a long insight run never delays
+    # the reminders, rollovers and recurring transactions.
+    for job_id, name, jobs in (
+        ("local_jobs_tick", "Run the reminders, rollovers and recurring transactions due on each clock", DAILY_JOBS),
+        ("local_insights_tick", "Run the weekly and monthly insights due on each book's clock", INSIGHT_JOBS),
+    ):
+        scheduler.add_job(
+            run_due_local_jobs,
+            trigger=CronTrigger(minute="*/15", timezone=timezone.utc),
+            kwargs={"jobs": jobs},
+            id=job_id,
+            name=name,
+            replace_existing=True,
+            coalesce=True,
+            misfire_grace_time=15 * 60,
+            max_instances=1,
+        )
 
     # Downgrade expired Plus/Pro plans to free and notify the user, hourly so the "plan has ended"
     # notification arrives soon after the expiry time.

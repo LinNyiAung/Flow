@@ -186,7 +186,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
         # so giving it back here too would give it back twice. Give back only when the row is surely not there; if the
         # lookup fails as well, leave it: if the row exists the sweeper gives the use back, if not it stays counted.
         try:
-            exists = await asyncio.shield(ci.get(report_id, include_deleted=True)) is not None
+            exists = await asyncio.shield(ci.get(report_id, book_id, include_deleted=True)) is not None
         except BaseException:  # noqa: BLE001 - unknown, see above
             exists = True
         if not exists:

@@ -513,7 +513,8 @@ def _rollover_keeps_sub(c, P):
     async def roll():
         from sql import budgets as budgets_db
         stubenv.patch_loaded_modules()
-        return await bs.auto_create_next_budget(await budgets_db.get_budget(pid))
+        book = db.sql("SELECT book_id FROM budgets WHERE id = %s", pid)[0]["book_id"]
+        return await bs.auto_create_next_budget(await budgets_db.get_budget(pid, book))
     try:
         child = _backend_async(roll)
     except Exception as e:  # noqa: BLE001

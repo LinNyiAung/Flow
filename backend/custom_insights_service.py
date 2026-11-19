@@ -357,7 +357,7 @@ async def _finish(report_id: str, status: str, **fields) -> dict | None:
         done = None
     if done is None:  # somebody else (the sweeper) finished it first, or the write failed: nothing to do here
         try:
-            return await ci.get(report_id, include_deleted=True)
+            return await ci.get(report_id, None, include_deleted=True)
         except Exception:  # noqa: BLE001
             logger.exception("Could not read custom insight %s", report_id)
             return None
@@ -373,7 +373,7 @@ async def run_report(report_id: str) -> dict | None:
     The plan is not checked again: a report already pending when the plan changes still finishes."""
     status, fields = "failed", {}
     try:
-        row = await ci.get(report_id, include_deleted=True)
+        row = await ci.get(report_id, None, include_deleted=True)
         if row is None or row["status"] != "pending":
             return row
         book_id, start, end = row["book_id"], row["start_date"], row["end_date"]

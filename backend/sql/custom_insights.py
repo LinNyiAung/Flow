@@ -39,7 +39,9 @@ async def insert_pending(doc: Dict[str, Any]) -> bool:
     return await execute(stmt) == 1
 
 
-async def get(report_id: str, book_id: Optional[str] = None, include_deleted: bool = False) -> Optional[Dict[str, Any]]:
+async def get(report_id: str, book_id: Optional[str], include_deleted: bool = False) -> Optional[Dict[str, Any]]:
+    """The report, only if it is in `book_id`. None (any book) must be passed explicitly: only the report's own job
+    and sweeper, which know the report id but not its book, look a report up that way."""
     stmt = select(custom_insights).where(_c.id == report_id)
     if book_id is not None:
         stmt = stmt.where(_c.book_id == book_id)

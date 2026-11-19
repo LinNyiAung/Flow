@@ -79,11 +79,9 @@ async def set_recurrence_pointer(transaction_id: str, last_created: date) -> Non
                   .values(recurrence_last_created_date=as_calendar_date(last_created)))
 
 
-async def disable_recurrence(transaction_id: str, book_id: Optional[str] = None) -> bool:
-    """Turn recurrence off; False if not found or it was already off."""
-    stmt = update(t).where(t.c.id == transaction_id, t.c.recurrence_enabled.is_(True))
-    if book_id is not None:
-        stmt = stmt.where(t.c.book_id == book_id)
+async def disable_recurrence(transaction_id: str, book_id: str) -> bool:
+    """Turn recurrence off for the transaction in `book_id`; False if not found or it was already off."""
+    stmt = update(t).where(t.c.id == transaction_id, t.c.book_id == book_id, t.c.recurrence_enabled.is_(True))
     return await execute(stmt.values(recurrence_enabled=False)) > 0
 
 
@@ -97,10 +95,9 @@ async def delete_transfer(transfer_id: str) -> int:
 
 
 # ------------------------------------------------------------------ reads
-async def get_transaction(transaction_id: str, book_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    stmt = select(t).where(t.c.id == transaction_id)
-    if book_id is not None:
-        stmt = stmt.where(t.c.book_id == book_id)
+async def get_transaction(transaction_id: str, book_id: str) -> Optional[Dict[str, Any]]:
+    """The transaction, only if it is in `book_id` (always given: an entry is read through its book)."""
+    stmt = select(t).where(t.c.id == transaction_id, t.c.book_id == book_id)
     return transaction_doc(await fetch_one(stmt))
 
 
@@ -175,7 +172,8 @@ async def currencies(book_id: str) -> List[str]:
     return [r["c"] for r in rows]
 
 
-async def count_transactions(book_id: Optional[str] = None) -> int:
+async def count_transactions(book_id: Optional[str]) -> int:
+    """Entries in `book_id`; None counts every book's (admin totals), and must be passed explicitly."""
     stmt = select(func.count()).select_from(t)
     if book_id is not None:
         stmt = stmt.where(t.c.book_id == book_id)

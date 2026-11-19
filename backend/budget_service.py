@@ -681,7 +681,7 @@ async def refresh_budget_state_if_stale(budget: Dict, tz: Optional[tzinfo] = Non
         return budget
     try:
         await update_budget_spent_amounts(budget["book_id"], budget["_id"], budget_doc=dict(budget), tz=tz)
-        fresh = await budgets_db.get_budget(budget["_id"])
+        fresh = await budgets_db.get_budget(budget["_id"], budget["book_id"])
         if fresh:
             return fresh
     except Exception as e:
@@ -689,7 +689,7 @@ async def refresh_budget_state_if_stale(budget: Dict, tz: Optional[tzinfo] = Non
     # Fallback: at least return (and try to persist) the date-derived state.
     patched = {**budget, **derived}
     try:
-        await budgets_db.update_budget(budget["_id"], derived)
+        await budgets_db.update_budget(budget["_id"], derived, book_id=budget["book_id"])
     except Exception:
         pass
     return patched
@@ -730,7 +730,7 @@ async def get_running_budgets(
         try:
             if recompute:
                 await update_budget_spent_amounts(book_id, budget["_id"], budget_doc=dict(budget), tz=tz)
-                budget = await budgets_db.get_budget(budget["_id"]) or budget
+                budget = await budgets_db.get_budget(budget["_id"], book_id) or budget
             else:
                 budget = await refresh_budget_state_if_stale(budget, tz)
         except Exception as e:
@@ -879,7 +879,7 @@ async def update_budget_spent_amounts(
                 "status": status_enum.value,
                 "is_active": is_active,
                 "updated_at": datetime.now(timezone.utc)
-            }, expected_updated_at=current_version_timestamp)
+            }, book_id=book_id, expected_updated_at=current_version_timestamp)
 
             if updated == 1:
                 # === SUCCESS ===
@@ -929,7 +929,7 @@ async def update_budget_spent_amounts(
                     and status_enum == BudgetStatus.COMPLETED
                     and budget.get("auto_create_enabled")
                 ):
-                    updated_budget = await budgets_db.get_budget(budget_id)
+                    updated_budget = await budgets_db.get_budget(budget_id, book_id)
                     try:
                         if updated_budget:
                             task = asyncio.get_running_loop().create_task(auto_create_next_budget(updated_budget))
@@ -1023,7 +1023,7 @@ async def budget_rollovers_for_book(book_id: str, today: date, tz: tzinfo) -> Di
                 await update_budget_spent_amounts(
                     book_id, budget_id, budget_doc=dict(budget), trigger_auto_create=False, tz=tz
                 )
-                budget = await budgets_db.get_budget(budget_id) or budget
+                budget = await budgets_db.get_budget(budget_id, book_id) or budget
             if budget.get("status") != BudgetStatus.COMPLETED.value or not budget.get("auto_create_enabled"):
                 stats["skipped"] += 1
                 continue

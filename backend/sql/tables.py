@@ -277,8 +277,6 @@ budgets = Table(
     Column("auto_create_claimed_at", TS),
     Column("started_notified", Boolean, nullable=False, server_default=text("false")),
     Column("started_notified_at", TS),
-    Column("ending_soon_notified", Boolean, nullable=False, server_default=text("false")),
-    Column("ending_soon_notified_at", TS),
     Column("created_at", TS, nullable=False, server_default=func.now()),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("period IN ('weekly','monthly','yearly','custom')", name="period"),

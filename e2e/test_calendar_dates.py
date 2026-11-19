@@ -44,6 +44,8 @@ Sections:
     the owner's day and moves when ownership passes (UTC-12 -> Kiritimati) (final fixes). Needs the stub.
   plan_dates -- a plan renewal reminder shows the plan's end date on the recipient's calendar (a Kiritimati person's
     date, not the default zone's) (Task 3). Needs the stub.
+  split -- the insight jobs have their own 15-minute tick: the scheduler's two ticks split LOCAL_JOBS, and the daily
+    tick sends a 09:05 reminder while an insight tick is still waiting on its AI call. Needs the stub.
 """
 import asyncio
 import os
@@ -136,6 +138,8 @@ def _check_indexes(label):
 def section_schema():
     _check_types("schema", NEW_TYPES)
     _check_indexes("schema")
+    gone = {"ending_soon_notified", "ending_soon_notified_at"} & set(_columns("budgets"))
+    check(not gone, "schema: budgets no longer has the unused ending_soon_notified(_at) columns (e7c2f9a4b815)", gone)
 
     if "local_job_runs" not in _tables():
         check(False, "schema: the local_job_runs table exists", "missing")
@@ -1201,7 +1205,7 @@ def section_family_jobs():
             from sql import budgets as budgets_db
             stubenv.patch_loaded_modules()
             await bs.update_budget_spent_amounts(book, bid, trigger_auto_create=False)
-            return (await budgets_db.get_budget(bid) or {}).get("status")
+            return (await budgets_db.get_budget(bid, book) or {}).get("status")
         try:
             under_minus12 = _backend_async(stored_status)
             oid = next((m["id"] for m in c.get("/api/family", headers=owner["h"]).json().get("members", [])
@@ -1247,9 +1251,92 @@ def section_plan_dates():
         _cleanup(made)
 
 
+# ----------------------------------------------------------------------------------------------------------- split
+def section_split():
+    """The insight jobs tick on their own: the scheduler has two 15-minute ticks whose job lists split LOCAL_JOBS, and
+    a daily tick finishes (its reminder sent) while an insight tick is still waiting on its AI call."""
+    import local_jobs
+    import scheduler
+
+    stubenv.patch_loaded_modules()
+
+    async def scheduled():  # the AsyncIOScheduler starts on a running event loop
+        sched = scheduler.start_scheduler()
+        try:
+            return {jid: sched.get_job(jid) for jid in ("local_jobs_tick", "local_insights_tick")}
+        finally:
+            sched.shutdown(wait=False)
+    ticks = _backend_async(scheduled)
+    at = datetime(2026, 11, 19, 3, 2, tzinfo=UTC)
+
+    def shape(job):
+        if job is None:
+            return None
+        first = job.trigger.get_next_fire_time(None, at)
+        return (job.func is local_jobs.run_due_local_jobs, [j.id for j in job.kwargs.get("jobs", [])], job.max_instances,
+                job.coalesce, job.misfire_grace_time, first, job.trigger.get_next_fire_time(first, first + timedelta(seconds=1)))
+    q1, q2 = datetime(2026, 11, 19, 3, 15, tzinfo=UTC), datetime(2026, 11, 19, 3, 30, tzinfo=UTC)
+    daily_ids = [j.id for j in local_jobs.DAILY_JOBS]
+    insight_ids = [j.id for j in local_jobs.INSIGHT_JOBS]
+    got = {jid: shape(job) for jid, job in ticks.items()}
+    check(got == {"local_jobs_tick": (True, daily_ids, 1, True, 900, q1, q2),
+                  "local_insights_tick": (True, insight_ids, 1, True, 900, q1, q2)}
+          and sorted(insight_ids) == ["monthly_insights", "weekly_insights"]
+          and sorted(daily_ids + insight_ids) == sorted(j.id for j in local_jobs.LOCAL_JOBS),
+          "split: the scheduler runs the daily jobs and the insight jobs as two 15-minute UTC ticks (one at a time "
+          "each, coalesced, 900 s grace) whose job lists split LOCAL_JOBS", got)
+
+    c, made = _client(), []
+    try:
+        day = _today_in("Asia/Yangon")
+        p = _person(c, made, "Split", zone="Asia/Yangon")
+        gid = _goal(c, p, day + timedelta(days=7))
+        book = _book_of(p)
+        now = _at(day, 9, 5, YANGON)
+
+        async def go():
+            from sql import local_job_runs as runs_db
+            orig_p, orig_b = runs_db.person_subjects, runs_db.book_subjects
+
+            async def only_p():
+                return [s for s in await orig_p() if s[0] == p["id"]]
+
+            async def only_b():
+                return [s for s in await orig_b() if s[0] == book]
+            release, started = asyncio.Event(), asyncio.Event()
+
+            async def slow_insight(subject_id, today, tz):
+                started.set()
+                await release.wait()
+            slow = local_jobs.LocalJob("cd_slow_insight", local_jobs.time(0, 0), "book", slow_insight)
+            runs_db.person_subjects, runs_db.book_subjects = only_p, only_b
+            try:
+                insight = asyncio.create_task(local_jobs.run_due_local_jobs(now=now, jobs=[slow]))
+                await asyncio.wait_for(started.wait(), 30)
+                daily = await asyncio.wait_for(local_jobs.run_due_local_jobs(now=now, jobs=local_jobs.DAILY_JOBS), 120)
+                waiting = not insight.done()
+                sent = len(_reminders(p, gid))
+                release.set()
+                return daily, waiting, sent, await insight
+            finally:
+                runs_db.person_subjects, runs_db.book_subjects = orig_p, orig_b
+                release.set()
+        try:
+            daily, waiting, sent, insight_counts = _backend_async(go)
+        except Exception as e:  # noqa: BLE001
+            daily, waiting, sent, insight_counts = repr(e)[:300], None, None, None
+        check(isinstance(daily, dict) and daily.get("goal_deadline_reminders") == 1 and waiting is True and sent == 1
+              and "weekly_insights" not in daily and insight_counts == {"cd_slow_insight": 1},
+              "split: while an insight tick waits on a slow AI call, the daily tick runs and sends the 09:05 goal "
+              "reminder; the insight tick then finishes on its own", (daily, waiting, sent, insight_counts))
+    finally:
+        db.sql("DELETE FROM local_job_runs WHERE job = 'cd_slow_insight'")
+        _cleanup(made)
+
+
 SECTIONS = {"schema": section_schema, "migration": section_migration, "header": section_header,
             "today": section_today, "family": section_family, "ticks": section_ticks,
-            "family_jobs": section_family_jobs, "plan_dates": section_plan_dates}
+            "family_jobs": section_family_jobs, "plan_dates": section_plan_dates, "split": section_split}
 
 
 def main():

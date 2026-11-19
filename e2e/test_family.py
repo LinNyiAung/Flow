@@ -1395,7 +1395,8 @@ def section_recurring_children():
             from sql import transactions as transactions_db
             from tz_utils import local_today
             from user_zones import book_zone
-            doc = await transactions_db.get_transaction(parent)
+            parent_book = db.sql("SELECT book_id FROM transactions WHERE id = %s", parent)[0]["book_id"]
+            doc = await transactions_db.get_transaction(parent, parent_book)
             affected = defaultdict(lambda: defaultdict(list))
             today = local_today(await book_zone(doc["book_id"]))  # the family book's (its owner's) today
             return await rts._process_recurring_transaction(doc, datetime.now(UTC), today, affected)
@@ -2263,7 +2264,7 @@ def section_notifications():
                 from sql import transactions as transactions_db
                 from tz_utils import local_today
                 from user_zones import book_zone
-                doc = await transactions_db.get_transaction(parent)
+                doc = await transactions_db.get_transaction(parent, book)
                 today = local_today(await book_zone(book))
                 return await rts._process_recurring_transaction(doc, datetime.now(UTC), today,
                                                                 defaultdict(lambda: defaultdict(list)))

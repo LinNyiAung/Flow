@@ -151,10 +151,10 @@ async def storage_checks(t, h):
     a, a2, b = doc(ua, instruction="where did it go?", instruction_key="where did it go?"), doc(ua), doc(ub, figures=figs)
     check(await ci.insert_pending(a) is True and await ci.insert_pending(a2) is False
           and await ci.insert_pending(b) is True, "storage_one_pending_per_user")
-    check(await ci.get(a2["_id"]) is None and await ci.has_pending(ua) is True and await ci.has_pending(ub) is True
+    check(await ci.get(a2["_id"], None) is None and await ci.has_pending(ua) is True and await ci.has_pending(ub) is True
           and await ci.has_pending(uc) is False, "storage_has_pending: true for a user with a pending row, false without")
 
-    got = await ci.get(a["_id"])
+    got = await ci.get(a["_id"], None)
     check(got is not None and got["_id"] == a["_id"] and "id" not in got and got["book_id"] == ua and "user_id" not in got
           and got["start_date"] == s and type(got["start_date"]) is date and got["end_date"] == e and type(got["end_date"]) is date
           and got["status"] == "pending" and got["instruction"] == "where did it go?"
@@ -165,27 +165,27 @@ async def storage_checks(t, h):
 
     with t.connect() as conn:
         null_figures = conn.execute("SELECT figures IS NULL FROM custom_insights WHERE id = %s", (a["_id"],)).fetchone()[0]
-    check((await ci.get(b["_id"]))["figures"] == figs and null_figures is True,
+    check((await ci.get(b["_id"], None))["figures"] == figs and null_figures is True,
           "storage_figures: a figures dict round-trips; left out it is SQL NULL (not the JSON value null)")
 
     # created_at is optional: the database default applies
     d = doc(uc)
     del d["created_at"]
     before = datetime.now(UTC) - timedelta(seconds=5)
-    check(await ci.insert_pending(d) is True and before <= (await ci.get(d["_id"]))["created_at"] <= datetime.now(UTC) + timedelta(seconds=5),
+    check(await ci.insert_pending(d) is True and before <= (await ci.get(d["_id"], None))["created_at"] <= datetime.now(UTC) + timedelta(seconds=5),
           "storage_insert_defaults: created_at defaults to now when the caller leaves it out")
     await ci.finish(d["_id"], status="failed", now=now)  # uc has no pending row again
 
     # ---- get is scoped
     check((await ci.get(a["_id"], book_id=ua)) is not None and await ci.get(a["_id"], book_id=ub) is None
-          and await ci.get("no-such-id") is None, "storage_get_scoped: book_id filters, an unknown id is None")
+          and await ci.get("no-such-id", None) is None, "storage_get_scoped: book_id filters, an unknown id is None")
 
     # ---- finish only from pending
     done = await ci.finish(a["_id"], status="ready", content="## Summary\nx", now=now, ai_provider="claude",
                            ai_model="claude-sonnet-5-5", input_tokens=120, output_tokens=340)
     check(done is not None and await ci.finish(a["_id"], status="failed", now=now) is None,
           "storage_finish_only_from_pending")
-    after = await ci.get(a["_id"])
+    after = await ci.get(a["_id"], None)
     check(done is not None and done["_id"] == a["_id"] and done["status"] == "ready" and done["completed_at"] == now
           and done["content"] == "## Summary\nx" and done["ai_provider"] == "claude" and done["ai_model"] == "claude-sonnet-5-5"
           and done["input_tokens"] == 120 and done["output_tokens"] == 340 and after["status"] == "ready"
@@ -250,14 +250,14 @@ async def storage_checks(t, h):
     refused_id = await make(ud, "refused", now - timedelta(minutes=30), preset="where_to_save")
     pending_id = doc(ud)["_id"]
     await ci.insert_pending(doc(ud, _id=pending_id))
-    check(await ci.delete_for_user(ready_id, ud, now) == "deleted" and await ci.get(ready_id, include_deleted=True) is None,
+    check(await ci.delete_for_user(ready_id, ud, now) == "deleted" and await ci.get(ready_id, None, include_deleted=True) is None,
           "storage_delete_ready_removes_row")
     check(await ci.delete_for_user(failed_id, ud, now) == "hidden" and failed_id not in ids(await ci.list_summaries(ud))
           and await ci.count_attempts_since(ud, day_start) == 2, "storage_delete_failed_hides_but_counts")
-    check(await ci.get(failed_id) is None and (await ci.get(failed_id, book_id=ud)) is None, "storage_get_skips_hidden: get() hides a hidden row")
+    check(await ci.get(failed_id, None) is None and (await ci.get(failed_id, book_id=ud)) is None, "storage_get_skips_hidden: get() hides a hidden row")
     with t.connect() as conn:
         null_figures = conn.execute("SELECT figures IS NULL FROM custom_insights WHERE id = %s", (failed_id,)).fetchone()[0]
-    hidden = await ci.get(failed_id, include_deleted=True)
+    hidden = await ci.get(failed_id, None, include_deleted=True)
     check(hidden is not None and hidden["deleted_at"] == now and hidden["status"] == "failed" and hidden["instruction"] is None
           and hidden["preset"] is None and hidden["content"] is None and hidden["content_mm"] is None and null_figures is True
           and hidden["instruction_key"] == "",
@@ -267,7 +267,7 @@ async def storage_checks(t, h):
           and await ci.count_attempts_since(ud, now - timedelta(minutes=35)) == 1
           and await ci.count_attempts_since(ud, now) == 0, "storage_count_attempts_since: failed and refused count, deleted too, "
           "created_at >= since; ready and pending do not")
-    check(await ci.delete_for_user(pending_id, ud, now) == "pending" and (await ci.get(pending_id))["status"] == "pending",
+    check(await ci.delete_for_user(pending_id, ud, now) == "pending" and (await ci.get(pending_id, None))["status"] == "pending",
           "storage_delete_pending_refused")
     check(await ci.delete_for_user(failed_id, ud, now) == "missing" and await ci.delete_for_user(ready_id, ud, now) == "missing"
           and await ci.delete_for_user("no-such-id", ud, now) == "missing"
@@ -284,15 +284,15 @@ async def storage_checks(t, h):
     swept_ours = [r for r in swept if r["_id"] in (old["_id"], fresh["_id"])]
     check(len(swept_ours) == 1 and swept_ours[0]["_id"] == old["_id"] and swept_ours[0]["status"] == "failed"
           and swept_ours[0]["completed_at"] == now and swept_ours[0]["counter_keys"] == keys
-          and swept_ours[0]["book_id"] == us and (await ci.get(fresh["_id"]))["status"] == "pending"
+          and swept_ours[0]["book_id"] == us and (await ci.get(fresh["_id"], None))["status"] == "pending"
           and await ci.fail_stuck(now - timedelta(minutes=20), now) == []
           and await ci.finish(old["_id"], status="ready", content="late", now=now) is None,
           "storage_fail_stuck_once: returns the stuck row as failed once, then nothing; a fresh pending row stays; "
           "a late finish gets None", swept)
 
     # ---- set_translation
-    check(await ci.set_translation(r2, "## အနှစ်ချုပ်\nx") is True and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx"
-          and await ci.set_translation(r2, "second") is False and (await ci.get(r2))["content_mm"] == "## အနှစ်ချုပ်\nx",
+    check(await ci.set_translation(r2, "## အနှစ်ချုပ်\nx") is True and (await ci.get(r2, None))["content_mm"] == "## အနှစ်ချုပ်\nx"
+          and await ci.set_translation(r2, "second") is False and (await ci.get(r2, None))["content_mm"] == "## အနှစ်ချုပ်\nx",
           "storage_set_translation: content_mm is stored once (True), a second write is refused (False), the first stays")
     await ci.set_translation(failed_id, "x")   # hidden failed row
     await ci.set_translation(refused_id, "x")  # hidden refused row
@@ -315,7 +315,7 @@ async def storage_checks(t, h):
             raised.append(False)
         except ValueError:
             raised.append(True)
-    check(all(raised) and (await ci.get(pid["_id"]))["status"] == "pending",
+    check(all(raised) and (await ci.get(pid["_id"], None))["status"] == "pending",
           "storage_finish_status_guard: finish(status='pending'/'done'/'') raises ValueError and leaves the row pending", raised)
 
     # ---- changed_since (transaction created or edited after the report)
@@ -830,14 +830,14 @@ async def generation_checks(t, h):
         except asyncio.CancelledError:
             cancelled = True
         cis.run_insight_model = real_model
-        check(cancelled and (await ci.get(rid5))["status"] == "pending" and h.used(uid) == 1 and not notes_for(uid, rid5),
+        check(cancelled and (await ci.get(rid5, None))["status"] == "pending" and h.used(uid) == 1 and not notes_for(uid, rid5),
               "run_report_cancelled_left_pending: cancellation is re-raised, the row stays pending, nothing given back")
 
         # ---- the sweeper fails it; a late run_report changes nothing
         with t.connect() as conn:
             conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (rid5,))
         swept = await cis.fail_stuck_reports()
-        got = await ci.get(rid5)
+        got = await ci.get(rid5, None)
         check(swept == 1 and h.used(uid) == 0 and got["status"] == "failed"
               and [n["type"] for n in notes_for(uid, rid5)] == ["custom_insight_failed"],
               "sweeper_fails_and_gives_back: a report pending 25 minutes -> failed, use given back, one failed notice",
@@ -893,7 +893,7 @@ async def generation_checks(t, h):
             swept = repr(exc)
         finally:
             cis.notify_custom_insight_failed = real_notify
-        statuses = [(await ci.get(r))["status"] for r in stuck]
+        statuses = [(await ci.get(r, None))["status"] for r in stuck]
         notified = [len(notes_for(o, r)) for o, r in ((uid, stuck[0]), (uid2, stuck[1]))]
         check(swept == 2 and statuses == ["failed", "failed"] and h.used(uid) == 0 and h.used(uid2) == 0
               and len(broken) == 1 and sorted(notified) == [0, 1],
@@ -909,7 +909,7 @@ async def generation_checks(t, h):
             conn.execute("""UPDATE custom_insights SET counter_keys = '[["insight_custom", "month", "not-a-day"]]' WHERE id = %s""", (bad,))
         h.set_used(uid2, 1)
         swept = await cis.fail_stuck_reports()
-        statuses = [(await ci.get(r))["status"] for r in (good, bad)]
+        statuses = [(await ci.get(r, None))["status"] for r in (good, bad)]
         check(swept == 2 and statuses == ["failed", "failed"] and h.used(uid) == 0 and h.used(uid2) == 1
               and [len(notes_for(uid, good)), len(notes_for(uid2, bad))] == [1, 1],
               "sweeper_give_back_failure_isolated: a row whose give-back fails is still failed and notified; the other "
@@ -932,10 +932,10 @@ async def generation_checks(t, h):
             stop = "cancelled"
         finally:
             plans_db.decrement_counters, cis.run_insight_model = real_decrement, real_model
-        check(stop == "cancelled" and (await ci.get(rid7))["status"] == "pending" and h.used(uid) == 1
+        check(stop == "cancelled" and (await ci.get(rid7, None))["status"] == "pending" and h.used(uid) == 1
               and not notes_for(uid, rid7),
               "finish_and_give_back_atomic: stopped while giving back, the refused status is rolled back too: the row "
-              "is still pending, still counted, not notified", (stop, (await ci.get(rid7))["status"], h.used(uid)))
+              "is still pending, still counted, not notified", (stop, (await ci.get(rid7, None))["status"], h.used(uid)))
         await cis.fail_stuck_reports()  # nothing else stuck, so the counts below are exact
         with t.connect() as conn:
             conn.execute("UPDATE custom_insights SET created_at = now() - interval '25 minutes' WHERE id = %s", (rid7,))
@@ -947,12 +947,12 @@ async def generation_checks(t, h):
             stop = "cancelled"
         finally:
             plans_db.decrement_counters = real_decrement
-        check(stop == "cancelled" and (await ci.get(rid7))["status"] == "pending" and h.used(uid) == 1
+        check(stop == "cancelled" and (await ci.get(rid7, None))["status"] == "pending" and h.used(uid) == 1
               and not notes_for(uid, rid7),
               "sweeper_fail_and_give_back_atomic: stopped while giving back, the sweep is rolled back: still pending, "
-              "still counted, not notified", (stop, (await ci.get(rid7))["status"], h.used(uid)))
+              "still counted, not notified", (stop, (await ci.get(rid7, None))["status"], h.used(uid)))
         swept = await cis.fail_stuck_reports()
-        check(swept == 1 and (await ci.get(rid7))["status"] == "failed" and h.used(uid) == 0
+        check(swept == 1 and (await ci.get(rid7, None))["status"] == "failed" and h.used(uid) == 0
               and [n["type"] for n in notes_for(uid, rid7)] == ["custom_insight_failed"],
               "sweeper_after_stop_gives_back_once: the next sweep fails it, gives the use back and notifies once",
               (swept, h.used(uid), notes_for(uid, rid7)))

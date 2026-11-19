@@ -1,7 +1,8 @@
 """Daily jobs that run at a local time: each person's or each book's own clock (spec:
 docs/superpowers/specs/2026-11-18-calendar-dates-design.md, "Scheduled jobs").
 
-One scheduler job (scheduler.py) calls run_due_local_jobs every 15 minutes. For every job and every subject it reads
+Two scheduler jobs (scheduler.py) call run_due_local_jobs every 15 minutes: one for DAILY_JOBS, one for INSIGHT_JOBS
+(the AI calls), so a long insight run never delays the others. For every job and every subject it reads
 the subject's wall clock; once the job's local time has passed today (and the date matches a weekly or monthly job's
 day), it claims (job, subject, local date) in local_job_runs and runs the job's handler for that subject. The claim
 makes the job run exactly once per local date, also when ticks are missed or late, when a person's zone changes during
@@ -18,7 +19,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, tzinfo
-from typing import Awaitable, Callable, Dict, List, Literal, Optional
+from typing import Awaitable, Callable, Dict, List, Literal, Optional, Sequence
 
 import budget_service as bs
 import insights_service as ins
@@ -74,6 +75,12 @@ LOCAL_JOBS: List[LocalJob] = [
     _cron_job("monthly_insights", MONTHLY_INSIGHT_CRON, ins.monthly_insight_for_book),
 ]
 
+# The insight jobs call the AI and can run for minutes, so they have a tick of their own (scheduler.py): a slow insight
+# run never holds back a reminder, a rollover or a recurring transaction.
+INSIGHT_JOB_IDS = frozenset({"weekly_insights", "monthly_insights"})
+INSIGHT_JOBS: List[LocalJob] = [job for job in LOCAL_JOBS if job.id in INSIGHT_JOB_IDS]
+DAILY_JOBS: List[LocalJob] = [job for job in LOCAL_JOBS if job.id not in INSIGHT_JOB_IDS]
+
 
 async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: asyncio.Semaphore) -> int:
     """Claim the job's day for the subject and run it: 1 when it ran, 0 when it was claimed already or failed (a
@@ -99,18 +106,24 @@ async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: a
             return 0
 
 
-async def run_due_local_jobs(now: Optional[datetime] = None) -> Dict[str, int]:
-    """The tick: run every job for every subject whose local time for it has passed today and whose local date it hasn't
-    run for yet. `now`: the instant of the tick (default: now). Returns how many runs each job made (by job id).
-    Earlier local times run first (a catch-up tick rolls budgets over before it announces them)."""
+async def run_due_local_jobs(now: Optional[datetime] = None, jobs: Optional[Sequence[LocalJob]] = None) -> Dict[str, int]:
+    """The tick: run every job (of `jobs`, default all of LOCAL_JOBS) for every subject whose local time for it has
+    passed today and whose local date it hasn't run for yet. `now`: the instant of the tick (default: now). Returns how
+    many runs each job made (by job id). Earlier local times run first (a catch-up tick rolls budgets over before it
+    announces them)."""
     now = as_utc(now) if now is not None else utc_now()
-    subjects = {"person": await runs_db.person_subjects(), "book": await runs_db.book_subjects()}
+    jobs = LOCAL_JOBS if jobs is None else list(jobs)
+    needed = {job.subject for job in jobs}
+    subjects = {
+        "person": await runs_db.person_subjects() if "person" in needed else [],
+        "book": await runs_db.book_subjects() if "book" in needed else [],
+    }
     # Every subject's local date is the UTC date, the day before or the day after.
     claimed = await runs_db.claimed_since(now.date() - timedelta(days=1))
     zones: Dict[Optional[str], tzinfo] = {}
     slots = asyncio.Semaphore(TICK_CONCURRENCY)
-    counts = {job.id: 0 for job in LOCAL_JOBS}
-    for job in sorted(LOCAL_JOBS, key=lambda j: j.at):
+    counts = {job.id: 0 for job in jobs}
+    for job in sorted(jobs, key=lambda j: j.at):
         due = []
         for subject_id, zone_name in subjects[job.subject]:
             if zone_name not in zones:

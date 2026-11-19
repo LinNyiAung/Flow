@@ -35,16 +35,16 @@ async def insert_goal(doc: Dict[str, Any]) -> None:
     await execute(insert(g).values(**_values(doc)))
 
 
-async def get_goal(goal_id: str, book_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    stmt = select(*_GOAL).where(g.c.id == goal_id)
-    if book_id is not None:
-        stmt = stmt.where(g.c.book_id == book_id)
+async def get_goal(goal_id: str, book_id: str) -> Optional[Dict[str, Any]]:
+    """The goal, only if it is in `book_id` (always given: a goal is read through its book)."""
+    stmt = select(*_GOAL).where(g.c.id == goal_id, g.c.book_id == book_id)
     return row_to_doc(await fetch_one(stmt))
 
 
-async def list_goals(book_id: Optional[str] = None, *, status: Optional[str] = None, currency: Optional[str] = None,
+async def list_goals(book_id: Optional[str], *, status: Optional[str] = None, currency: Optional[str] = None,
                      target_between: Optional[Tuple[date, date]] = None) -> List[Dict[str, Any]]:
-    """Goals newest first, filtered by any of book / status / currency / target dates (inclusive)."""
+    """Goals newest first, filtered by any of book / status / currency / target dates (inclusive). `book_id` is always
+    passed; None (every book's goals) must be asked for explicitly."""
     stmt = select(*_GOAL)
     if book_id is not None:
         stmt = stmt.where(g.c.book_id == book_id)
@@ -74,7 +74,8 @@ async def delete_goal(goal_id: str, book_id: str) -> int:
     return await execute(delete(g).where(g.c.id == goal_id, g.c.book_id == book_id))
 
 
-async def count_goals(book_id: Optional[str] = None) -> int:
+async def count_goals(book_id: Optional[str]) -> int:
+    """Goals in `book_id`; None counts every book's (admin totals), and must be passed explicitly."""
     stmt = select(func.count()).select_from(g)
     if book_id is not None:
         stmt = stmt.where(g.c.book_id == book_id)

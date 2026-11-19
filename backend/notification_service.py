@@ -527,7 +527,7 @@ async def create_notification_from_key(
 async def check_goal_notifications(book_id: str, goal_id: str, old_progress: float, new_progress: float, goal_name: str):
     """Check and create notifications based on goal progress"""
     # [FIX] Added await
-    goal = await goals_db.get_goal(goal_id)
+    goal = await goals_db.get_goal(goal_id, book_id)
     currency = goal.get("currency", "usd") if goal else "usd"
 
     milestones = [25, 50, 75, 100]
@@ -550,7 +550,7 @@ async def check_goal_notifications(book_id: str, goal_id: str, old_progress: flo
 async def check_milestone_amount(book_id: str, goal_id: str, old_amount: float, new_amount: float, goal_name: str):
     """Check for milestone amounts (every $1000 or 1M K)"""
     # [FIX] Added await
-    goal = await goals_db.get_goal(goal_id)
+    goal = await goals_db.get_goal(goal_id, book_id)
     currency = goal.get("currency", "usd") if goal else "usd"
 
     milestone_interval = 1000000 if currency == "mmk" else 1000

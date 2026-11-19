@@ -39,10 +39,9 @@ async def _list(stmt) -> List[Dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ reads
-async def get_budget(budget_id: str, book_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    stmt = select(b).where(b.c.id == budget_id)
-    if book_id is not None:
-        stmt = stmt.where(b.c.book_id == book_id)
+async def get_budget(budget_id: str, book_id: str) -> Optional[Dict[str, Any]]:
+    """The budget, only if it is in `book_id` (always given: a budget is read through its book)."""
+    stmt = select(b).where(b.c.id == budget_id, b.c.book_id == book_id)
     docs = await _list(stmt)
     return docs[0] if docs else None
 
@@ -89,7 +88,8 @@ async def has_budget_containing(book_id: str, day: date) -> bool:
         b.c.book_id == book_id, b.c.start_date <= day, b.c.end_date >= day))))
 
 
-async def count_budgets(book_id: Optional[str] = None) -> int:
+async def count_budgets(book_id: Optional[str]) -> int:
+    """Budgets in `book_id`; None counts every book's (admin totals), and must be passed explicitly."""
     stmt = select(func.count()).select_from(b)
     if book_id is not None:
         stmt = stmt.where(b.c.book_id == book_id)
@@ -154,16 +154,14 @@ async def insert_budget(doc: Dict[str, Any]) -> None:
             await conn.execute(insert(a), allocations)
 
 
-async def update_budget(budget_id: str, fields: Dict[str, Any], *, book_id: Optional[str] = None,
+async def update_budget(budget_id: str, fields: Dict[str, Any], *, book_id: str,
                         expected_updated_at: Any = _ANY) -> int:
-    """Apply fields (incl. "category_budgets", which replaces the allocations). With
+    """Apply fields (incl. "category_budgets", which replaces the allocations) to the budget if it is in `book_id`. With
     expected_updated_at, only writes if the budget was not modified since (optimistic lock).
     Returns the number of budgets updated (0 or 1)."""
     fields = dict(fields)
     categories = fields.pop("category_budgets", None)
-    stmt = update(b).where(b.c.id == budget_id)
-    if book_id is not None:
-        stmt = stmt.where(b.c.book_id == book_id)
+    stmt = update(b).where(b.c.id == budget_id, b.c.book_id == book_id)
     if expected_updated_at is not _ANY:
         stmt = stmt.where(b.c.updated_at == expected_updated_at)
     values = _values(fields)
@@ -184,8 +182,7 @@ async def delete_budget(budget_id: str, book_id: str) -> int:
     return await execute(delete(b).where(b.c.id == budget_id, b.c.book_id == book_id))
 
 
-# The one-time notification flag still claimed per budget ("ending soon" is guarded per person by its notice:
-# ending_soon_notified is no longer set).
+# The one-time notification flag claimed per budget ("ending soon" is guarded per person by its notice).
 _FLAGS = {"started_notified"}
 
 
