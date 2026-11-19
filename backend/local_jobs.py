@@ -77,9 +77,15 @@ LOCAL_JOBS: List[LocalJob] = [
 
 async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: asyncio.Semaphore) -> int:
     """Claim the job's day for the subject and run it: 1 when it ran, 0 when it was claimed already or failed (a
-    failure is logged and its claim released, so the next tick runs it again)."""
+    failure is logged and its claim released, so the next tick runs it again). A claim that raises (a database error)
+    is logged and runs nothing; nothing is released, and the next tick tries the claim again."""
     async with slots:
-        if not await runs_db.claim(job.id, subject_id, today):
+        try:
+            claimed = await runs_db.claim(job.id, subject_id, today)
+        except Exception:  # noqa: BLE001 - one subject's failure must not stop the others
+            logger.exception(f"Could not claim local job {job.id} for {subject_id} on {today}; the next tick tries again")
+            return 0
+        if not claimed:
             return 0
         try:
             await job.handler(subject_id, today, tz)

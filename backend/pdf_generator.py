@@ -8,11 +8,9 @@ from reportlab.platypus import Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from datetime import datetime, UTC, tzinfo
 from io import BytesIO
-from typing import Optional
 from xml.sax.saxutils import escape as _xml_escape
 from models import Currency
 from report_models import FinancialReport
-from tz_utils import default_zone
 
 
 def _p(text) -> str:
@@ -20,7 +18,7 @@ def _p(text) -> str:
     return _xml_escape("" if text is None else str(text))
 
 
-def generate_financial_report_pdf(report: FinancialReport, user_name: str, tz: Optional[tzinfo] = None,
+def generate_financial_report_pdf(report: FinancialReport, user_name: str, tz: tzinfo,
                                   currency: Currency = None) -> BytesIO:
     """
     Generate a PDF financial report with currency support
@@ -28,14 +26,14 @@ def generate_financial_report_pdf(report: FinancialReport, user_name: str, tz: O
     Args:
         report: The financial report data
         user_name: Name of the user
-        tz: the person's zone (user_zones.user_zone) the generated-at times are shown in; default the default zone
+        tz: the person's zone (user_zones.user_zone) the generated-at times are shown in
         currency: Currency for formatting (from models.Currency enum)
 
     Note: user-supplied strings are escaped before going into Paragraph markup. Table
     cells receive plain strings (not parsed as markup). The built-in Helvetica font has
     no Myanmar (Burmese) glyphs, so such text renders as boxes.
     """
-    user_tz = tz if tz is not None else default_zone()
+    user_tz = tz
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)

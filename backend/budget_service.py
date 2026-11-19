@@ -696,7 +696,7 @@ async def refresh_budget_state_if_stale(budget: Dict, tz: Optional[tzinfo] = Non
 
 
 # A budget is "running" (counts as the user's current budget for chat, insights and
-# "ending soon" alerts) when today's app wall clock is inside its date window AND its
+# "ending soon" alerts) when today in the book's zone is inside its date window AND its
 # status is active or exceeded. Exceeded budgets are still running.
 RUNNING_BUDGET_STATUSES = (BudgetStatus.ACTIVE.value, BudgetStatus.EXCEEDED.value)
 
@@ -968,7 +968,8 @@ async def _find_child_budget(budget: Dict) -> Optional[Dict]:
 
 
 async def _mark_rolled_over(budget_id: str, child_id: str) -> None:
-    """Remember that budget_id already has its next-period child (skipped by the nightly job)."""
+    """Remember that budget_id already has its next-period child (skipped by the book's 00:30 rollover job, on the
+    book's clock: user_zones.book_zone)."""
     try:
         await budgets_db.set_rolled_over(budget_id, child_id)
     except Exception as e:
@@ -1210,7 +1211,7 @@ async def auto_create_next_budget(budget: Dict) -> Optional[str]:
         }
 
         await budgets_db.insert_budget(new_budget)
-        # The parent is done: the nightly rollover job skips it from now on.
+        # The parent is done: the book's 00:30 rollover job skips it from now on.
         await _mark_rolled_over(budget_id, new_budget_id)
 
         # Compute spend for the new period (transactions may already exist in it).

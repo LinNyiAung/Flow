@@ -192,8 +192,8 @@ def due_occurrences(
     limit: int = MAX_CATCHUP_OCCURRENCES,
 ) -> Tuple[List[datetime], bool]:
     """
-    Pure helper: all occurrences after last_created whose calendar date is <= `today`
-    (no catch-up window), capped at `limit`.
+    Pure helper: all occurrences after last_created whose calendar date is <= `today` (the book's today, in its
+    zone user_zones.book_zone; no catch-up window), capped at `limit`.
     Returns (dates, ended) where ended=True means the recurrence has no further occurrences.
     """
     plan = plan_due_occurrences(last_created, config, today, limit=limit, catchup_days=None)

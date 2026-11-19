@@ -3657,9 +3657,9 @@ async def _insight_inprocess_checks(uid):
     from ai_providers import health, runner, settings
     from ai_providers.types import FeatureSetting, Target
     from sql import books as books_db
-    from sql.db import fetch_all, fetch_value
+    from sql.db import execute as sql_execute, fetch_all, fetch_value
     from sql.tables import insights as insights_t
-    from sqlalchemy import func, select
+    from sqlalchemy import delete, func, select
     from tz_utils import default_zone  # the user has no saved zone
 
     book = await books_db.ensure_personal_book(uid)  # the user's insights are their personal book's
@@ -3687,6 +3687,9 @@ async def _insight_inprocess_checks(uid):
         settings.reload_env({})
         runner.run = spy
         for label, itype, feature in (("weekly", "weekly", "insight_weekly"), ("monthly", "monthly", "insight_monthly")):
+            # The insights made above cover this period, and the job skips a book that already has its period's
+            # insight (insights_service._has_period_insight): start this book's type afresh.
+            await sql_execute(delete(insights_t).where(insights_t.c.book_id == book, insights_t.c.insight_type == itype))
             n0 = await count(itype)
             runs.clear()
             await stubenv.run_local_job(f"{itype}_insights", book)  # the scheduled job of the user's book

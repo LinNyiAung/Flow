@@ -30,13 +30,18 @@ Sections:
   ticks -- the 15-minute tick (local_jobs.run_due_local_jobs, driven in-process at chosen instants, its subjects
     narrowed to this section's people): a Yangon person's 7-days-left goal reminder is not sent at 08:50, sent once at
     09:05 and not again at 09:20; a zone change to Asia/Tokyo after the Yangon run brings no second run that day; a
-    handler that raises releases its claim and the next tick sends the reminder; an America/New_York person gets
+    handler that raises releases its claim and the next tick sends the reminder; a claim that raises is logged, runs
+    nothing for that subject and the rest of the tick goes on; a book that already has the period's real weekly /
+    monthly insight gets no second one from the tick (deploy day); an America/New_York person gets
     exactly one 09:00 run on the 2027-03-14 spring-forward day; a NULL-zone person's budget rolls over at the 00:30
     Yangon tick, not before (Task 3). Needs the stub (people are made over HTTP).
   family_jobs -- owner in Asia/Yangon, member in Asia/Tokyo: the family budget rolls over at the owner's 00:30, not
     the member's; a family goal's reminder reaches the member alone in Tokyo's 09:00 tick (Tokyo's day count) and the
-    owner in Yangon's; the weekly family insight is generated once, at the owner's Monday 05:00 (Task 3). Needs the
-    stub.
+    owner in Yangon's; the weekly family insight is generated once, at the owner's Monday 05:00 (Task 3). A
+    Pacific/Honolulu member, whose 09:00 is already the owner's next day, gets the reminder counted from the member's
+    own today; when ownership passes west (Yangon -> Kolkata) the book's 00:30 rollover runs nothing again for a local
+    date the old owner already ran and runs once at the new owner's next 00:30; a family budget's stored status is on
+    the owner's day and moves when ownership passes (UTC-12 -> Kiritimati) (final fixes). Needs the stub.
   plan_dates -- a plan renewal reminder shows the plan's end date on the recipient's calendar (a Kiritimati person's
     date, not the default zone's) (Task 3). Needs the stub.
 """
@@ -353,6 +358,17 @@ def _check_api_round_trip(ids):
         "currency": "usd", "date": "2026-11-18T23:50:00+06:30"})
     got = r.json().get("date") if r.status_code == 200 else r.text[:200]
     check(got == "2026-11-18T23:50:00", 'migration (API): a "+06:30" date keeps its clock fields (no conversion)', got)
+    r = c.post("/api/transactions", headers=h, json={
+        "type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries", "amount": 3,
+        "currency": "usd", "date": "2026-11-18T23:59:59.500"})
+    last = r.json().get("id") if r.status_code == 200 else None
+    found = {}
+    for end in ("2026-11-18", "2026-11-17"):
+        r = c.get("/api/transactions", headers=h, params={"start_date": "2026-11-17", "end_date": end, "limit": 200})
+        found[end] = (last in {t["id"] for t in r.json()}) if r.status_code == 200 else f"{r.status_code} {r.text[:200]}"
+    check(last is not None and found == {"2026-11-18": True, "2026-11-17": False},
+          'migration (API): the list filter with end_date "2026-11-18" (a day, as the app sends it) includes an entry '
+          "at 23:59:59.500 that day; one ending the 17th doesn't", (last, found))
     r = c.post("/api/budgets", headers=h, json={
         "name": "Nov", "period": "monthly", "start_date": "2026-11-01T00:00:00Z", "currency": "usd", "total_budget": 100,
         "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 100}]})
@@ -850,22 +866,32 @@ def _at(day, hh, mm, zone):
     return datetime(day.year, day.month, day.day, hh, mm, tzinfo=zone).astimezone(UTC)
 
 
-def _ticks(nows, people=(), books=(), probe=None, flaky=None, logs=None):
+def _ticks(nows, people=(), books=(), probe=None, flaky=None, logs=None, flaky_claim=None):
     """run_due_local_jobs at each instant of `nows` (one event loop), its subjects narrowed to these people and books:
     [(run counts, probe())] per tick (probe: a sync read after each tick). flaky: the id of a job whose handler raises
-    on its first call. logs: a list that collects (instead of printing) what local_jobs logs. An error: its repr."""
+    on its first call. flaky_claim: a (job id, subject id) whose first claim raises (a database error while claiming).
+    logs: a list that collects (instead of printing) what local_jobs logs. An error: its repr."""
     async def go():
         import logging
         import local_jobs
         from sql import local_job_runs as runs_db
         stubenv.patch_loaded_modules()
-        orig_p, orig_b = runs_db.person_subjects, runs_db.book_subjects
+        orig_p, orig_b, orig_claim = runs_db.person_subjects, runs_db.book_subjects, runs_db.claim
+        claims = []
 
         async def only_people():
             return [s for s in await orig_p() if s[0] in people]
 
         async def only_books():
             return [s for s in await orig_b() if s[0] in books]
+
+        async def claim_fails_once(job_id, subject_id, local_date):
+            if (job_id, subject_id) == flaky_claim and not claims:
+                claims.append(subject_id)
+                raise RuntimeError("database down while claiming")
+            return await orig_claim(job_id, subject_id, local_date)
+        if flaky_claim:
+            runs_db.claim = claim_fails_once
         job = next((j for j in local_jobs.LOCAL_JOBS if j.id == flaky), None)
         orig_handler = job.handler if job else None
         calls = []
@@ -892,7 +918,7 @@ def _ticks(nows, people=(), books=(), probe=None, flaky=None, logs=None):
                 out.append((counts, probe() if probe else None))
             return out
         finally:
-            runs_db.person_subjects, runs_db.book_subjects = orig_p, orig_b
+            runs_db.person_subjects, runs_db.book_subjects, runs_db.claim = orig_p, orig_b, orig_claim
             log.removeHandler(keep)
             log.propagate = True
             if job:
@@ -990,6 +1016,50 @@ def section_ticks():
               (_probes(ticks), _runs(ticks, "goal_deadline_reminders")))
         check(len(logs) == 1 and "goal_deadline_reminders failed" in logs[0], "ticks: the failure is logged", logs)
 
+        # ---- a claim that fails (a database error) is logged; the rest of the tick goes on and the next tick retries
+        a, b = _person(c, made, "Claimfail", zone="Asia/Yangon"), _person(c, made, "Claimok", zone="Asia/Yangon")
+        aid, bid, logs = _goal(c, a, target), _goal(c, b, target), []
+        ticks = _ticks([_at(day, 9, 5, YANGON), _at(day, 9, 20, YANGON)], people={a["id"], b["id"]},
+                       probe=lambda: (len(_reminders(a, aid)), len(_reminders(b, bid)),
+                                      _claimed("goal_deadline_reminders", a["id"], day)),
+                       flaky_claim=("goal_deadline_reminders", a["id"]), logs=logs)
+        check(_probes(ticks) == [(0, 1, False), (1, 1, True)] and _runs(ticks, "goal_deadline_reminders") == [1, 1]
+              and _runs(ticks, "budget_ending_reminders") == [2, 0],
+              "ticks: a claim that raises runs nothing for that subject (no claim kept), the other person's reminder "
+              "and the later jobs of the same tick still run, and the next tick runs the failed one",
+              (_probes(ticks), _runs(ticks, "goal_deadline_reminders"), _runs(ticks, "budget_ending_reminders")))
+        check(len(logs) == 1 and "claim" in logs[0] and "goal_deadline_reminders" in logs[0],
+              "ticks: the failed claim is logged", logs)
+
+        # ---- deploy day: a book that already has this period's real insight (the old cron made it this morning) gets
+        # no second one from the tick: no AI call, no new row, no second notice, and the day stays claimed
+        ip = _person(c, made, "Insightdup", plan="plus", zone="Asia/Yangon")
+        ibook = _book_of(ip)
+        _goal(c, ip, target)  # activity: without the guard the tick would write a new insight
+        this_monday = day - timedelta(days=day.weekday())
+        last_week, last_month_end = this_monday - timedelta(days=7), day.replace(day=1) - timedelta(days=1)
+        for kind, start, end in (("week", last_week, last_week + timedelta(days=6)),
+                                 ("month", last_month_end.replace(day=1), last_month_end)):
+            db.sql(f"INSERT INTO insights (id, book_id, insight_type, ai_provider, content, {kind}_start, {kind}_end) "
+                   "VALUES (%s, %s, %s, 'openai', 'made by the old cron', %s, %s)",
+                   str(uuid.uuid4()), ibook, f"{kind}ly", start, end)
+
+        def insights_made():
+            return (db.sql("SELECT count(*) n FROM insights WHERE book_id = %s", ibook)[0]["n"],
+                    db.sql("SELECT count(*) n FROM notifications WHERE user_id = %s AND type IN "
+                           "('weekly_insights_generated', 'monthly_insights_generated')", ip["id"])[0]["n"])
+        next_monday = this_monday + timedelta(days=7)
+        next_first = (day.replace(day=1) + timedelta(days=32)).replace(day=1)
+        ticks = _ticks([_at(next_monday, 5, 5, YANGON), _at(next_first, 6, 5, YANGON)], books={ibook},
+                       probe=insights_made)
+        check(_probes(ticks) == [(2, 0), (2, 0)] and _runs(ticks, "weekly_insights")[0] == 1
+              and _runs(ticks, "monthly_insights")[1] == 1
+              and _claimed("weekly_insights", ibook, next_monday) and _claimed("monthly_insights", ibook, next_first),
+              f"ticks: a book that already has the real weekly insight for {last_week} and the monthly one for "
+              f"{last_month_end.replace(day=1)} gets no second one from the Monday 05:00 and 1st 06:00 ticks (no new "
+              "row, no notice; the runs count as done and stay claimed)",
+              (_probes(ticks), _runs(ticks, "weekly_insights"), _runs(ticks, "monthly_insights")))
+
         # ---- a NULL-zone person's rollover runs at the 00:30 Yangon tick, not before
         n = _person(c, made, "Rollnull")
         check(_stored_zone(n) is None, "ticks: the rollover person has no saved zone", _stored_zone(n))
@@ -1073,6 +1143,77 @@ def section_family_jobs():
         check(_probes(ticks) == [0, 1, 1] and _runs(ticks, "weekly_insights") == [0, 1, 0],
               "family_jobs: the weekly family insight is generated once, at the owner's Monday 05:00 (not at the "
               "member's)", (_probes(ticks), _runs(ticks, "weekly_insights")))
+
+        # ---- a member whose 09:00 is already the owner's next day: the reminder counts from the member's today
+        # (a member ahead of Yangon can't show this: Kiritimati's 09:00 is 01:30 the same day in Yangon)
+        honolulu = ZoneInfo("Pacific/Honolulu")  # UTC-10: 09:05 there is 01:35 the next day in Yangon
+        db.sql("UPDATE users SET timezone = 'Pacific/Honolulu' WHERE id = %s", member["id"])
+        mday = day + timedelta(days=1)
+        at = _at(mday, 9, 5, honolulu)
+        gid2 = _goal(c, owner, mday + timedelta(days=7), family=True)
+        ticks = _ticks([at], people=people, probe=lambda: (_reminders(member, gid2), len(_reminders(owner, gid2))))
+        got = _probes(ticks)
+        mine = got[0][0] if isinstance(got, list) else []
+        check(at.astimezone(YANGON).date() == mday + timedelta(days=1) and len(mine) == 1
+              and mine[0]["reminder_threshold"] == 7 and "7 days" in mine[0]["message"] and got[0][1] == 0,
+              f"family_jobs: a Pacific/Honolulu member's 09:00 tick on {mday} (already the {mday + timedelta(days=1)} "
+              "for the Yangon owner) sends the member the 7-day reminder of a goal due 7 days after the member's today "
+              "(6 after the owner's), and nothing to the owner", got)
+
+        # ---- ownership passes west (Yangon -> Kolkata): the book's 00:30 rollover still runs once per local date
+        kolkata = ZoneInfo("Asia/Kolkata")  # UTC+5:30, an hour behind Yangon
+        d = day + timedelta(days=10)  # clear of the dates the ticks above claimed for the book
+        parent2 = _finished_budget(book, d - timedelta(days=1), "transfer")
+        before = _ticks([_at(d - timedelta(days=1), 0, 35, YANGON), _at(d, 0, 35, YANGON)], books=books,
+                        probe=lambda: _children(parent2))
+        mid = next((m["id"] for m in c.get("/api/family", headers=member["h"]).json().get("members", [])
+                    if m.get("is_me")), None)
+        db.sql("UPDATE users SET timezone = 'Asia/Kolkata' WHERE id = %s", member["id"])
+        r = c.post("/api/family/transfer-ownership", headers=owner["h"], json={"member_id": mid})
+        check(r.status_code == 200, "family_jobs: ownership passes to the member (now in Asia/Kolkata)",
+              f"{r.status_code} {r.text[:200]}")
+        after = _ticks([_at(d - timedelta(days=1), 23, 50, kolkata), _at(d, 0, 35, kolkata),
+                        _at(d + timedelta(days=1), 0, 35, YANGON), _at(d + timedelta(days=1), 0, 35, kolkata)],
+                       books=books, probe=lambda: _children(parent2))
+        check(_runs(before, "budget_rollovers") == [1, 1] and _probes(before) == [0, 1]
+              and _runs(after, "budget_rollovers") == [0, 0, 0, 1] and _probes(after) == [1, 1, 1, 1],
+              f"family_jobs: the rollover runs at the Yangon owner's 00:30 on {d - timedelta(days=1)} and {d}; after "
+              f"ownership passes to Kolkata, Kolkata's 23:50 on {d - timedelta(days=1)} and 00:35 on {d} run nothing "
+              f"again, Yangon's 00:35 on {d + timedelta(days=1)} runs nothing, Kolkata's 00:35 then runs once",
+              (_runs(before, "budget_rollovers"), _probes(before), _runs(after, "budget_rollovers"), _probes(after)))
+
+        # ---- the family budget's stored status is on the owner's day, and moves with the ownership
+        db.sql("UPDATE users SET timezone = %s WHERE id = %s", MINUS_12, member["id"])  # the owner now
+        db.sql("UPDATE users SET timezone = %s WHERE id = %s", KIRITIMATI, owner["id"])
+        start = _today_in(KIRITIMATI)  # never yet today in UTC-12
+        bid = f"cd-status-{uuid.uuid4().hex[:6]}"
+        now = datetime.now(UTC)
+        db.budgets.insert_one({
+            "_id": bid, "book_id": book, "name": "Status", "period": "custom", "currency": "usd",
+            "start_date": start, "end_date": start + timedelta(days=6),
+            "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
+                                  "percentage_used": 0, "is_exceeded": False}],
+            "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+            "status": "active", "is_active": True, "auto_create_enabled": False, "created_at": now, "updated_at": now})
+
+        async def stored_status():
+            import budget_service as bs
+            from sql import budgets as budgets_db
+            stubenv.patch_loaded_modules()
+            await bs.update_budget_spent_amounts(book, bid, trigger_auto_create=False)
+            return (await budgets_db.get_budget(bid) or {}).get("status")
+        try:
+            under_minus12 = _backend_async(stored_status)
+            oid = next((m["id"] for m in c.get("/api/family", headers=owner["h"]).json().get("members", [])
+                        if m.get("is_me")), None)
+            r = c.post("/api/family/transfer-ownership", headers=member["h"], json={"member_id": oid})
+            under_kiri = _backend_async(stored_status) if r.status_code == 200 else f"{r.status_code} {r.text[:200]}"
+        except Exception as e:  # noqa: BLE001
+            under_minus12, under_kiri = repr(e)[:300], None
+        check((under_minus12, under_kiri) == ("upcoming", "active"),
+              f"family_jobs: a family budget starting {start} (today in Kiritimati) is stored upcoming while the owner "
+              "is in UTC-12 and active once ownership passes to the Kiritimati member",
+              (under_minus12, under_kiri))
     finally:
         _cleanup(made)
 

@@ -13,7 +13,7 @@ from sql import goals as goals_db
 from sql import insights as insights_db
 from sql import books as books_db
 from tz_utils import (
-    as_utc, local_today, previous_week_range,
+    as_calendar_date, as_utc, local_today, previous_week_range,
     week_before_previous_range, previous_month_range, month_before_previous_range,
     current_week_to_date_range, current_month_to_date_range,
 )
@@ -68,6 +68,20 @@ async def _skip_user(user: dict, feature: str, book_id: str, is_family: bool) ->
     return False
 
 
+async def _has_period_insight(book_id: str, insight_type: str, tz: tzinfo) -> bool:
+    """True when the book's latest real (non-placeholder) insight of `insight_type` (weekly / monthly) starts where the
+    one generate_*_insight would make now in the book's zone `tz` starts: the last complete week / month, or (a quiet
+    last period with activity in this one) the current period-to-date."""
+    latest = await _latest_real_insight(book_id, insight_type)
+    if not latest:
+        return False
+    if insight_type == "weekly":
+        ranges, key = (get_week_date_range(tz), current_week_to_date_range(tz)), "week_start"
+    else:
+        ranges, key = (get_month_date_range(tz), current_month_to_date_range(tz)), "month_start"
+    return as_calendar_date(latest.get(key)) in {start.date() for start, _ in ranges}
+
+
 async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, notify) -> None:
     """The book's scheduled insight of `feature` (insight_weekly / insight_monthly), made by `generate`
     (generate_weekly_insight / generate_monthly_insight) in the book's zone `tz`, announced by `notify`.
@@ -79,15 +93,21 @@ async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, n
     members), counts against nobody's allowance, and is skipped like the owner's own, or when the owner's spend plus
     the book's reaches the owner's monthly cost cap (R16). Never an allowance: the spend lands in ai_usage.
 
+    A book that already has a real insight for the period this run would cover (_has_period_insight: the old cron made
+    it on deploy day, or the period was already done) gets nothing: no AI call and no notice, and the run counts as done.
+
     An insight that can't be made (every provider failed) is logged and not retried until the next period, as before.
     """
     book = await books_db.get_book_row(book_id)
     plan_user = await books_db.book_profile(book_id) if book else None
     if plan_user is None or plan_user.get("subscription_type") not in PAID_PLANS:
         return
+    label = feature.removeprefix("insight_")
+    if await _has_period_insight(book_id, label, tz):
+        logger.info(f"⏭️ Skipping book {book_id} - it already has its {label} insight for this period")
+        return
     if await _skip_user(plan_user, feature, book_id, book["kind"] == "family"):
         return
-    label = feature.removeprefix("insight_")
     try:
         # background: the runner retries a rate-limited provider before falling back.
         result = await generate(book_id, notify=False, background=True, tz=tz)

@@ -651,6 +651,12 @@ async def run(t):
             for book in sch_books:
                 await stubenv.run_local_job(f"{insight_type}_insights", book)
 
+        def forget_insights():
+            """Drop the books' insights, so a re-run of a job has no insight for the period yet (a book that already
+            has one is skipped: insights_service._has_period_insight)."""
+            with t.connect() as conn:
+                conn.execute("DELETE FROM insights WHERE book_id = ANY(%s)", (sch_books,))
+
         try:
             runner.run = spy
             for label, feature in (("weekly", "insight_weekly"), ("monthly", "insight_monthly")):
@@ -677,6 +683,7 @@ async def run(t):
         # the cap counts that spend: a user whose recorded job spend reaches the cap is skipped on the next run
         with t.connect() as conn:
             conn.execute("UPDATE ai_usage SET estimated_cost_usd = 0.6 WHERE user_id = %s", (sch["plus"],))
+        forget_insights()
         seen.clear()
         try:
             runner.run = spy
@@ -696,6 +703,7 @@ async def run(t):
                 conn.execute("DELETE FROM ai_usage WHERE user_id = %s", (sch["plus"],))  # Plus is under its cap again
             runner.run = spy
             for label, feature in (("weekly", "insight_weekly"), ("monthly", "insight_monthly")):
+                forget_insights()
                 seen.clear()
                 await job(label)
                 ran = {u for f, u, bg in seen if f == feature}

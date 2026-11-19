@@ -165,6 +165,9 @@ async def main():
     rec("analyze_unusual_spending", "PASS" if exc is None else "FAIL", repr(exc) if exc else "")
 
     # ---------------- weekly insights for all users (trial user A has expiry)
+    # A's book may already have this period's insights (made on demand by test_api), and the scheduled job skips a
+    # book that has its period's insight (insights_service._has_period_insight): start without them.
+    __import__("pgcompat").get_db().sql("DELETE FROM insights WHERE book_id = %s", BOOK_A)
     exc, out, na = await run_job("weekly-all", stubenv.run_local_job, "weekly_insights", BOOK_A)
     ai_calls = [l for l in open(stubenv.OUTBOX, encoding="utf-8") if '"ai_call"' in l] if os.path.exists(stubenv.OUTBOX) else []
     tz_err = [l for l in out.splitlines() if "offset-naive" in l or "can't compare" in l]

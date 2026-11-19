@@ -35,7 +35,7 @@ from sql import custom_insights as ci
 from sql import goals as goals_db
 from sql import plans as plans_db
 from sql.db import transaction
-from tz_utils import as_calendar_date, as_utc, day_bounds, default_zone, local_today, utc_now
+from tz_utils import as_calendar_date, as_utc, day_bounds, local_today, utc_now
 from user_zones import book_zone, person_zone
 
 logger = logging.getLogger(__name__)
@@ -224,11 +224,11 @@ def _latest_budgets(budgets: list) -> list:
 
 
 def build_custom_context(user: dict, figures: dict, goals: list, budgets: list, start: date, end: date,
-                         instruction: str | None, today: date | None = None) -> str:
+                         instruction: str | None, *, today: date) -> str:
     """The user message for the model: the period, the computed figures per currency (with the previous-period
-    comparison), the goals and the most recent budgets (labelled as today's figures, `today` defaulting to the app's
-    today: a goal shows its progress now and a budget its whole period, not the report period), then the instruction
-    (or the note that there is none)."""
+    comparison), the goals and the most recent budgets (labelled as today's figures, `today` being the asker's today,
+    or the book's for a report with no recorded asker: a goal shows its progress now and a budget its whole period,
+    not the report period), then the instruction (or the note that there is none)."""
     prev_start, prev_end = previous_period(start, end)
     days = (end - start).days + 1
     context = f"""USER: {user.get('name', 'User')}
@@ -263,7 +263,7 @@ PREVIOUS PERIOD (same length, for comparison): {prev_start.strftime('%B %d, %Y')
 
     goals_budgets = goals_budgets_context(goals, _latest_budgets(budgets), money=_money)
     if goals_budgets:
-        as_of = (today or local_today(default_zone())).strftime('%B %d, %Y')
+        as_of = today.strftime('%B %d, %Y')
         context += (f"\n\n=== GOALS AND BUDGETS AS OF TODAY ({as_of}) ===\n"
                     "These are today's figures, not figures for the report period: a goal shows its progress now, and "
                     "a budget's spending covers its own whole budget period. Do not present them as belonging to the "

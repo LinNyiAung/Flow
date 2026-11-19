@@ -26,7 +26,7 @@ from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import users as users_db
 from tz_utils import (
-    as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, default_zone, local_now, local_today,
+    as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, local_now, local_today,
 )
 from user_zones import user_zone
 from dotenv import load_dotenv
@@ -120,8 +120,8 @@ class _StoreEntry:
         self.retired = False   # removed from the cache; delete once refs == 0
 
 
-def _zone_key(tz: Optional[tzinfo]) -> str:
-    return str(tz if tz is not None else default_zone())
+def _zone_key(tz: tzinfo) -> str:
+    return str(tz)
 
 
 class BookVectorStoreCache:
@@ -179,13 +179,12 @@ class BookVectorStoreCache:
         self._stores.move_to_end(key)
         return entry
 
-    def get(self, book_id: str, tz: Optional[tzinfo] = None):
+    def get(self, book_id: str, tz: tzinfo):
         """Unleased lookup of the book's store for `tz` (the store may be retired at any time; prefer acquire())."""
         entry = self._get_entry((book_id, _zone_key(tz)))
         return entry.store if entry is not None else None
 
-    def _put_entry(self, book_id: str, store, tz: Optional[tzinfo]) -> _StoreEntry:
-        tz = tz if tz is not None else default_zone()
+    def _put_entry(self, book_id: str, store, tz: tzinfo) -> _StoreEntry:
         key = (book_id, _zone_key(tz))
         old = self._stores.pop(key, None)
         if old is not None and old.store is store:
@@ -201,8 +200,8 @@ class BookVectorStoreCache:
             print(f"🧹 Evicted vector store for book {evicted_book} (LRU cap {self._max_books})")
         return entry
 
-    def put(self, book_id: str, store, tz: Optional[tzinfo] = None) -> None:
-        """Cache `store`, built for today in `tz` (default the default zone)."""
+    def put(self, book_id: str, store, tz: tzinfo) -> None:
+        """Cache `store`, built for today in `tz` (the zone of the person chatting)."""
         self._put_entry(book_id, store, tz)
 
     def invalidate(self, book_id: str) -> bool:
@@ -212,9 +211,9 @@ class BookVectorStoreCache:
             self._retire(self._stores.pop(key))
         return bool(keys)
 
-    async def acquire(self, book_id: str, builder, tz: Optional[tzinfo] = None):
+    async def acquire(self, book_id: str, builder, tz: tzinfo):
         """
-        Lease the book's store for `tz` (default the default zone), building it once via `await builder()` (a store
+        Lease the book's store for `tz` (the zone of the person chatting), building it once via `await builder()` (a store
         built for today in `tz`) if needed.
         Returns (store_or_None, release); call release() when done using the store.
         """
@@ -239,12 +238,6 @@ class BookVectorStoreCache:
                 self._release(entry)
 
         return entry.store, release
-
-    async def get_or_build(self, book_id: str, builder):
-        """Unleased variant of acquire() (kept for compatibility)."""
-        store, release = await self.acquire(book_id, builder)
-        release()
-        return store
 
 
 _CURRENCIES = tuple(c.value for c in Currency)
@@ -309,7 +302,7 @@ class FinancialDataProcessor:
     # [FIX] Changed to async
     async def get_user_budgets(self) -> List[Dict]:
         """
-        Get the user's running budgets: date window contains today (app timezone) and
+        Get the user's running budgets: date window contains today in the book's zone (user_zones.book_zone) and
         status active OR exceeded (an exceeded budget is still the current budget).
         Candidates are selected by date and recomputed first, so stale stored statuses
         (e.g. still "upcoming" after the start date) don't hide a running budget.
