@@ -5,13 +5,14 @@ command line).
 Sections:
   schema -- every converted column has its new type and nullability (transactions.date timestamp without time zone;
     recurrence end / last-created, budget start / end, goal target and insight bounds DATE; users.timezone text NULL),
-    local_job_runs has its columns and primary key, the date indexes are still there and the budget dates_ordered
+    local_job_runs has its columns, primary key and local_date index, the date indexes are still there and the budget dates_ordered
     CHECK still refuses an end before the start (Task 1).
   migration -- the calendar dates migration on rows seeded in the old shape (fake-UTC timestamptz): upgrade keeps every
     date and time (a transaction at 23:40 stays 23:40 on the same day, a budget ending at 00:00 keeps its date and a
     budget ending at 23:59:59.999 keeps its date, a start time that isn't midnight widens to its day, goal targets,
     recurrence pointers and insight bounds keep their day, recurring child ids are untouched); downgrade puts the UTC
-    labels back (a budget end as 23:59:59.999999 of its day, every other date as midnight UTC); up again works; the API
+    labels back (a budget end as 23:59:59.999999 of its day, the recurrence pointer at the parent's time, every other
+    date as midnight UTC); up again works; the API
     returns the new shapes and an old-style "...Z" input keeps its clock fields (Task 1). Needs the stub server on
     127.0.0.1:8765.
   header -- the X-Timezone header: a new person's zone is NULL until their first header; a valid IANA name is saved and
@@ -147,6 +148,11 @@ def section_schema():
         check(len(pk) == 1 and pk[0]["conname"] == "pk_local_job_runs"
               and list(pk[0]["cols"]) == ["job", "subject_id", "local_date"],
               "schema: local_job_runs' primary key is (job, subject_id, local_date)", pk)
+        idx = db.sql("SELECT indexdef FROM pg_indexes WHERE tablename = 'local_job_runs' "
+                     "AND indexname = 'ix_local_job_runs_local_date'")
+        check(len(idx) == 1 and idx[0]["indexdef"].endswith("(local_date)"),
+              "schema: local_job_runs has ix_local_job_runs_local_date on (local_date) (the tick's claimed_since and "
+              "forget_before filter on it)", idx)
         key = ("goal_deadline_reminders", f"cd-{uuid.uuid4().hex[:8]}", date(2026, 11, 18))
         try:
             ins = "INSERT INTO local_job_runs (job, subject_id, local_date) VALUES (%s, %s, %s)"
@@ -234,7 +240,8 @@ def _one(sql, *params):
 def _check_upgraded(ids, label):
     _check_types(f"migration ({label})", NEW_TYPES)
     _check_indexes(f"migration ({label})")
-    check("local_job_runs" in _tables(), f"migration ({label}): local_job_runs exists")
+    check("local_job_runs" in _tables() and "ix_local_job_runs_local_date" in _indexes("local_job_runs"),
+          f"migration ({label}): local_job_runs exists, with its local_date index")
     tx = _one("SELECT date FROM transactions WHERE id = %s", ids["tx"]).get("date")
     check(tx == datetime(2026, 11, 18, 23, 40), f"migration ({label}): the transaction at 23:40 UTC-labelled reads "
           "2026-11-18 23:40:00 with no timezone", tx)
@@ -282,8 +289,9 @@ def _check_downgraded(ids):
     check(goal == _utc("2026-12-25 00:00:00"), "migration (downgrade): the goal target is 2026-12-25 00:00+00 again", goal)
     parent = _one("SELECT recurrence_end_date, recurrence_last_created_date FROM transactions WHERE id = %s", ids["parent"])
     check((parent.get("recurrence_end_date"), parent.get("recurrence_last_created_date"))
-          == (_utc("2027-03-03 00:00:00"), _utc("2026-10-03 00:00:00")),
-          "migration (downgrade): the recurrence end and pointer are midnight UTC of their days", parent)
+          == (_utc("2027-03-03 00:00:00"), _utc("2026-10-03 09:15:00")),
+          "migration (downgrade): the recurrence end is midnight UTC of its day; the last-created pointer is its day at "
+          "the parent's time (09:15 UTC), so the old code keeps creating occurrences at 09:15", parent)
     ins = _one("SELECT week_start, week_end FROM insights WHERE id = %s", ids["insight"])
     check((ins.get("week_start"), ins.get("week_end")) == (_utc("2026-11-09 00:00:00"), _utc("2026-11-15 00:00:00")),
           "migration (downgrade): the insight bounds are midnight UTC of their days", ins)

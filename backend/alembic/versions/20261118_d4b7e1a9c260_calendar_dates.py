@@ -8,10 +8,12 @@ so dropping the label gives back exactly what each person entered:
   last day: an end stored at 00:00 keeps its date (that day is now included), one at 23:59:59.999 keeps its date; a
   start time that isn't midnight widens to its whole day.
 Adds users.timezone (an IANA name; NULL means the default zone), users.timezone_changed_at (when it was last saved: it
-may change at most once per 24 hours) and local_job_runs (one claim per local-time job, subject and local date).
+may change at most once per 24 hours) and local_job_runs (one claim per local-time job, subject and local date; indexed
+on local_date).
 
 Downgrade labels the values UTC again: a wall-clock value as that UTC time, a budget end as 23:59:59.999999 of its day
-(the convention monthly and yearly budgets use) and every other date as midnight UTC; then drops users.timezone,
+(the convention monthly and yearly budgets use), a recurring parent's last-created pointer as its day at the parent's
+time (the old code takes the next occurrence's time from it) and every other date as midnight UTC; then drops users.timezone,
 users.timezone_changed_at and local_job_runs. Each table is converted in one ALTER TABLE, so its CHECKs (budgets dates_ordered) and indexes are
 rebuilt on the new types.
 
@@ -60,17 +62,25 @@ def upgrade() -> None:
         sa.Column('claimed_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('job', 'subject_id', 'local_date', name=op.f('pk_local_job_runs')),
     )
+    # The tick's claimed_since and forget_before filter on local_date alone (the primary key leads with job).
+    op.create_index('ix_local_job_runs_local_date', 'local_job_runs', ['local_date'])
 
 
 def downgrade() -> None:
     op.execute("LOCK TABLE transactions, budgets, goals, insights IN ACCESS EXCLUSIVE MODE")
+    op.drop_index('ix_local_job_runs_local_date', table_name='local_job_runs')
     op.drop_table('local_job_runs')
     op.drop_column('users', 'timezone_changed_at')
     op.drop_column('users', 'timezone')
 
+    # The old code takes the next occurrence's time of day from the last-created pointer, so the pointer goes back at
+    # the parent's time (every occurrence keeps it), not midnight. Its own ALTER, while "date" is still the naive
+    # wall clock.
+    op.execute('ALTER TABLE transactions ALTER COLUMN recurrence_last_created_date TYPE timestamptz '
+               'USING (recurrence_last_created_date + "date"::time) AT TIME ZONE \'UTC\'')
     op.execute('ALTER TABLE transactions '
                'ALTER COLUMN "date" TYPE timestamptz USING "date" AT TIME ZONE \'UTC\', '
-               f'{_to_midnight_utc("recurrence_end_date")}, {_to_midnight_utc("recurrence_last_created_date")}')
+               f'{_to_midnight_utc("recurrence_end_date")}')
     op.execute(f'ALTER TABLE budgets {_to_midnight_utc("start_date")}, '
                'ALTER COLUMN end_date TYPE timestamptz USING (end_date + time \'23:59:59.999999\') AT TIME ZONE \'UTC\'')
     op.execute(f'ALTER TABLE goals {_to_midnight_utc("target_date")}')
