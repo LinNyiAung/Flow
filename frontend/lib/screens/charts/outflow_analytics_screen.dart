@@ -108,7 +108,7 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     }
 
     startDate = DateTime(startDate.year, startDate.month, startDate.day);
-    endDate = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+    endDate = DateTime(endDate.year, endDate.month, endDate.day); // the last day, all of it (sent as a day)
 
     try {
       // Fetched locally (not via TransactionProvider) so this 10k-row,

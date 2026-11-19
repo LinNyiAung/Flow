@@ -267,7 +267,7 @@ Future<bool> updateTransaction({
       final result = await ApiService.getTransactions(
         type: TransactionType.outflow,
         startDate: DateTime(now.year, now.month, now.day - 6),
-        endDate: DateTime(now.year, now.month, now.day, 23, 59, 59),
+        endDate: DateTime(now.year, now.month, now.day), // today, all of it (sent as a day)
         limit: 10000,
       );
       if (gen != _generation || requestId != _weekRequestId) return;

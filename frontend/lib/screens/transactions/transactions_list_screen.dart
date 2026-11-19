@@ -144,15 +144,16 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     );
   }
 
-  // Transaction dates are local date-times, so the filter sends the picked
-  // calendar days as local day boundaries (00:00:00 / 23:59:59) — the same
+  // Transaction dates are local date-times, so the filter starts at the
+  // picked first day's local midnight; the end is the picked last day, sent as
+  // a day (ApiService.getTransactions) so all of it is included — the same
   // convention the analytics screens use.
   DateTime? get _apiStartDate => _selectedStartDate == null
       ? null
       : DateTime(_selectedStartDate!.year, _selectedStartDate!.month, _selectedStartDate!.day);
   DateTime? get _apiEndDate => _selectedEndDate == null
       ? null
-      : DateTime(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day, 23, 59, 59);
+      : DateTime(_selectedEndDate!.year, _selectedEndDate!.month, _selectedEndDate!.day);
 
   Future<void> _fetchTransactionsWithFilter() async {
     final requestId = ++_requestId;

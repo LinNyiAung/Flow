@@ -1,5 +1,6 @@
 // Calendar dates and local date-times (schema project #4): the app sends the
 // phone's timezone and honest date shapes, and reads them back as local days.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -153,6 +154,58 @@ void main() {
       expect(requests.single.headers.containsKey('X-Timezone'), isFalse);
       expect(requests.single.headers['Authorization'], 'Bearer tok');
     });
+
+    test('a failed read is tried again: the next request carries the zone', () async {
+      var reads = 0;
+      ApiService.timezoneOverride = () async {
+        reads++;
+        if (reads == 1) throw Exception('not yet');
+        return 'Asia/Bangkok';
+      };
+      respond = (_) => <dynamic>[];
+
+      await ApiService.getGoals();
+      await ApiService.getGoals();
+
+      expect(requests, hasLength(2));
+      expect(requests[0].headers.containsKey('X-Timezone'), isFalse);
+      expect(requests[1].headers['X-Timezone'], 'Asia/Bangkok');
+      expect(reads, 2);
+    });
+
+    testWidgets('a read that never answers: the request goes out without the zone after 2 seconds',
+        (tester) async {
+      ApiService.timezoneOverride = () => Completer<String>().future;
+      respond = (_) => <dynamic>[];
+
+      var finished = false;
+      final call = ApiService.getGoals().then((_) => finished = true);
+      await tester.pump(const Duration(milliseconds: 1900));
+      expect(requests, isEmpty);
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(requests, hasLength(1));
+      expect(requests.single.headers.containsKey('X-Timezone'), isFalse);
+      expect(requests.single.headers['Authorization'], 'Bearer tok');
+      await call;
+      expect(finished, isTrue);
+    });
+
+    test('a zone with a space or over 64 characters is not sent', () async {
+      respond = (_) => <dynamic>[];
+      for (final bad in ['Asia/Ho Chi Minh', 'Asia/${'x' * 60}']) {
+        ApiService.timezoneOverride = () async => bad;
+        await ApiService.getGoals();
+      }
+      final longest = 'Asia/${'x' * 59}';
+      ApiService.timezoneOverride = () async => longest;
+      await ApiService.getGoals();
+
+      expect(requests, hasLength(3));
+      expect(requests[0].headers.containsKey('X-Timezone'), isFalse);
+      expect(requests[1].headers.containsKey('X-Timezone'), isFalse);
+      expect(requests[2].headers['X-Timezone'], longest);
+    });
   });
 
   group('transaction-style dates are local date-times with no offset', () {
@@ -188,15 +241,19 @@ void main() {
       expect(body(requests.last)['date'], '2026-11-18T23:40:00.000');
     });
 
-    test('the transaction filter sends local bounds', () async {
+    test('the transaction filter sends a local start and the end as a day (the server includes all of it)',
+        () async {
       respond = (_) => <dynamic>[];
       await ApiService.getTransactions(
         startDate: DateTime(2026, 11, 1),
-        endDate: DateTime(2026, 11, 30, 23, 59, 59),
+        endDate: DateTime(2026, 11, 30),
       );
-      final q = requests.single.url.queryParameters;
+      // A time on the end day is ignored: 23:59:59 would have missed entries in its last second.
+      await ApiService.getTransactions(endDate: DateTime(2026, 11, 30, 23, 59, 59));
+      final q = requests.first.url.queryParameters;
       expect(q['start_date'], '2026-11-01T00:00:00.000');
-      expect(q['end_date'], '2026-11-30T23:59:59.000');
+      expect(q['end_date'], '2026-11-30');
+      expect(requests.last.url.queryParameters['end_date'], '2026-11-30');
     });
 
     test('recurrence preview: local start, calendar end date', () async {
@@ -384,7 +441,7 @@ void main() {
 
       final q = requests.single.url.queryParameters;
       expect(q['start_date'], '2026-11-12T00:00:00.000');
-      expect(q['end_date'], '2026-11-18T23:59:59.000');
+      expect(q['end_date'], '2026-11-18');
       final pace = buildSpendingPace(provider.weekOutflows, today: DateTime(2026, 11, 18, 9));
       expect(pace.days.last, DateTime(2026, 11, 18));
       expect(pace.totalsFor(Currency.usd), [0, 0, 0, 0, 0, 0, 12.5]);

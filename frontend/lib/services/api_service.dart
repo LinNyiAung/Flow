@@ -649,15 +649,16 @@ class ApiService {
       (await FlutterTimezone.getLocalTimezone()).identifier;
 
   /// The phone's IANA zone name (e.g. `Asia/Bangkok`), read once and kept.
-  /// Null when it cannot be read (tried again on the next request): the
-  /// request then goes without it and the server keeps the saved zone.
+  /// Null when it cannot be read or the read takes over 2 seconds (tried
+  /// again on the next request): the request then goes without it and the
+  /// server keeps the saved zone.
   static Future<String?> _deviceTimezone() async {
     final known = _timezone;
     if (known != null) return known;
     final reader = _timezoneReader ?? (_deviceTimezoneEnabled ? _readPlatformTimezone : null);
     if (reader == null) return null;
     try {
-      final name = await reader();
+      final name = await reader().timeout(const Duration(seconds: 2));
       if (!_headerSafe.hasMatch(name)) return null;
       return _timezone = name;
     } catch (_) {
@@ -1254,12 +1255,14 @@ class ApiService {
       // NEW
       url += '&currency=${currency.name}';
     }
-    // Transaction dates are local date-times, so the filter bounds are too.
+    // Transaction dates are local date-times, so the start bound is too. The
+    // end is the last day included (its time is ignored), sent as a day: the
+    // server then includes all of it, up to its last microsecond.
     if (startDate != null) {
       url += '&start_date=${Uri.encodeComponent(toWallClockString(startDate))}';
     }
     if (endDate != null) {
-      url += '&end_date=${Uri.encodeComponent(toWallClockString(endDate))}';
+      url += '&end_date=${toCalendarDateString(endDate)}';
     }
     final response = await _client.get(
       Uri.parse(url),
