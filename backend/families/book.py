@@ -20,7 +20,7 @@ from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 
 from fastapi import Depends, Header, HTTPException
 
-from families.service import family_is_read_only
+from families.service import family_currency, family_is_read_only
 from notification_service import translate
 from plans.access import user_language
 from sql import books as books_db
@@ -76,6 +76,14 @@ async def get_book(current_user: dict = Depends(get_current_user),
         _fail(current_user, 409, "no_family")
     return Book(id=book_id, kind="family", person=current_user, family=family, member=member,
                 read_only=await family_is_read_only(family))
+
+
+async def book_currency(book: Book) -> str:
+    """The currency the book's defaults use (a summary, a report or an AI-read entry with no currency given): the
+    person's default currency for a personal book, the family's (its owner's, family_currency) for a family book."""
+    if book.is_family:
+        return await family_currency(book.family["id"])
+    return book.person.get("default_currency") or "usd"
 
 
 def require_writable(book: Book) -> None:

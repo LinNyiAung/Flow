@@ -5,7 +5,6 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/date_locale.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/chart_scale.dart';
@@ -20,6 +19,7 @@ import '../../models/transaction.dart';
 import '../../services/api_service.dart';
 import '../../services/localization_service.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 enum TimePeriod { daily, monthly, yearly, custom }
 
@@ -73,9 +73,8 @@ class _OutflowAnalyticsScreenState extends State<OutflowAnalyticsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
       _loadTransactions();
     });

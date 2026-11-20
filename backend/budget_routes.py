@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
-from families.book import Book, get_book, require_admin, require_writable
+from families.book import Book, book_currency, get_book, require_admin, require_writable
 from plans import quota
 
 from budget_categories import allocation_key
@@ -310,9 +310,9 @@ async def get_budgets_summary(
 ):
     """Get summary of budgets for specific currency"""
     try:
-        # If currency not specified, use the person's default currency
+        # If currency not specified, use the book's (a family book's is its owner's)
         if currency is None:
-            currency = Currency(book.person.get("default_currency", "usd"))
+            currency = Currency(await book_currency(book))
 
         budgets = await budgets_db.list_budgets(book.id, currency=currency.value)
 

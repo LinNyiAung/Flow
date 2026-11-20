@@ -3062,6 +3062,93 @@ def section_account_deletion():
         db.admins.delete_many({"email": sup_email})
 
 
+def section_family_currency():
+    """A family book's currency is its owner's default currency: GET /api/family says it, and the book's defaults (budget
+    summary, report, breakdown, an AI-read entry with no currency) use it for every member; a personal book keeps the
+    person's own. It follows the owner's currency setting and a change of owner."""
+    import httpx
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:8]
+    made = []
+    register = _registrar(c, tag, made)
+    H = lambda u, family=True: {**u["h"], **FAM} if family else u["h"]  # noqa: E731
+    try:
+        O, M = register("Owner", "plus"), register("Member", "plus")
+        r = c.put("/api/auth/currency", headers=O["h"], json={"default_currency": "mmk"})
+        check(r.status_code == 200, "family currency: the owner's default currency is MMK", f"{r.status_code} {r.text[:200]}")
+        c.post("/api/family", headers=O["h"], json={"name": f"Kyat family {tag}"})
+        c.post("/api/family/invites", headers=O["h"], json={"email": M["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=M["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=M["h"])
+        m_mid = (c.get("/api/family", headers=M["h"]).json().get("me") or {}).get("member_id")
+        check(bool(m_mid), "family currency: the member (default USD) joins the owner's family", m_mid)
+
+        def family_currency(u):
+            return (c.get("/api/family", headers=u["h"]).json().get("family") or {}).get("currency")
+        check(family_currency(O) == "mmk" and family_currency(M) == "mmk",
+              "family currency: GET /api/family gives the owner's currency (MMK) to the owner and the member alike",
+              (family_currency(O), family_currency(M)))
+
+        def defaults(u, family=True):
+            summary = c.get("/api/budgets/summary", headers=H(u, family))
+            report = c.post("/api/reports/generate", headers=H(u, family), json={"period": "month"})
+            today = datetime.now(UTC).date()
+            breakdown = c.get("/api/family/breakdown", headers=H(u, family),
+                              params={"start_date": (today - timedelta(days=30)).isoformat(), "end_date": today.isoformat()})
+            return tuple(r.json().get("currency") if r.status_code == 200 else (r.status_code, r.text[:120])
+                         for r in (summary, report, breakdown))
+        check(defaults(M) == ("mmk", "mmk", "mmk"),
+              "family currency: in the family book the member's budget summary, report and breakdown default to MMK",
+              defaults(M))
+        check(defaults(M, family=False)[:2] == ("usd", "usd"),
+              "family currency: the member's personal book keeps the member's own USD", defaults(M, family=False))
+
+        async def extracted():
+            """The currency of an AI-read entry that names none, in the member's family and personal book (the AI's
+            answer faked in-process; one entry use each)."""
+            import transaction_routes as tr
+            from families.book import get_book
+            from models import TextExtractionRequest
+            stubenv.patch_loaded_modules()
+            real_run, real_log = tr._run_ai, tr._log_ai_usage
+
+            async def no_currency(*_a, **_k):
+                class R:
+                    value = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Groceries",
+                             "description": "rice", "amount": 5000, "confidence": 0.9}
+                return R()
+            tr._run_ai, tr._log_ai_usage = no_currency, lambda *_a, **_k: None
+            try:
+                user = await _person_with_book(M["id"])
+                out = []
+                for x_book in ("family", None):
+                    book = await get_book(user, x_book)
+                    e = await tr.extract_transaction_from_text(TextExtractionRequest(text="rice 5000"), user, book)
+                    out.append(e.currency.value if hasattr(e.currency, "value") else e.currency)
+                return out
+            finally:
+                tr._run_ai, tr._log_ai_usage = real_run, real_log
+        try:
+            got = _backend_async(extracted)
+        except Exception as e:  # noqa: BLE001
+            got = repr(e)[:300]
+        check(got == ["mmk", "usd"],
+              "family currency: an AI-read entry with no currency gets MMK in the family book, USD in the member's own",
+              got)
+
+        c.put("/api/auth/currency", headers=O["h"], json={"default_currency": "usd"})
+        check(family_currency(M) == "usd", "family currency: it follows the owner's own currency setting", family_currency(M))
+        c.put("/api/auth/currency", headers=M["h"], json={"default_currency": "mmk"})
+        r = c.post("/api/family/transfer-ownership", headers=O["h"], json={"member_id": m_mid})
+        check(r.status_code == 200 and family_currency(O) == "mmk",
+              "family currency: after the owner hands the family over, it is the new owner's (MMK)",
+              (r.status_code, family_currency(O)))
+    finally:
+        _cleanup_people(made)
+
+
 SECTIONS = {
     "schema": section_schema,
     "book_users": section_book_users,
@@ -3076,6 +3163,7 @@ SECTIONS = {
     "ai": section_ai,
     "limits": section_limits,
     "account_deletion": section_account_deletion,
+    "family_currency": section_family_currency,
 }
 
 

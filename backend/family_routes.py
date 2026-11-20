@@ -126,10 +126,10 @@ async def delete_family(body: ConfirmName, current_user: dict = Depends(get_curr
 async def breakdown(start_date: CalendarDate = Query(...), end_date: CalendarDate = Query(...),
                     currency: Optional[Currency] = None, book: Book = Depends(get_book)):
     """Spending per person it was for, start_date..end_date as whole calendar days (as custom reports take them),
-    in `currency` (default: the caller's default currency). Any active member; X-Book is optional here."""
+    in `currency` (default: the family's, service.family_currency). Any active member; X-Book is optional here."""
     family = book.family if book.is_family else await service.family_of(book.person)
     date_from, date_to = calculate_report_dates(ReportPeriod.CUSTOM, start_date, end_date, user_zone(book.person))
-    code = currency.value if currency else book.person.get("default_currency") or "usd"
+    code = currency.value if currency else await service.family_currency(family["id"])
     if code not in {c.value for c in Currency}:
         code = Currency.USD.value
     return await family_breakdown.family_breakdown(family, code, date_from, date_to)

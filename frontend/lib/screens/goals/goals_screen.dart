@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -21,6 +20,7 @@ import '../../utils/family_permissions.dart';
 import '../../widgets/app_drawer.dart';
 import 'add_goal_screen.dart';
 import 'goal_detail_screen.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 /// Mockup's `--accent`: identical to `--primary` in light, but a distinct,
 /// brighter teal in dark (used for icon tints, meter fills, percentage
@@ -45,9 +45,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
       _refreshData();
     });

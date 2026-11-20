@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from families.book import Book, get_book
+from families.book import Book, book_currency, get_book
 from plans import quota
 from pdf_generator import generate_financial_report_pdf
 from report_models import (
@@ -156,10 +156,10 @@ async def generate_report(
             user_zone(book.person),
         )
 
-        # Determine currency - use requested or user's default
+        # Determine currency - use requested or the book's (a family book's is its owner's)
         currency = report_request.currency
         if currency is None:
-            currency = Currency(book.person.get("default_currency", "usd"))
+            currency = Currency(await book_currency(book))
 
         # Totals and per-category sums are computed in the database (transfers left out: a currency with only
         # transfers in the window has no income or spending, so it reports as empty).
@@ -413,10 +413,10 @@ async def download_report_pdf(
 
 async def _download_report_pdf(report_request: ReportRequest, book: Book):
     try:
-        # Determine currency
+        # Determine currency: requested, or the book's
         currency = report_request.currency
         if currency is None:
-            currency = Currency(book.person.get("default_currency", "usd"))
+            currency = Currency(await book_currency(book))
 
         # Generate the report (reuse the generate_report logic)
         start_date, end_date = calculate_report_dates(

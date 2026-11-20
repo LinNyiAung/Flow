@@ -26,6 +26,7 @@ import 'package:frontend/widgets/plan_usage_line.dart';
 import '../../models/insight.dart';
 import '../../providers/insight_provider.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 class InsightsScreen extends StatefulWidget {
   /// Route argument of `/insights` that opens the Custom tab (a failed custom
@@ -92,8 +93,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   // Cheap GETs (budgets + balance) that feed the health score card — not
   // AI calls, so safe to always refresh, unlike insights generation itself.
   Future<void> _fetchHealthScoreInputs() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final currency = authProvider.defaultCurrency;
+    final currency = bookCurrency(context, listen: false);
     try {
       final results = await Future.wait([
         ApiService.getBudgets(activeOnly: true),

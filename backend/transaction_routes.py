@@ -20,7 +20,7 @@ from ai_providers import runner as _runner
 from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_book_balance, get_book_money_lock
-from families.book import Book, clean_for_whom, get_book, refuse, require_change_entry, require_writable
+from families.book import Book, book_currency, clean_for_whom, get_book, refuse, require_change_entry, require_writable
 from plans import quota, voice_token
 from goal_routes import to_cents
 from recurring_transaction_service import (
@@ -912,14 +912,16 @@ async def _transcribe_audio(audio: UploadFile, language: Optional[str], current_
 @router.post("/extract-from-text", response_model=TransactionExtraction)
 async def extract_transaction_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book)
 ):
-    """Extract transaction details from text with the transaction_text provider chain (one "entry" use)"""
+    """Extract transaction details from text with the transaction_text provider chain (one "entry" use). An entry
+    that names no currency gets the book's (a family book's is its owner's)."""
     async with _entry_use(current_user, request.text, request.voice_token):
-        return await _extract_transaction_from_text(request, current_user)
+        return await _extract_transaction_from_text(request, current_user, await book_currency(book))
 
 
-async def _extract_transaction_from_text(request: TextExtractionRequest, current_user: dict):
+async def _extract_transaction_from_text(request: TextExtractionRequest, current_user: dict, default_currency: str):
     try:
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
@@ -934,7 +936,7 @@ async def _extract_transaction_from_text(request: TextExtractionRequest, current
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
-        user_default_currency = current_user.get("default_currency", "usd")
+        user_default_currency = default_currency
         today = local_today(user_zone(current_user))
 
         system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
@@ -1001,15 +1003,17 @@ Respond in JSON format:
 @router.post("/extract-multiple-from-text", response_model=MultipleTransactionExtraction)
 async def extract_multiple_transactions_from_text(
     request: TextExtractionRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book)
 ):
     """Extract multiple transaction details from text with the transaction_text provider chain (one "entry" use;
-    an answer that finds no transactions still counts)"""
+    an answer that finds no transactions still counts). Entries naming no currency get the book's."""
     async with _entry_use(current_user, request.text, request.voice_token):
-        return await _extract_multiple_transactions_from_text(request, current_user)
+        return await _extract_multiple_transactions_from_text(request, current_user, await book_currency(book))
 
 
-async def _extract_multiple_transactions_from_text(request: TextExtractionRequest, current_user: dict):
+async def _extract_multiple_transactions_from_text(request: TextExtractionRequest, current_user: dict,
+                                                  default_currency: str):
     try:
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
@@ -1024,7 +1028,7 @@ async def _extract_multiple_transactions_from_text(request: TextExtractionReques
             for cat in outflow_cats["categories"]:
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
-        user_default_currency = current_user.get("default_currency", "usd")
+        user_default_currency = default_currency
         today = local_today(user_zone(current_user))
 
         system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
@@ -1219,17 +1223,18 @@ def process_and_resize_image(image_data: bytes) -> bytes:
 @router.post("/extract-from-image", response_model=TransactionExtraction)
 async def extract_transaction_from_image(
     image: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    book: Book = Depends(get_book)
 ):
     """
     Extract transaction details from a receipt image with the transaction_image provider chain (one "entry" use).
     (Memory Optimized: Resizes images before processing)
     """
     async with _entry_use(current_user):
-        return await _extract_transaction_from_image(image, current_user)
+        return await _extract_transaction_from_image(image, current_user, await book_currency(book))
 
 
-async def _extract_transaction_from_image(image: UploadFile, current_user: dict):
+async def _extract_transaction_from_image(image: UploadFile, current_user: dict, default_currency: str):
     try:
         # 1. Validate File Size (Content-Length Header)
         # Fail fast if the client reports a file larger than our limit
@@ -1280,7 +1285,7 @@ async def _extract_transaction_from_image(image: UploadFile, current_user: dict)
             for cat in outflow_cats.get("categories", []):
                 categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
 
-        user_default_currency = current_user.get("default_currency", "usd")
+        user_default_currency = default_currency
         today = local_today(user_zone(current_user))
 
         # 6. Construct System Prompt

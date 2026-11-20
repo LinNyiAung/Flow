@@ -93,6 +93,13 @@ async def owner_plan(family_id: str) -> str:
                            "subscription_expires_at": row["user_subscription_expires_at"]})
 
 
+async def family_currency(family_id: str) -> str:
+    """The family's currency: its active owner's default currency ("usd" when the owner's account is gone). The family
+    book opens in it for every member, as its insights and AI-made budgets already use it (books_db.book_profile)."""
+    owner = await fdb.owner_user(family_id)
+    return (owner or {}).get("default_currency") or "usd"
+
+
 async def family_is_read_only(family: Mapping[str, Any]) -> bool:
     """True when the owner's effective plan isn't Plus or Pro (lapsed, or the owner's account is gone).
 
@@ -163,8 +170,9 @@ def _invite_json(i: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 async def overview(user: Mapping[str, Any]) -> Dict[str, Any]:
-    """GET /api/family: {"family": null} outside a family; otherwise the family, the caller's member id and role,
-    every member (active and former), the pending invites (admins only; [] for members) and the owner's limits."""
+    """GET /api/family: {"family": null} outside a family; otherwise the family (with its currency, family_currency),
+    the caller's member id and role, every member (active and former), the pending invites (admins only; [] for
+    members) and the owner's limits."""
     me = await fdb.active_membership(user["_id"])
     family = await fdb.get_family(me["family_id"]) if me else None
     if me is None or family is None:
@@ -176,7 +184,8 @@ async def overview(user: Mapping[str, Any]) -> Dict[str, Any]:
     members = await fdb.list_members(family["id"])
     invites = await fdb.list_pending_invites(family["id"], now) if _is_admin(me) else []
     return {
-        "family": {"id": family["id"], "name": family["name"], "read_only": _read_only_plan(plan)},
+        "family": {"id": family["id"], "name": family["name"], "read_only": _read_only_plan(plan),
+                   "currency": await family_currency(family["id"])},
         "me": {"member_id": me["id"], "role": me["role"]},
         "members": [_member_json(m, me) for m in members],
         "invites": [_invite_json(i) for i in invites],

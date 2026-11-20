@@ -21,6 +21,7 @@ import 'package:provider/provider.dart';
 import '../../models/report.dart';
 import '../../services/api_service.dart';
 import '../../widgets/app_drawer.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 /// Fetches a single-currency report (tests pass a fake).
 typedef ReportLoader = Future<FinancialReport> Function({
@@ -139,9 +140,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
       _generateReport();
     });

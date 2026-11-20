@@ -5,7 +5,6 @@ import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/models/recurring_transaction.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/widgets/for_whom_picker.dart';
@@ -21,6 +20,7 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import 'voice_input_screen.dart';
 import 'image_input_screen.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 /// Display order for currency chips — MMK first, matching the product's
 /// Myanmar-first audience rather than the model's declaration order.
@@ -126,9 +126,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
       // On small phones the keypad starts below the fold — reveal its first
       // row once the first layout is done.

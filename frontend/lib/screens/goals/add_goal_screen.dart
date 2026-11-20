@@ -2,7 +2,6 @@ import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
@@ -10,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../models/goal.dart';
 import '../../providers/goal_provider.dart';
 import '../../providers/transaction_provider.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 /// Mockup's `--accent`: identical to `--primary` in light, but a distinct,
 /// brighter teal in dark. See goals_screen.dart for the full rationale.
@@ -39,10 +39,9 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
       // Fetch balance for default currency
       transactionProvider.fetchBalance(currency: _selectedCurrency);

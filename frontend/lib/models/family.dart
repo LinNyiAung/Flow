@@ -23,13 +23,22 @@ class Family {
   /// The owner's plan isn't Plus or Pro: everyone can read, nobody can add or change.
   final bool readOnly;
 
-  const Family({required this.id, required this.name, this.readOnly = false});
+  /// The family's currency (its owner's default currency): the family book
+  /// opens in it for every member (see `bookCurrency`). Null when the server
+  /// didn't say.
+  final Currency? currency;
 
-  factory Family.fromJson(Map<String, dynamic> json) => Family(
-        id: json['id'] as String,
-        name: _string(json['name']) ?? '',
-        readOnly: json['read_only'] == true,
-      );
+  const Family({required this.id, required this.name, this.readOnly = false, this.currency});
+
+  factory Family.fromJson(Map<String, dynamic> json) {
+    final currency = _string(json['currency']);
+    return Family(
+      id: json['id'] as String,
+      name: _string(json['name']) ?? '',
+      readOnly: json['read_only'] == true,
+      currency: currency == null ? null : Currency.fromString(currency),
+    );
+  }
 }
 
 /// A member of the family: an account member or a placeholder (a name only),

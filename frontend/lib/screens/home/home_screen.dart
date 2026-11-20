@@ -48,6 +48,7 @@ import '../transactions/add_transaction_screen.dart';
 import '../transactions/edit_transaction_screen.dart'; // Import for editing
 import '../../widgets/app_drawer.dart'; // Import the drawer widget
 import 'package:frontend/services/responsive_helper.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -68,9 +69,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Reload the balance when the default currency changes in Settings, so
-    // Home doesn't keep showing the old currency until a pull-to-refresh.
-    final currency = Provider.of<AuthProvider>(context).defaultCurrency;
+    // Reload the balance when the book's currency changes (the default
+    // currency in Settings, or the family's once it is known), so Home
+    // doesn't keep showing the old currency until a pull-to-refresh.
+    final currency = bookCurrency(context);
     if (_balanceCurrency != null && currency != _balanceCurrency) {
       Provider.of<TransactionProvider>(context, listen: false).fetchBalance(currency: currency);
     }
@@ -116,11 +118,10 @@ class _HomeScreenState extends State<HomeScreen> {
       listen: false,
     );
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
-    // Get the current default currency
-    final defaultCurrency = authProvider.defaultCurrency;
+    // The book's currency (a family book's is the family's)
+    final defaultCurrency = bookCurrency(context, listen: false);
 
     await Future.wait([
       // Fetch a bit more than the 3 rows the "Recent" list shows so the
@@ -179,8 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // reload them.
     final transactionProvider =
         Provider.of<TransactionProvider>(context, listen: false);
-    final currency =
-        Provider.of<AuthProvider>(context, listen: false).defaultCurrency;
+    final currency = bookCurrency(context, listen: false);
     await Future.wait([
       transactionProvider.fetchTransactions(limit: 30),
       transactionProvider.fetchWeekSpending(),
@@ -344,7 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: responsive.padding(horizontal: 16),
                   child: SpendingPaceCard(
                     outflows: transactionProvider.weekOutflows,
-                    defaultCurrency: authProvider.defaultCurrency,
+                    defaultCurrency: bookCurrency(context),
                     onSeeTransactions: _openDayTransactions,
                   ),
                 ),
@@ -570,7 +570,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final balance = transactionProvider.balance;
-    final currency = balance?.currency ?? authProvider.defaultCurrency;
+    final currency = balance?.currency ?? bookCurrency(context);
     final available = balance?.availableBalance ?? 0.0;
     final total = balance?.balance ?? 0.0;
     final allocated = balance?.allocatedToGoals ?? 0.0;
@@ -1407,10 +1407,7 @@ class _HomeScreenState extends State<HomeScreen> {
       closeProgress();
       if (!mounted) return;
 
-      final defaultCurrency = Provider.of<AuthProvider>(
-        context,
-        listen: false,
-      ).defaultCurrency;
+      final defaultCurrency = bookCurrency(context, listen: false);
 
       showAppBottomSheet<void>(
         context: context,

@@ -4479,24 +4479,28 @@ async def _transaction_inprocess_checks(uid):
             "transaction_image": {"openai": (1000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
                                   "claude": (8000, "absent", "json_schema")},
         }
+        from families.book import Book
+        # The routes default an entry with no currency to the book's; here the person's own book.
+        pbook = Book(id="tx-request-book", kind="personal", person=user, family=None, member=None, read_only=False)
         for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
             use("transaction_text", provider, model)
-            out = await tr.extract_transaction_from_text(TextExtractionRequest(text="coffee 2.5"), current_user=user)
+            out = await tr.extract_transaction_from_text(TextExtractionRequest(text="coffee 2.5"), current_user=user, book=pbook)
             check(kw_of(provider) == want["transaction_text"][provider] and out.amount == 2.5,
                   f"tx request: text on {provider} sends {want['transaction_text'][provider]}", (kw_of(provider), out.amount))
-            out = await tr.extract_multiple_transactions_from_text(TextExtractionRequest(text="a 1, b 2"), current_user=user)
+            out = await tr.extract_multiple_transactions_from_text(TextExtractionRequest(text="a 1, b 2"), current_user=user, book=pbook)
             check(kw_of(provider) == want["transaction_text_multi"][provider] and len(out.transactions) == 2,
                   f"tx request: multi text on {provider} sends {want['transaction_text_multi'][provider]}", (kw_of(provider), len(out.transactions)))
             use("transaction_image", provider, "gpt-4o" if provider == "openai" else model)
             up = UploadFile(file=io.BytesIO(png), filename="r.png")
-            out = await tr.extract_transaction_from_image(image=up, current_user=user)
+            out = await tr.extract_transaction_from_image(image=up, current_user=user, book=pbook)
             check(kw_of(provider) == want["transaction_image"][provider] and out.amount == 2.5,
                   f"tx request: image on {provider} sends {want['transaction_image'][provider]}", (kw_of(provider), out.amount))
 
         # --- the request sends the receipt as one JPEG image whichever provider answers
         import base64
         use("transaction_image", "openai", "gpt-4o")
-        await tr.extract_transaction_from_image(image=UploadFile(file=io.BytesIO(png), filename="r.png"), current_user=user)
+        await tr.extract_transaction_from_image(image=UploadFile(file=io.BytesIO(png), filename="r.png"), current_user=user,
+                                        book=pbook)
         url = stubenv.LAST_KWARGS["openai"]["messages"][1]["content"][1]["image_url"]["url"]
         raw = base64.b64decode(url.split("base64,", 1)[1]) if url.startswith("data:image/jpeg;base64,") else b""
         check(raw[:2] == b"\xff\xd8", "tx image: openai gets the resized JPEG as image/jpeg", url[:40])

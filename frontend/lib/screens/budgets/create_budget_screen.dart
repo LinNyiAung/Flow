@@ -4,7 +4,6 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
-import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -20,6 +19,7 @@ import 'package:provider/provider.dart';
 import '../../models/budget.dart';
 import '../../providers/budget_provider.dart';
 import 'ai_budget_suggestion_screen.dart';
+import 'package:frontend/utils/book_currency.dart';
 
 /// The last day (included) of a weekly, monthly or yearly budget starting on
 /// [start], a local calendar date; null for custom (the user picks it).
@@ -71,11 +71,10 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
     // Initialize dates based on the default period (Monthly)
     _updateDatesForPeriod(_selectedPeriod);
 
-    // Set default currency from user's preference
+    // Default currency: the book's (a family book's is the family's)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       setState(() {
-        _selectedCurrency = authProvider.defaultCurrency;
+        _selectedCurrency = bookCurrency(context, listen: false);
       });
     });
   }
