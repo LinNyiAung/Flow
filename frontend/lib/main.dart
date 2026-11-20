@@ -25,6 +25,7 @@ import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/family/family_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
+import 'package:frontend/navigation/restored_routes.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
 import 'package:frontend/screens/report/reports_screen.dart';
 import 'package:frontend/screens/settings/currency_settings_screen.dart';
@@ -292,6 +293,32 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
+  late final Map<String, WidgetBuilder> _routes = {
+    '/': (context) => const AuthWrapper(),
+    '/ai-chat': (context) => AiChatScreen(),
+    '/goals': (context) => GoalsScreen(),
+    '/outflow-analytics': (context) => OutflowAnalyticsScreen(),
+    '/inflow-analytics': (context) => InflowAnalyticsScreen(),
+    '/insights': (context) => InsightsScreen(),
+    '/reports': (context) => ReportsScreen(),
+    '/budgets': (context) => BudgetsScreen(),
+    '/transactions': (context) => TransactionsListScreen(),
+    '/notifications': (context) => NotificationsScreen(),
+    '/subscription': (context) => SubscriptionScreen(),
+    '/settings': (context) => SettingsScreen(),
+    '/notification-settings': (context) => NotificationSettingsScreen(),
+    '/currency-settings': (context) => CurrencySettingsScreen(),
+    '/theme-settings': (context) => ThemeSettingsScreen(),
+    '/privacy-policy': (context) => PrivacyPolicyScreen(),
+    '/terms-conditions': (context) => TermsAndConditionsScreen(),
+    '/login': (context) => const LoginScreen(),
+    '/feedback': (context) => FeedbackScreen(),
+    '/family': (context) => const FamilyScreen(),
+  };
+
+  Widget _languageSettings(BuildContext context) =>
+      LanguageSettingsScreen(onLanguageChanged: _changeLanguage);
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -331,38 +358,23 @@ class _MyAppState extends State<MyApp> {
           darkTheme: AppTheme.dark,
           themeMode: themeProvider.themeMode,
           initialRoute: '/',
-          routes: {
-            '/': (context) => const AuthWrapper(),
-            '/ai-chat': (context) => AiChatScreen(),
-            '/goals': (context) => GoalsScreen(),
-            '/outflow-analytics': (context) => OutflowAnalyticsScreen(),
-            '/inflow-analytics': (context) => InflowAnalyticsScreen(),
-            '/insights': (context) => InsightsScreen(),
-            '/reports': (context) => ReportsScreen(),
-            '/budgets': (context) => BudgetsScreen(),
-            '/transactions': (context) => TransactionsListScreen(),
-            '/notifications': (context) => NotificationsScreen(),
-            '/subscription': (context) => SubscriptionScreen(),
-            '/settings': (context) => SettingsScreen(),
-            '/notification-settings': (context) => NotificationSettingsScreen(),
-            '/currency-settings': (context) => CurrencySettingsScreen(),
-            '/theme-settings': (context) => ThemeSettingsScreen(),
-            '/privacy-policy': (context) => PrivacyPolicyScreen(),
-            '/terms-conditions': (context) => TermsAndConditionsScreen(),
-            '/login': (context) => const LoginScreen(),
-            '/feedback': (context) => FeedbackScreen(),
-            '/family': (context) => const FamilyScreen(),
-          },
+          routes: _routes,
           onGenerateRoute: (settings) {
             if (settings.name == '/language-settings') {
               return MaterialPageRoute(
                 settings: settings,
-                builder: (context) =>
-                    LanguageSettingsScreen(onLanguageChanged: _changeLanguage),
+                builder: _languageSettings,
               );
             }
             return null;
           },
+          // A browser reload of a page (`#/notifications`) starts on Home with
+          // that page on top, built once the saved session is restored.
+          onGenerateInitialRoutes: (name) => restoredInitialRoutes(
+            name,
+            pageFor: (page) => page == '/language-settings' ? _languageSettings : _routes[page],
+            public: const {'/login', '/privacy-policy', '/terms-conditions'},
+          ),
         ),
       ),
     );
