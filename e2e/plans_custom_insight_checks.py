@@ -1448,7 +1448,7 @@ async def route_checks(t, h):
         oldest = h.db.sql("SELECT min(created_at) AS t FROM custom_insights WHERE id = ANY(%s)", failed)[0]["t"]
         check(code(r5) == (429, "custom_insight_attempts")
               and d.get("resets_at") == (oldest + timedelta(hours=24)).astimezone(UTC).isoformat()
-              and d.get("message") == "Today's limit of 5 custom insights that couldn't be created has been reached. Please try again tomorrow."
+              and d.get("message") == "The limit of 5 custom insights that couldn't be created in 24 hours has been reached. Please try again later."
               and h.used(u) == 1, "attempts_limit_5_per_day", r5.text[:300])
         dl = c.delete(f"{CREATE}/{failed[0]}", headers=uh)
         r5b = post(uh, instruction="the fifth failed")

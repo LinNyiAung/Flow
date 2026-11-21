@@ -75,6 +75,7 @@ class CustomInsightProvider with ChangeNotifier {
   String? _loadMoreError;
   String? _lastErrorCode;
   String? _lastError;
+  DateTime? _lastErrorResetsAt;
   PlanLimitException? _lastPlanLimit;
   bool _notFound = false;
 
@@ -112,6 +113,9 @@ class CustomInsightProvider with ChangeNotifier {
   /// The message of that failure (already in the user's language for server errors).
   String? get lastError => _lastError;
 
+  /// When the failure's limit lifts (the attempts limit's `resets_at`); null otherwise.
+  DateTime? get lastErrorResetsAt => _lastErrorResetsAt;
+
   /// Set when the failure was the plan refusing the request (locked, used up, cost cap).
   PlanLimitException? get lastPlanLimit => _lastPlanLimit;
 
@@ -131,6 +135,7 @@ class CustomInsightProvider with ChangeNotifier {
   void _clearFailure() {
     _lastErrorCode = null;
     _lastError = null;
+    _lastErrorResetsAt = null;
     _lastPlanLimit = null;
   }
 
@@ -142,6 +147,7 @@ class CustomInsightProvider with ChangeNotifier {
             ? e.code
             : null;
     _lastError = _clean(e);
+    _lastErrorResetsAt = e is CustomInsightRequestException ? e.resetsAt : null;
   }
 
   static bool _isUsageGivenBack(CustomInsight before, CustomInsight now) =>

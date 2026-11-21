@@ -102,7 +102,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
       return;
     }
     messenger.showSnackBar(SnackBar(
-      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '')),
+      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '', resetsAt: provider.lastErrorResetsAt)),
       backgroundColor: scheme.error,
     ));
   }
@@ -124,7 +124,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
     }
     _deleting = false;
     messenger.showSnackBar(SnackBar(
-      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '')),
+      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '', resetsAt: provider.lastErrorResetsAt)),
       backgroundColor: scheme.error,
     ));
   }
@@ -178,7 +178,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
         return _message(
           icon: Icons.error_outline_rounded,
           pose: MascotPose.forError(provider.lastError),
-          text: customErrorText(l, provider.lastErrorCode, provider.lastError ?? ''),
+          text: customErrorText(l, provider.lastErrorCode, provider.lastError ?? '', resetsAt: provider.lastErrorResetsAt),
           action: FilledButton.icon(
             key: const Key('custom-report-retry'),
             onPressed: _load,

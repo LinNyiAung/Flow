@@ -157,7 +157,7 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
     setState(() {
       _submitting = false;
       _error = limit == null
-          ? customErrorText(l, provider.lastErrorCode, provider.lastError ?? '')
+          ? customErrorText(l, provider.lastErrorCode, provider.lastError ?? '', resetsAt: provider.lastErrorResetsAt)
           : null;
     });
     if (limit != null) await showPlanLimitSheet(context, limit);

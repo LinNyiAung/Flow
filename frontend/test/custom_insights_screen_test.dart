@@ -576,11 +576,33 @@ void main() {
       await tester.tap(find.byKey(const Key('custom-insight-create')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Too many custom insights could not be created today. Please try again tomorrow.'),
+      expect(
+          find.text('Too many custom insights could not be created in the last 24 hours. Please try again later.'),
           findsOneWidget);
       expect(find.text('server words'), findsNothing);
       // The form stays open for another try.
       expect(find.byKey(const Key('custom-insight-create')), findsOneWidget);
+    });
+
+    testWidgets('the attempts limit says when it lifts (resets_at, on the phone\'s clock)', (tester) async {
+      final fake = FakeCustomInsightClient();
+      final failing = _ThrowingCreate(CustomInsightRequestException(
+        code: CustomInsightRequestException.attempts,
+        statusCode: 429,
+        message: 'server words',
+        resetsAt: DateTime(2026, 11, 21, 15, 45),
+      ));
+      await _pump(tester, const Scaffold(body: CustomInsightsTab()), fake: failing..reports = fake.reports);
+      await tester.tap(find.byKey(const Key('custom-insight-new')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('custom-insight-create')));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Too many custom insights could not be created in the last 24 hours. '
+              'Please try again after 21 Nov 2026, 3:45 PM.'),
+          findsOneWidget);
+      expect(find.textContaining('tomorrow'), findsNothing);
     });
   });
 
@@ -1063,6 +1085,7 @@ void main() {
       (l) => l.customStatusRefused,
       (l) => l.customErrorPending,
       (l) => l.customErrorAttempts,
+      (l) => l.customErrorAttemptsUntil('21 Nov 2026, 3:45 PM'),
       (l) => l.customErrorNoData,
       (l) => l.customInsightFullInsight,
       (l) => l.customReportIncome,

@@ -50,13 +50,14 @@ String customRangeProblemText(AppLocalizations l, CustomRangeProblem problem) {
 }
 
 /// The text for a failed custom insight call: the app's own sentence for the
-/// codes it knows, otherwise the server's [fallback] message.
-String customErrorText(AppLocalizations l, String? code, String fallback) {
+/// codes it knows, otherwise the server's [fallback] message. [resetsAt]: when
+/// the attempts limit lifts (a rolling 24 hours), shown on the phone's clock.
+String customErrorText(AppLocalizations l, String? code, String fallback, {DateTime? resetsAt}) {
   switch (code) {
     case CustomInsightRequestException.pending:
       return l.customErrorPending;
     case CustomInsightRequestException.attempts:
-      return l.customErrorAttempts;
+      return resetsAt == null ? l.customErrorAttempts : l.customErrorAttemptsUntil(l.formatPlanDateTime(resetsAt));
     case CustomInsightRequestException.noData:
       return l.customErrorNoData;
     default:

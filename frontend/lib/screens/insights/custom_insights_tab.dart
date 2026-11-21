@@ -44,7 +44,7 @@ class _CustomInsightsTabState extends State<CustomInsightsTab> {
     final gone = await provider.delete(report.id);
     if (gone || !mounted) return;
     messenger.showSnackBar(SnackBar(
-      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '')),
+      content: Text(customErrorText(l, provider.lastErrorCode, provider.lastError ?? '', resetsAt: provider.lastErrorResetsAt)),
       backgroundColor: scheme.error,
     ));
   }

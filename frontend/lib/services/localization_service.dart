@@ -1222,7 +1222,10 @@ class AppLocalizations {
       'customStatusFailed': 'Couldn\'t be created. It wasn\'t counted.',
       'customStatusRefused': 'That isn\'t something I can answer from your finances',
       'customErrorPending': 'Your previous custom insight is still being created.',
-      'customErrorAttempts': 'Too many custom insights could not be created today. Please try again tomorrow.',
+      'customErrorAttempts':
+          'Too many custom insights could not be created in the last 24 hours. Please try again later.',
+      'customErrorAttemptsUntil':
+          'Too many custom insights could not be created in the last 24 hours. Please try again after {time}.',
       'customErrorNoData': 'There are no transactions in these dates.',
       'customInsightFullInsight': 'Full insight',
       'customReportIncome': 'Income',
@@ -2498,7 +2501,10 @@ class AppLocalizations {
       'customStatusFailed': 'ဖန်တီး၍ မရခဲ့ပါ။ အသုံးပြုမှုထဲတွင် မရေတွက်ပါ။',
       'customStatusRefused': 'ဤအချက်ကို သင့်ငွေကြေးအချက်အလက်များမှ ဖြေကြားပေး၍ မရပါ',
       'customErrorPending': 'သင့်ယခင် စိတ်ကြိုက် သုံးသပ်ချက်ကို ဖန်တီးနေဆဲ ဖြစ်ပါသည်။',
-      'customErrorAttempts': 'ဖန်တီး၍ မရသော စိတ်ကြိုက် သုံးသပ်ချက် များလွန်းနေပါသည်။ မနက်ဖြန် ထပ်ကြိုးစားပါ။',
+      'customErrorAttempts':
+          'ပြီးခဲ့သော ၂၄ နာရီအတွင်း ဖန်တီး၍ မရသော စိတ်ကြိုက် သုံးသပ်ချက် များလွန်းနေပါသည်။ နောက်မှ ထပ်ကြိုးစားပါ။',
+      'customErrorAttemptsUntil':
+          'ပြီးခဲ့သော ၂၄ နာရီအတွင်း ဖန်တီး၍ မရသော စိတ်ကြိုက် သုံးသပ်ချက် များလွန်းနေပါသည်။ {time} နောက်ပိုင်း ထပ်ကြိုးစားပါ။',
       'customErrorNoData': 'ဤရက်စွဲများအတွင်း ငွေသွင်းငွေထုတ် မရှိပါ။',
       'customInsightFullInsight': 'အပြည့်အစုံ သုံးသပ်ချက်',
       'customReportIncome': 'ဝင်ငွေ',
@@ -3829,6 +3835,7 @@ class AppLocalizations {
   String get customStatusRefused => translate('customStatusRefused');
   String get customErrorPending => translate('customErrorPending');
   String get customErrorAttempts => translate('customErrorAttempts');
+  String customErrorAttemptsUntil(String time) => translate('customErrorAttemptsUntil').replaceAll('{time}', time);
   String get customErrorNoData => translate('customErrorNoData');
   String get customInsightFullInsight => translate('customInsightFullInsight');
   String get customReportIncome => translate('customReportIncome');
@@ -4066,6 +4073,10 @@ class AppLocalizations {
   /// device's local time: [AppDates.full] in this app language ("1 Dec 2026";
   /// Myanmar month names and digits in Myanmar).
   String formatPlanDate(DateTime when) => AppDates.fullIn(when.toLocal(), locale: dateLocaleFor(locale));
+
+  /// [formatPlanDate] with the time ("21 Nov 2026, 3:45 PM"), for a limit that
+  /// lifts at a moment rather than on a date.
+  String formatPlanDateTime(DateTime when) => AppDates.dateTimeIn(when.toLocal(), locale: dateLocaleFor(locale));
 
   /// [AppDates.range] in this app language ("1 Oct – 31 Oct 2026"), in the
   /// device's local time.
