@@ -355,6 +355,7 @@ local_job_runs = Table(
     Column("subject_id", Text, primary_key=True),
     Column("local_date", Date, primary_key=True),
     Column("claimed_at", TS, nullable=False, server_default=func.now()),
+    Column("done_at", TS),  # the run finished; NULL: running, or left by a process that died (sql.local_job_runs)
 )
 
 insights = Table(

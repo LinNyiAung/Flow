@@ -7,8 +7,10 @@ the subject's wall clock; once the job's local time has passed today (and the da
 day), it claims (job, subject, local date) in local_job_runs and runs the job's handler for that subject. The claim
 makes the job run exactly once per local date, also when ticks are missed or late, when a person's zone changes during
 the day (the new zone's date was already claimed, or is a new date) or a family changes owner. A handler that raises
-releases its claim, so the next tick retries it; each handler's own duplicate guards (a notice already sent, a
-recurring occurrence id, a rollover child) keep a retry from doing anything twice.
+releases its claim, so the next tick retries it; a finished run is recorded as done, and a claim a process that died
+left unfinished is taken over by a later tick that day once stale (sql.local_job_runs.STALE_AFTER). Each handler's
+own duplicate guards (a notice already sent, a recurring occurrence id, a rollover child, an insight for the period)
+keep a retry from doing anything twice.
 
 Subjects:
 - "person": every person with a personal book, on their own zone (user_zones.user_zone); what is sent to a person.
@@ -83,9 +85,10 @@ DAILY_JOBS: List[LocalJob] = [job for job in LOCAL_JOBS if job.id not in INSIGHT
 
 
 async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: asyncio.Semaphore) -> int:
-    """Claim the job's day for the subject and run it: 1 when it ran, 0 when it was claimed already or failed (a
-    failure is logged and its claim released, so the next tick runs it again). A claim that raises (a database error)
-    is logged and runs nothing; nothing is released, and the next tick tries the claim again."""
+    """Claim the job's day for the subject and run it: 1 when it ran (the claim is then recorded as done), 0 when it
+    was claimed already or failed (a failure is logged and its claim released, so the next tick runs it again). A
+    claim that raises (a database error) is logged and runs nothing; nothing is released, and the next tick tries the
+    claim again. A claim left unfinished by a process that died is taken over once stale (runs_db.STALE_AFTER)."""
     async with slots:
         try:
             claimed = await runs_db.claim(job.id, subject_id, today)
@@ -96,7 +99,6 @@ async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: a
             return 0
         try:
             await job.handler(subject_id, today, tz)
-            return 1
         except Exception:  # noqa: BLE001 - one subject's failure must not stop the others
             logger.exception(f"Local job {job.id} failed for {subject_id} on {today}; the next tick retries it")
             try:
@@ -104,6 +106,11 @@ async def _run(job: LocalJob, subject_id: str, today: date, tz: tzinfo, slots: a
             except Exception:  # noqa: BLE001
                 logger.exception(f"Could not release the claim of {job.id} for {subject_id} on {today}")
             return 0
+        try:
+            await runs_db.finish(job.id, subject_id, today)
+        except Exception:  # noqa: BLE001 - it ran: at worst a stale claim is taken over later (guards stop repeats)
+            logger.exception(f"Could not record {job.id} for {subject_id} on {today} as done")
+        return 1
 
 
 async def run_due_local_jobs(now: Optional[datetime] = None, jobs: Optional[Sequence[LocalJob]] = None) -> Dict[str, int]:

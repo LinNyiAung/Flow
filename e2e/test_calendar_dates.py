@@ -146,8 +146,9 @@ def section_schema():
     else:
         cols = _columns("local_job_runs")
         got = {c: (r["is_nullable"], r["data_type"]) for c, r in cols.items()}
-        want = {"job": ("NO", TEXT), "subject_id": ("NO", TEXT), "local_date": ("NO", DATE), "claimed_at": ("NO", TS_TZ)}
-        check(got == want, "schema: local_job_runs has exactly job, subject_id, local_date, claimed_at", got)
+        want = {"job": ("NO", TEXT), "subject_id": ("NO", TEXT), "local_date": ("NO", DATE), "claimed_at": ("NO", TS_TZ),
+                "done_at": ("YES", TS_TZ)}
+        check(got == want, "schema: local_job_runs has exactly job, subject_id, local_date, claimed_at, done_at", got)
         check("now()" in (cols.get("claimed_at", {}).get("column_default") or ""),
               "schema: local_job_runs.claimed_at defaults to now()", cols.get("claimed_at"))
         pk = db.sql("SELECT c.conname, array_agg(a.attname ORDER BY k.n) AS cols FROM pg_constraint c "
@@ -1091,6 +1092,35 @@ def section_ticks():
               "09:00 EDT, across the ticks from 00:00 to 12:00", (runs, len(nows), first))
         check(len(_reminders(ny, nid)) == 1 and _claimed("goal_deadline_reminders", ny["id"], dst),
               "ticks: that run sends the one reminder, claimed for the local date 2027-03-14", _reminders(ny, nid))
+        done = db.sql("SELECT done_at FROM local_job_runs WHERE job = 'goal_deadline_reminders' AND subject_id = %s "
+                      "AND local_date = %s", ny["id"], dst)
+        check(len(done) == 1 and done[0]["done_at"] is not None,
+              "ticks: a run that finished is recorded as done (done_at)", done)
+
+        # ---- a crash mid-run: a claim left unfinished is run again by a later tick that day, once it is stale
+        cr = _person(c, made, "Crash", zone="Asia/Yangon")
+        cid = _goal(c, cr, day + timedelta(days=7))
+        key = ("goal_deadline_reminders", cr["id"], day)
+        # The process died during the 09:05 run: claimed 40 minutes ago, never finished, nothing sent.
+        db.sql("INSERT INTO local_job_runs (job, subject_id, local_date, claimed_at) "
+               "VALUES (%s, %s, %s, now() - interval '40 minutes')", *key)
+        ticks = _ticks([_at(day, 9, 50, YANGON), _at(day, 10, 5, YANGON)], people={cr["id"]},
+                       probe=lambda: len(_reminders(cr, cid)))
+        row = db.sql("SELECT done_at FROM local_job_runs WHERE job = %s AND subject_id = %s AND local_date = %s", *key)
+        check(_probes(ticks) == [1, 1] and _runs(ticks, "goal_deadline_reminders") == [1, 0]
+              and len(row) == 1 and row[0]["done_at"] is not None,
+              "ticks: a claim left unfinished by a crash (claimed 40 minutes ago) is run again at the next tick, once, "
+              "and then recorded as done", (_probes(ticks), _runs(ticks, "goal_deadline_reminders"), row))
+
+        # ---- but a run still going (claimed a moment ago, not finished) is left alone
+        busy = _person(c, made, "Busy", zone="Asia/Yangon")
+        bid = _goal(c, busy, day + timedelta(days=7))
+        db.sql("INSERT INTO local_job_runs (job, subject_id, local_date) VALUES ('goal_deadline_reminders', %s, %s)",
+               busy["id"], day)
+        ticks = _ticks([_at(day, 9, 20, YANGON)], people={busy["id"]}, probe=lambda: len(_reminders(busy, bid)))
+        check(_probes(ticks) == [0] and _runs(ticks, "goal_deadline_reminders") == [0],
+              "ticks: an unfinished claim made a moment ago (a run still going) is not run a second time",
+              (_probes(ticks), _runs(ticks, "goal_deadline_reminders")))
     finally:
         _cleanup(made)
 
