@@ -157,24 +157,38 @@ class BookAppBarTitle extends StatelessWidget {
   }
 }
 
+/// The navigators with a "Which book?" sheet open (or opening): a second
+/// [showBookSheet] on the same navigator, e.g. two taps on the chip in one
+/// frame, opens nothing.
+final Expando<bool> _sheetOpenOn = Expando<bool>('book sheet open');
+
 /// "Which book?": Personal and the family, a tick on the open one. Picking the
 /// other book switches the whole app (which closes the screens above Home)
 /// and opens [routeName] again in that book; picking the open one just closes
-/// the sheet.
+/// the sheet. One sheet at a time; it follows the family while open and
+/// closes itself when the person is no longer in one (removed, left, deleted).
 Future<void> showBookSheet(BuildContext context, {required String routeName}) {
+  final navigator = Navigator.of(context);
+  if (_sheetOpenOn[navigator] == true) return Future<void>.value();
+  _sheetOpenOn[navigator] = true;
   final books = Provider.of<BookModeProvider>(context, listen: false);
   final family = Provider.of<FamilyProvider>(context, listen: false);
   final l = AppLocalizations.of(context);
-  var picked = false;
+  var closing = false;
 
-  return showModalBottomSheet<void>(
+  final shown = showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     builder: (sheetContext) {
-      void pick(bool toFamily) {
-        if (picked) return; // a second tap while the sheet closes
-        picked = true;
+      void close() {
+        if (closing) return; // a second tap, or the family going, while the sheet closes
+        closing = true;
         Navigator.pop(sheetContext);
+      }
+
+      void pick(bool toFamily) {
+        if (closing) return;
+        close();
         if (toFamily == books.isFamily) return;
         unawaited(openInBookWith(
           books,
@@ -192,22 +206,36 @@ Future<void> showBookSheet(BuildContext context, {required String routeName}) {
             onTap: () => pick(toFamily),
           );
 
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(l.bookSheetTitle, style: Theme.of(sheetContext).textTheme.titleMedium),
+      return ListenableBuilder(
+        listenable: Listenable.merge([family, books]),
+        builder: (sheetContext, _) {
+          if (!family.inFamily) {
+            // No family to pick any more: close (after this frame, not while building).
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (sheetContext.mounted) close();
+            });
+          }
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: Text(l.bookSheetTitle, style: Theme.of(sheetContext).textTheme.titleMedium),
+                ),
+                row(const ValueKey('book-sheet-personal'), Icons.person_rounded, l.bookPersonal, !books.isFamily,
+                    false),
+                if (family.inFamily)
+                  row(const ValueKey('book-sheet-family'), Icons.family_restroom_rounded, family.family?.name ?? '',
+                      books.isFamily, true),
+                const SizedBox(height: 8),
+              ],
             ),
-            row(const ValueKey('book-sheet-personal'), Icons.person_rounded, l.bookPersonal, !books.isFamily, false),
-            row(const ValueKey('book-sheet-family'), Icons.family_restroom_rounded, family.family?.name ?? '',
-                books.isFamily, true),
-            const SizedBox(height: 8),
-          ],
-        ),
+          );
+        },
       );
     },
   );
+  return shown.whenComplete(() => _sheetOpenOn[navigator] = null);
 }

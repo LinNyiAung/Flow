@@ -206,6 +206,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('two taps on the chip in the same frame open one sheet', (tester) async {
+    await _pump(tester, family: _FakeFamily(), books: BookModeProvider());
+    final chip = tester.widget<InkWell>(find.descendant(of: find.byKey(BookChip.chipKey), matching: find.byType(InkWell)));
+    chip.onTap!(); // both before the first sheet's route is built
+    chip.onTap!();
+    await tester.pumpAndSettle();
+    expect(find.text('Which book?'), findsOneWidget);
+
+    navigatorKey.currentState!.pop(); // closing it leaves Budgets, not a second sheet
+    await tester.pumpAndSettle();
+    expect(find.text('Which book?'), findsNothing);
+    expect(find.text('Budgets'), findsOneWidget);
+
+    await _openSheet(tester); // and the chip opens it again afterwards
+    expect(find.text('Which book?'), findsOneWidget);
+  });
+
+  testWidgets('two taps on a book in the same frame switch once', (tester) async {
+    final books = _CountingBooks();
+    final pushes = await _pump(tester, family: _FakeFamily(), books: books);
+    final before = pushes.names.length;
+    await _openSheet(tester);
+    final row = tester.widget<ListTile>(find.byKey(const ValueKey('book-sheet-family')));
+    row.onTap!();
+    row.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(books.setModeCalls, 1);
+    expect(pushes.names.skip(before).where((n) => n == '/budgets').length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the open sheet closes when the family goes away', (tester) async {
+    final family = _FakeFamily();
+    final books = _CountingBooks();
+    await _pump(tester, family: family, books: books);
+    await _openSheet(tester);
+    expect(find.byKey(const ValueKey('book-sheet-family')), findsOneWidget);
+
+    family.dropOut(); // removed, left or deleted while the sheet is open
+    await tester.pumpAndSettle();
+
+    expect(find.text('Which book?'), findsNothing);
+    expect(find.text('Budgets'), findsOneWidget);
+    expect(books.setModeCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('chip goes away with the family', (tester) async {
     final family = _FakeFamily();
     await _pump(tester, family: family, books: BookModeProvider());
