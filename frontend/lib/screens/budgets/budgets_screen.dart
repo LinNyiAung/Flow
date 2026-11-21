@@ -31,6 +31,10 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
   bool _activeOnly = true;
   Currency? _selectedCurrency;
 
+  /// False until this screen's first load is back: an empty list or a missing
+  /// summary before then means "not loaded yet", not "no budgets".
+  bool _loadedOnce = false;
+
   @override
   void initState() {
     super.initState();
@@ -44,13 +48,17 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
 
   Future<void> _refreshData() async {
     final budgetProvider = Provider.of<BudgetProvider>(context, listen: false);
-    await Future.wait([
-      budgetProvider.fetchBudgets(
-        activeOnly: _activeOnly,
-        currency: _selectedCurrency,
-      ),
-      budgetProvider.fetchMultiCurrencySummary(),
-    ]);
+    try {
+      await Future.wait([
+        budgetProvider.fetchBudgets(
+          activeOnly: _activeOnly,
+          currency: _selectedCurrency,
+        ),
+        budgetProvider.fetchMultiCurrencySummary(),
+      ]);
+    } finally {
+      if (mounted && !_loadedOnce) setState(() => _loadedOnce = true);
+    }
   }
 
   void _navigateToCreateBudget() async {
@@ -169,7 +177,7 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
             SliverToBoxAdapter(child: const SizedBox(height: 16)),
             SliverToBoxAdapter(child: _buildFilterRow(localizations)),
             SliverToBoxAdapter(child: const SizedBox(height: 16)),
-            if (budgetProvider.isLoading)
+            if (budgetProvider.isLoading || (budgetProvider.budgets.isEmpty && !_loadedOnce))
               SliverToBoxAdapter(
                 child: Container(
                   height: 200,
@@ -209,12 +217,15 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     AppLocalizations localizations,
   ) {
     final multi = budgetProvider.multiCurrencySummary;
+    // Before the first load is back the counts aren't known: a dash, not "0".
+    final pending = multi == null && !_loadedOnce;
+    String count(int? n) => pending ? '–' : '${n ?? 0}';
 
     final stats = <Widget>[
       StatTile(
         icon: Icons.trending_up_rounded,
         label: localizations.active,
-        value: '${multi?.activeBudgets ?? 0}',
+        value: count(multi?.activeBudgets),
         stacked: true,
       ),
       StatTile(
@@ -223,14 +234,14 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
         // the same key is fine as the full-width status pill elsewhere.
         icon: Icons.warning_amber_rounded,
         label: localizations.overShort,
-        value: '${multi?.exceededBudgets ?? 0}',
+        value: count(multi?.exceededBudgets),
         iconColor: Theme.of(context).colorScheme.error,
         stacked: true,
       ),
       StatTile(
         icon: Icons.dashboard_rounded,
         label: localizations.total,
-        value: '${multi?.totalBudgets ?? 0}',
+        value: count(multi?.totalBudgets),
         stacked: true,
       ),
     ];
@@ -245,11 +256,15 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
     if (summary == null) {
       // No big number: a bare "0" (with no currency) said nothing that
       // "No budgets yet" doesn't. A user with budgets in other currencies
-      // only has none in the one picked.
+      // only has none in the one picked. Nothing is said before the first load.
       return HeroCard(
         label: localizations.budgetSummary,
         value: null,
-        supporting: (multi?.totalBudgets ?? 0) > 0 ? localizations.noBudgetsInCurrency : localizations.noBudgetsYet,
+        supporting: pending
+            ? null
+            : (multi?.totalBudgets ?? 0) > 0
+                ? localizations.noBudgetsInCurrency
+                : localizations.noBudgetsYet,
         stats: stats,
       );
     }
