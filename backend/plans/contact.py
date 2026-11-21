@@ -11,10 +11,19 @@ _E164 = re.compile(r"\+[0-9]{8,15}")
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 # A Telegram input that is a phone number: digits (after the separators are dropped) with an optional leading `+`.
 _PHONE_LIKE = re.compile(r"\+?[0-9]+")
-# A Telegram username (5 to 32 of a-z A-Z 0-9 _, starting with a letter), alone, after `@`, or in a t.me /
-# telegram.me link (http or https, or no scheme). Case-insensitive on the scheme and host; ASCII only.
-_TELEGRAM = re.compile(r"(?:(?:https?://)?(?:t|telegram)\.me/|@)?([a-z][a-z0-9_]{4,31})", re.IGNORECASE | re.ASCII)
+# A Telegram username: 5 to 32 of a-z A-Z 0-9 _, starting with a letter (ASCII only).
+_TELEGRAM_NAME = re.compile(r"@?([a-z][a-z0-9_]{4,31})", re.IGNORECASE | re.ASCII)
+# A t.me / telegram.me link (http or https, or no scheme; case-insensitive), what follows it, and one optional
+# trailing slash: a username (t.me/name) or `+` and a phone number (t.me/+959…).
+_TELEGRAM_LINK = re.compile(r"(?:https?://)?(?:t|telegram)\.me/(.*?)/?", re.IGNORECASE | re.ASCII)
 _SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*)://")
+# Invisible characters a copy and paste brings along: a byte-order mark, zero-width spaces and joiners, a word joiner.
+_INVISIBLE = "﻿​‌‍⁠"
+_EDGES = re.compile(f"^[\\s{_INVISIBLE}]+|[\\s{_INVISIBLE}]+$")
+# What is never part of a contact detail: control characters (other than whitespace, which each rule handles) and the
+# invisible characters above when they are inside the text.
+_HIDDEN = re.compile(f"[\\x00-\\x08\\x0e-\\x1f\\x7f-\\x9f{_INVISIBLE}]")
+HIDDEN_HINT = "Remove the hidden character in it (it can come along with a copy and paste)"
 
 MAX_EMAIL_LENGTH = 254
 MAX_LINK_LENGTH = 300
@@ -29,13 +38,22 @@ FACEBOOK_HOSTS = ("facebook.com", "www.facebook.com", "m.facebook.com", "web.fac
 MESSENGER_HOSTS = ("m.me", "messenger.com", "www.messenger.com")
 
 
+def _clean(value: Optional[str]) -> str:
+    """`value` without whitespace and invisible characters (_INVISIBLE) at either end. ValueError (readable) when a
+    control or invisible character is left inside."""
+    text = _EDGES.sub("", value or "")
+    if _HIDDEN.search(text):
+        raise ValueError(HIDDEN_HINT)
+    return text
+
+
 def normalize_viber(value: Optional[str]) -> Optional[str]:
     """A Viber number as `+` and 8 to 15 digits, or None for an empty one. ValueError (readable) when it is not a number.
 
     Spaces, dashes, dots and parentheses are dropped; one leading `+` is allowed; a Myanmar local number
-    (`09…`) becomes `+959…`.
+    (`09…`) becomes `+959…`. Invisible characters at either end are dropped (_clean).
     """
-    raw = _SEPARATORS.sub("", value or "")
+    raw = _SEPARATORS.sub("", _clean(value))
     if not raw:
         return None
     if raw.startswith("09"):
@@ -46,8 +64,9 @@ def normalize_viber(value: Optional[str]) -> Optional[str]:
 
 
 def normalize_email(value: Optional[str]) -> Optional[str]:
-    """The owner's email, stripped; None for an empty one. ValueError (readable) when it does not look like an email."""
-    text = (value or "").strip()
+    """The owner's email, stripped (_clean); None for an empty one. ValueError (readable) when it does not look like an
+    email."""
+    text = _clean(value)
     if not text:
         return None
     if len(text) > MAX_EMAIL_LENGTH or not _EMAIL.fullmatch(text):
@@ -60,19 +79,22 @@ def normalize_telegram(value: Optional[str]) -> Optional[str]:
     `+959…`) or a username (`@name`, in the case it was typed); None for an empty one. ValueError (readable) otherwise.
 
     An input that is only digits (after spaces, dashes, dots and parentheses are dropped) with an optional leading `+`
-    is a number. Anything else is a username: `@name`, `name`, or a `t.me/name` / `telegram.me/name` link with or
-    without `http(s)://`; the name is 5 to 32 of a-z A-Z 0-9 _ and starts with a letter.
+    is a number, and so is a `t.me/+…` / `telegram.me/+…` link. Anything else is a username: `@name`, `name`, or a
+    `t.me/name` / `telegram.me/name` link; a link may have `http(s)://` and one trailing slash. The name is 5 to 32 of
+    a-z A-Z 0-9 _ and starts with a letter. Invisible characters at either end are dropped (_clean).
     """
-    text = (value or "").strip()
+    text = _clean(value)
     if not _SEPARATORS.sub("", text):
         return None
-    if _PHONE_LIKE.fullmatch(_SEPARATORS.sub("", text)):
+    link = _TELEGRAM_LINK.fullmatch(text)
+    target = link.group(1) if link else text
+    if (target.startswith("+") if link else True) and _PHONE_LIKE.fullmatch(_SEPARATORS.sub("", target)):
         try:
-            return normalize_viber(text)
+            return normalize_viber(target)
         except ValueError:
             raise ValueError(TELEGRAM_HINT) from None
-    m = _TELEGRAM.fullmatch(text)
-    if not m:
+    m = _TELEGRAM_NAME.fullmatch(target)
+    if not m or (link and target.startswith("@")):
         raise ValueError(TELEGRAM_HINT)
     return "@" + m.group(1)
 
@@ -89,8 +111,9 @@ def _split_link(text: str) -> Tuple[Optional[str], str, str]:
 def _normalize_link(value: Optional[str], hosts: Tuple[str, ...], hint: str) -> Optional[str]:
     """An http(s) link on one of `hosts` with a page path, as `https://` + host (lower case) + the path, query and
     fragment as typed; None for an empty one. ValueError (readable, `hint`) for any other host, no path, a user name
-    or a port, spaces, a scheme other than http/https, or more than MAX_LINK_LENGTH characters."""
-    text = (value or "").strip()
+    or a port, spaces, a scheme other than http/https, or more than MAX_LINK_LENGTH characters. Invisible characters at
+    either end are dropped (_clean)."""
+    text = _clean(value)
     if not text:
         return None
     if len(text) > MAX_LINK_LENGTH:

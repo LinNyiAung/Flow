@@ -38,8 +38,8 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
     in one transaction.
 
     limit_rows: dicts with plan, feature, mode, quota, period. caps: plan -> USD. contact: {"en": ..., "my": ...}.
-    owner_contact: {"email", "viber", "telegram", "facebook", "messenger"} ("" clears one), or None to leave them all
-    as they are.
+    owner_contact: some or all of {"email", "viber", "telegram", "facebook", "messenger"} ("" clears one; a key left
+    out keeps its stored value), or None to leave them all as they are.
     prices: plan -> {"monthly_mmk", "yearly_mmk"} (None clears one) for the plans in `caps`, or None to leave every
     price as it is.
     family: plan -> (family_max_members, family_max_placeholders) for the plans in `caps`, or None to leave them all
@@ -62,7 +62,7 @@ async def write_all(limit_rows: List[Mapping[str, Any]], caps: Mapping[str, floa
                                                      set_={c: stmt.excluded[c] for c in values}))
         texts = {key: contact[lang] for lang, key in CONTACT_KEYS.items()}
         if owner_contact is not None:
-            texts.update({key: owner_contact[name] for name, key in OWNER_CONTACT_KEYS.items()})
+            texts.update({key: owner_contact[name] for name, key in OWNER_CONTACT_KEYS.items() if name in owner_contact})
         for key, value in texts.items():
             stmt = pg_insert(app_settings).values(key=key, value=value)
             await execute(stmt.on_conflict_do_update(index_elements=[app_settings.c.key],

@@ -846,13 +846,19 @@ async def run(t):
         check(r.status_code == 200 and r.json()["owner_contact"] == want5,
               "owner_contact_links: a save without owner_contact leaves Telegram, Facebook and Messenger alone",
               f"{r.status_code} {r.text[-300:]}")
-        # an owner_contact without the new keys (an older admin panel) clears them, like a missing key in the store
-        snap["owner_contact"] = {"email": OWNER_EMAIL, "viber": OWNER_VIBER}
+        # an owner_contact without the newer keys (an older admin tab still open) keeps them: only what it sends changes
+        snap["owner_contact"] = {"email": "", "viber": OWNER_VIBER}
         r = c.put("/api/admin/plans", headers=AD, json=snap)
-        check(r.status_code == 200 and r.json()["owner_contact"] == owner_of(email=OWNER_EMAIL, viber=OWNER_VIBER)
-              and stored_owner()["contact_telegram"] == "" and stored_owner()["contact_messenger"] == "",
-              "owner_contact_links: an owner_contact without telegram / facebook / messenger clears them",
-              f"{r.status_code} {r.text[-300:]}")
+        check(r.status_code == 200 and r.json()["owner_contact"] == {**want5, "email": ""}
+              and stored_owner() == stored_of(viber=OWNER_VIBER, telegram=OWNER_TELEGRAM, facebook=OWNER_FACEBOOK,
+                                              messenger=OWNER_MESSENGER),
+              "owner_contact_links: an owner_contact without telegram / facebook / messenger keeps them (the email "
+              "it sends as empty is cleared)", f"{r.status_code} {r.text[-300:]} {stored_owner()}")
+        snap["owner_contact"] = {"email": OWNER_EMAIL, "viber": OWNER_VIBER, "telegram": ""}
+        r = c.put("/api/admin/plans", headers=AD, json=snap)
+        check(r.status_code == 200 and r.json()["owner_contact"] == {**want5, "telegram": ""}
+              and stored_owner()["contact_telegram"] == "" and stored_owner()["contact_messenger"] == OWNER_MESSENGER,
+              "owner_contact_links: a key sent as empty clears just that one", f"{r.status_code} {r.text[-300:]}")
         # every accepted form is stored in one normal form
         accepted = (
             ("telegram", "+959123456789", "+959123456789"), ("telegram", "09 123 456 789", "+959123456789"),
@@ -862,6 +868,13 @@ async def run(t):
             ("telegram", "http://t.me/FlowOwner", "@FlowOwner"), ("telegram", "telegram.me/FlowOwner", "@FlowOwner"),
             ("telegram", "HTTPS://T.ME/flow_owner_1", "@flow_owner_1"), ("telegram", "  @abcde  ", "@abcde"),
             ("telegram", "a" * 32, "@" + "a" * 32),
+            ("telegram", "t.me/+959123456789", "+959123456789"), ("telegram", "https://t.me/+959123456789", "+959123456789"),
+            ("telegram", "telegram.me/+66 81 234 5678", "+66812345678"),
+            ("telegram", "https://t.me/flowowner/", "@flowowner"), ("telegram", "t.me/FlowOwner/", "@FlowOwner"),
+            # a byte-order mark or zero-width space pasted at either end is dropped
+            ("telegram", "﻿@FlowOwner", "@FlowOwner"), ("telegram", "@FlowOwner​", "@FlowOwner"),
+            ("facebook", "﻿facebook.com/flowapp​", "https://facebook.com/flowapp"),
+            ("messenger", "⁠m.me/flowapp ", "https://m.me/flowapp"),
             ("facebook", "facebook.com/flowapp", "https://facebook.com/flowapp"),
             ("facebook", "www.facebook.com/flowapp", "https://www.facebook.com/flowapp"),
             ("facebook", "m.facebook.com/flowapp", "https://m.facebook.com/flowapp"),
@@ -896,7 +909,9 @@ async def run(t):
             ("telegram", "a" * 33, "a username too long"), ("telegram", "@flow-owner", "a username with a dash"),
             ("telegram", "@flow owner", "a username with a space"), ("telegram", "+1234567", "a number too short"),
             ("telegram", "959123456789", "a number without a plus or 09"), ("telegram", "12345", "a short number"),
-            ("telegram", "t.me/", "a t.me link without a name"), ("telegram", "https://t.me/flowowner/", "a t.me link with a slash"),
+            ("telegram", "t.me/", "a t.me link without a name"), ("telegram", "https://t.me/flowowner//", "a t.me link with two slashes"),
+            ("telegram", "t.me/+AbCdEf12345", "an invite link"), ("telegram", "t.me/+1234567", "a t.me number too short"),
+            ("telegram", "t.me/@flowowner", "a t.me link with @"),
             ("telegram", "ftp://t.me/flowowner", "a t.me link with another scheme"),
             ("telegram", "www.t.me/flowowner", "another Telegram host"), ("telegram", "@flowownér", "a non-ASCII username"),
             ("facebook", "evil.com/flowapp", "another host"), ("facebook", "facebook.com.evil.com/flowapp", "a look-alike host"),
@@ -908,6 +923,9 @@ async def run(t):
             ("messenger", "m.me", "no page"), ("messenger", "m.me/", "only a slash"),
             ("messenger", "facebook.com/flowapp", "a Facebook link"), ("messenger", "www.m.me/flowapp", "another host"),
             ("messenger", "ftp://m.me/flowapp", "an ftp link"), ("messenger", "m.me/" + "a" * 300, "over 300 characters"),
+            # hidden characters inside
+            ("facebook", "facebook.com/flow​app", "a zero-width space"),
+            ("messenger", "m.me/flow\x07app", "a control character"), ("telegram", "@flow\x1bowner", "an escape"),
         )
         labels = {"telegram": "Telegram", "facebook": "Facebook", "messenger": "Messenger"}
         for key, given, label in rejected:
@@ -929,6 +947,8 @@ async def run(t):
             ("an email with a space", "own er@example.com", "", "email"), ("an email over 254 characters", "a" * 250 + "@b.co", "", "email"),
             ("a Viber number with letters", "", "abc", "Viber"), ("a Viber number too short", "", "+1234567", "Viber"),
             ("a Viber number without a plus or 09", "", "959123456789", "Viber"),
+            ("an email with a control character", "owner@exam\x1bple.com", "", "email"),
+            ("an email with a zero-width space", "own​er@example.com", "", "email"),
         ):
             r = put_owner(email, viber)
             check(r.status_code == 422 and word in r.text and c.get("/api/admin/plans", headers=AD).json() == before_bad,
@@ -936,6 +956,22 @@ async def run(t):
         r = put_owner("owner.example.com", "abc")
         check(r.status_code == 422 and "email" in r.text and "Viber" in r.text,
               "owner_contact_validation: both problems are reported together", r.text[:200])
+        r = put_owner("﻿ owner@example.com​", "")
+        check(r.status_code == 200 and r.json()["owner_contact"]["email"] == "owner@example.com"
+              and stored_owner()["contact_email"] == "owner@example.com",
+              "owner_contact_validation: a byte-order mark or zero-width space at either end of the email is dropped",
+              f"{r.status_code} {r.text[-200:]}")
+        # A NUL (Postgres cannot store it) anywhere is refused before it reaches the database, never a 500.
+        before_bad = c.get("/api/admin/plans", headers=AD).json()
+        for label, over in (("the email", {"email": "own\x00er@example.com"}), ("the Viber number", {"viber": "09 123\x00 456"}),
+                            ("the Facebook link", {"facebook": "facebook.com/flowapp\x00"}),
+                            ("the en upgrade contact", {"upgrade_contact": {**before_bad["upgrade_contact"], "en": "Hi\x00"}})):
+            fields = {k: v for k, v in over.items() if k != "upgrade_contact"}
+            extra = {k: v for k, v in over.items() if k == "upgrade_contact"}
+            r = put_owner(**{"email": "", "viber": "", **fields}, **extra)
+            check(r.status_code in (400, 422) and c.get("/api/admin/plans", headers=AD).json() == before_bad,
+                  f"owner_contact_validation: a NUL in {label} is refused (400/422) and saves nothing",
+                  f"{r.status_code} {r.text[:200]}")
         snap = c.get("/api/admin/plans", headers=AD).json()
         for label, bad in (("an unknown field", {"email": "", "viber": "", "whatsapp": "x"}), ("a missing viber", {"email": ""}),
                            ("a non-text email", {"email": 5, "viber": ""}), ("a string instead of an object", "me@example.com")):

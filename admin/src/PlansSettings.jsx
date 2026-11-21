@@ -72,15 +72,19 @@ const validViber = (text) => {
   return /^\+[0-9]{8,15}$/.test(digits.startsWith('09') ? `+95${digits.slice(1)}` : digits);
 };
 
-// Telegram: a number (only digits after the separators, with an optional leading +; the Viber rule) or a username:
-// @name, name, or a t.me / telegram.me link, the name 5-32 of a-z A-Z 0-9 _ starting with a letter.
-const TELEGRAM_NAME = /^(?:(?:https?:\/\/)?(?:t|telegram)\.me\/|@)?[a-z][a-z0-9_]{4,31}$/i;
+// Telegram: a number (only digits after the separators, with an optional leading +; the Viber rule; or a t.me/+… link)
+// or a username: @name, name, or a t.me / telegram.me link, the name 5-32 of a-z A-Z 0-9 _ starting with a letter. A
+// link may have http(s):// and one trailing slash.
+const TELEGRAM_NAME = /^@?[a-z][a-z0-9_]{4,31}$/i;
+const TELEGRAM_LINK = /^(?:https?:\/\/)?(?:t|telegram)\.me\/(.*?)\/?$/i;
 const validTelegram = (text) => {
   const t = text.trim();
-  const compact = t.replace(/[\s\-.()]/g, '');
-  if (!compact) return true;
-  if (/^\+?[0-9]+$/.test(compact)) return validViber(t);
-  return TELEGRAM_NAME.test(t);
+  if (!t.replace(/[\s\-.()]/g, '')) return true;
+  const link = TELEGRAM_LINK.exec(t);
+  const target = link ? link[1] : t;
+  if (/^\+?[0-9]+$/.test(target.replace(/[\s\-.()]/g, '')) && (!link || target.startsWith('+'))) return validViber(target);
+  if (link && target.startsWith('@')) return false;
+  return TELEGRAM_NAME.test(target);
 };
 
 // Facebook page / Messenger links: http(s) or no scheme, one of the hosts, a page path; no user name, port or
@@ -560,7 +564,7 @@ const PlansSettings = ({ token, adminRole }) => {
                 value={draft.owner.viber} disabled={!writable || busy} onChange={(t) => setOwner('viber', t)} />
               <OwnerField id="owner-telegram" label="Telegram number or username" type="text"
                 placeholder="09 123 456 789 or @yourname" maxLength={64}
-                hint="A number with the country code (09… becomes +959…), or a username like @yourname or t.me/yourname"
+                hint="A number with the country code (09… becomes +959…, t.me/+959… works too), or a username like @yourname or t.me/yourname"
                 value={draft.owner.telegram} disabled={!writable || busy} onChange={(t) => setOwner('telegram', t)} />
               <OwnerField id="owner-facebook" label="Facebook page link" type="url"
                 placeholder="facebook.com/yourpage" maxLength={MAX_LINK_LENGTH}

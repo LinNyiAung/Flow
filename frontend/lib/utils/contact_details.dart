@@ -74,10 +74,10 @@ String? normalizeViberNumber(String input) {
   return RegExp(r'^\+[0-9]{8,15}$').hasMatch(number) ? number : null;
 }
 
-final _telegramName = RegExp(
-  r'^(?:(?:https?://)?(?:t|telegram)\.me/|@)?([a-z][a-z0-9_]{4,31})$',
-  caseSensitive: false,
-);
+final _telegramName = RegExp(r'^@?([a-z][a-z0-9_]{4,31})$', caseSensitive: false);
+
+/// A t.me / telegram.me link, what follows it and one optional trailing slash.
+final _telegramLink = RegExp(r'^(?:https?://)?(?:t|telegram)\.me/(.*?)/?$', caseSensitive: false);
 
 /// A Telegram contact the way the server stores it: a number (`+` and 8 to 15
 /// digits) or a username (`@name`, in the case it was typed).
@@ -85,18 +85,22 @@ final _telegramName = RegExp(
 /// The same rule as the server (`plans/contact.py`): an input that is only
 /// digits once spaces, dashes, dots and parentheses are dropped (with an
 /// optional leading `+`) is a number and follows [normalizeViberNumber]
-/// (`09…` becomes `+959…`). Anything else is a username: `@name`, `name`, or
-/// a `t.me/name` / `telegram.me/name` link with or without `http(s)://`; the
-/// name is 5 to 32 of a-z A-Z 0-9 _ and starts with a letter. Returns '' for
-/// an empty input and null when [input] is neither.
+/// (`09…` becomes `+959…`), and so is a `t.me/+…` link. Anything else is a
+/// username: `@name`, `name`, or a `t.me/name` / `telegram.me/name` link; a
+/// link may have `http(s)://` and one trailing slash. The name is 5 to 32 of
+/// a-z A-Z 0-9 _ and starts with a letter. Returns '' for an empty input and
+/// null when [input] is neither.
 String? normalizeTelegram(String input) {
   final text = input.trim();
-  final compact = text.replaceAll(_separators, '');
-  if (compact.isEmpty) return '';
-  if (RegExp(r'^\+?[0-9]+$').hasMatch(compact)) {
-    return normalizeViberNumber(text);
+  if (text.replaceAll(_separators, '').isEmpty) return '';
+  final link = _telegramLink.firstMatch(text);
+  final target = link == null ? text : link.group(1)!;
+  final phoneLike = RegExp(r'^\+?[0-9]+$').hasMatch(target.replaceAll(_separators, ''));
+  if (phoneLike && (link == null || target.startsWith('+'))) {
+    return normalizeViberNumber(target);
   }
-  final match = _telegramName.firstMatch(text);
+  if (link != null && target.startsWith('@')) return null;
+  final match = _telegramName.firstMatch(target);
   return match == null ? null : '@${match.group(1)}';
 }
 

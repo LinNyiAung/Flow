@@ -206,13 +206,19 @@ void main() {
         'HTTPS://T.ME/flow_owner_1': '@flow_owner_1', // the host in any case, the name as typed
         '  @abcde  ': '@abcde',
         'abcdefghijabcdefghijabcdefghijab': '@abcdefghijabcdefghijabcdefghijab', // 32
+        't.me/+959123456789': '+959123456789', // a number in a t.me link
+        'https://t.me/+959123456789': '+959123456789',
+        'telegram.me/+66 81 234 5678': '+66812345678',
+        'https://t.me/flowowner/': '@flowowner', // one trailing slash
+        't.me/FlowOwner/': '@FlowOwner',
       };
       good.forEach((input, want) => expect(normalizeTelegram(input), want, reason: input));
       expect(normalizeTelegram(''), '');
       expect(normalizeTelegram('  - '), '');
       for (final bad in const [
         '@abc', '@1abc', 'abcd', 'abcdefghijabcdefghijabcdefghijabc', '@flow-owner', '@flow owner', '+1234567',
-        '959123456789', '12345', 't.me/', 't.me/@abcde', 'https://t.me/flowowner/', 'www.t.me/flowowner',
+        '959123456789', '12345', 't.me/', 't.me/@abcde', 'https://t.me/flowowner//', 'www.t.me/flowowner',
+        't.me/+AbCdEf12345', 't.me/+1234567', 't.me/959123456789', '/', 't.me//',
         'ftp://t.me/flowowner', '@flowownér', '@ſtuvw', '@Kabcd', '၀၉၁၂၃၄၅၆၇၈၉', '@@abcde',
       ]) {
         expect(normalizeTelegram(bad), isNull, reason: bad);

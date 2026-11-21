@@ -57,7 +57,7 @@ class ContactBody(BaseModel):
 class OwnerContactBody(BaseModel):
     """The owner's own email, Viber number, Telegram number or username, Facebook page link and Messenger link;
     "" clears one. plans.store.save validates them. Telegram, Facebook and Messenger came later: one left out (an older
-    admin panel) is read as "" and so cleared, like a key missing in plans.store.save."""
+    admin panel still open) keeps its stored value (only the fields sent are passed on, model_fields_set)."""
     model_config = ConfigDict(extra="forbid")
     email: str
     viber: str
@@ -165,7 +165,8 @@ async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin
                for plan, p in body.plans.items()} if sends_family else None)
     try:
         await store.save(plan_rows, caps, body.upgrade_contact.model_dump(), current_admin["_id"],
-                         body.owner_contact.model_dump() if body.owner_contact is not None else None, prices, family)
+                         (body.owner_contact.model_dump(include=body.owner_contact.model_fields_set)
+                          if body.owner_contact is not None else None), prices, family)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 

@@ -123,8 +123,8 @@ def _limit(where: str, value: Any, errors: List[str]) -> Limit | None:
 
 
 def _owner_contact(value: Any, errors: List[str]) -> Dict[str, str]:
-    """{"email", "viber", "telegram", "facebook", "messenger"} normalised ("" when empty or missing) from a mapping
-    with those keys; problems are appended to `errors`."""
+    """The keys of {"email", "viber", "telegram", "facebook", "messenger"} that the mapping has, normalised ("" when
+    empty); a key it leaves out is left out (save keeps its stored value). Problems are appended to `errors`."""
     if not isinstance(value, Mapping):
         errors.append("owner contact must be an object with email, viber, telegram, facebook and messenger")
         return {}
@@ -133,7 +133,9 @@ def _owner_contact(value: Any, errors: List[str]) -> Dict[str, str]:
             errors.append(f"Unknown owner contact field '{key}'")
     out: Dict[str, str] = {}
     for key, normalise, label in OWNER_FIELDS:
-        raw = value.get(key, "")
+        if key not in value:
+            continue
+        raw = value[key]
         if raw is not None and not isinstance(raw, str):
             errors.append(f"owner contact {label} must be text")
             continue
@@ -382,7 +384,8 @@ async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: st
                family: Mapping | None = None) -> None:
     """Validate, store and cache the limits (plan -> feature -> Limit or {mode, quota, period}), the cost caps
     (plan -> USD), the upgrade contact texts ({"en", "my"}), when given the owner's {"email", "viber", "telegram",
-    "facebook", "messenger"} (an empty string or a missing key clears one; None leaves them all as they are) and,
+    "facebook", "messenger"} (an empty string clears one; a missing key keeps its stored value, so an older admin
+    panel that doesn't know a field never clears it; None leaves them all as they are) and,
     when given, every plan's price (plan -> {"monthly_mmk", "yearly_mmk"} in whole kyat, None for not set; Free has none and a yearly price needs a monthly one; None leaves
     the prices as they are) and, when given, every plan's family limits (plan -> {"max_members",
     "max_placeholders"}, whole numbers from 0 to 50; None leaves them as they are). Raises ValueError with a readable message when anything is invalid; nothing is written
@@ -395,7 +398,7 @@ async def save(plan_rows: Mapping, caps: Mapping, contact: Mapping, admin_id: st
             for p in PLANS for f, lim in rows[p].items()]
     _write_gen += 1
     await plans_db.write_all(flat, out_caps, out_contact, out_owner, out_prices, out_family)
-    _set_cache(rows, out_caps, out_contact, out_owner if out_owner is not None else dict(_owner),
+    _set_cache(rows, out_caps, out_contact, {**_owner, **(out_owner or {})},
                out_prices if out_prices is not None else {p: dict(v) for p, v in _prices.items()}, out_family)
     _write_gen += 1
     logger.info("Plans saved by admin %s", admin_id)
