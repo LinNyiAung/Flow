@@ -17,7 +17,7 @@ from tz_utils import (
     as_calendar_date, as_wall_clock, days_until, goal_reminder_threshold, is_budget_ending_soon, local_now,
     GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
 )
-from user_zones import book_zone, person_zone
+from user_zones import person_zone
 
 # The daily job only announces budgets whose start date is at most this many days ago
 # (covers a missed run without spamming long-running legacy budgets on rollout).
@@ -660,21 +660,17 @@ async def budget_ending_reminders_for_person(person_id: str, today: date, tz: tz
     their books (personal, and their family's) whose last day is at most BUDGET_ENDING_SOON_DAYS calendar days after
     the person's `today` (0: it ends today).
 
-    "Running" = its days include the person's today and its status is active OR exceeded (an exceeded budget is still
-    running and must get the alert). A budget's status is once per book (the book's zone), and stored statuses can be
-    stale (still "upcoming" after the start date), so candidates are refreshed first. Budget ids are per period, so
-    each person gets one "ending soon" per budget ever; a family budget's goes to this member only."""
-    from budget_service import RUNNING_BUDGET_STATUSES, refresh_budget_state_if_stale  # local: avoid import cycle
-
+    "Running" = its days include the person's own today (an exceeded budget is still running and must get the alert).
+    That is decided from the dates on the person's calendar, not from the stored status: a budget's status is once per
+    book (the book's zone, a family's owner), so for a member behind the owner it already reads "completed" on the
+    member's last day, which would never get its "ends today". Budget ids are per period, so each person gets one
+    "ending soon" per budget ever; a family budget's goes to this member only."""
     window = (today - timedelta(days=1), today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1))
-    zones: Dict[str, tzinfo] = {}
     for budget in await budgets_db.ending_soon_candidates(await _books_of_person(person_id), today, *window):
         try:
             book_id = budget["book_id"]
-            if book_id not in zones:
-                zones[book_id] = await book_zone(book_id)
-            budget = await refresh_budget_state_if_stale(budget, zones[book_id])
-            if budget.get("status") not in RUNNING_BUDGET_STATUSES or not budget.get("end_date"):
+            start, end = budget.get("start_date"), budget.get("end_date")
+            if not start or not end or not as_calendar_date(start) <= today <= as_calendar_date(end):
                 continue
             days_until_end = days_until(budget["end_date"], today)
             if not is_budget_ending_soon(days_until_end):

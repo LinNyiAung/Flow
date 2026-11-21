@@ -423,10 +423,15 @@ def section_family_rules():
         check(any(i.get("email") == M["email"].lower() and i.get("link_member_id") == (mama or {}).get("id")
                   and i.get("status") == "pending" for i in pend), "family rules: admins see the pending invites", pend)
         _, r = accept_from(M, FNAME)
-        rows = [x for x in fam(A).json().get("members", []) if x["display_name"] == "Ma Ma"]
-        check(r is not None and r.status_code == 200 and len(rows) == 1 and rows[0]["id"] == (mama or {}).get("id")
+        members = fam(A).json().get("members", [])
+        rows = [x for x in members if x["id"] == (mama or {}).get("id")]
+        check(r is not None and r.status_code == 200 and len(rows) == 1
               and rows[0]["kind"] == "account" and rows[0]["status"] == "active" and rows[0]["role"] == "member",
               "family rules: accepting a linked invite turns the placeholder into the account (same member id, one row)", rows)
+        check(len(rows) == 1 and rows[0]["display_name"] == M["name"]
+              and not [x for x in members if x["display_name"] == "Ma Ma"],
+              "family rules: the claimed placeholder takes the person's own name at once (an account member's name is "
+              "their own), not 'Ma Ma'", [(x["display_name"], x["kind"]) for x in members])
         check(mama is not None and (fam(M).json().get("me") or {}).get("member_id") == mama["id"],
               "family rules: the new member is that row")
         for who, label in ((B, "an admin"), (A, "the owner")):
@@ -1262,7 +1267,12 @@ def section_entries_breakdown():
         r = breakdown(M, "usd", start=d0 + timedelta(days=1), end=d0)
         check(r.status_code == 400, "breakdown: an end before the start is 400", f"{r.status_code} {r.text[:200]}")
         r = breakdown(L, "usd")
-        check(_code(r, 404, "no_family"), "breakdown: outside a family is 404 no_family", f"{r.status_code} {r.text[:200]}")
+        check(_code(r, 409, "no_family"), "breakdown: outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
+        for method, path, body in (("POST", "/api/family/leave", None), ("PATCH", "/api/family", {"name": "x"}),
+                                   ("POST", "/api/family/placeholders", {"display_name": "x"})):
+            r = c.request(method, path, headers=L["h"], json=body)
+            check(_code(r, 409, "no_family"), f"no_family: {method} {path} outside a family is 409 no_family (as a "
+                  "family-book request is)", f"{r.status_code} {r.text[:200]}")
 
         # ---- R21 (I1): an account member's family name follows their profile name ----
         def dad_names():
@@ -1315,7 +1325,7 @@ def section_entries_breakdown():
               "entries: an edit adding a former member not already on the entry (Gone) is 400 and changes nothing",
               f"{r.status_code} {r.text[:200]}")
         r = breakdown(D, "thb")
-        check(_code(r, 404, "no_family"), "breakdown: Dad, who left, gets no_family", f"{r.status_code} {r.text[:200]}")
+        check(_code(r, 409, "no_family"), "breakdown: Dad, who left, gets 409 no_family", f"{r.status_code} {r.text[:200]}")
     finally:
         _cleanup_people(made)
 

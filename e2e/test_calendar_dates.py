@@ -1164,6 +1164,26 @@ def section_family_jobs():
               "for the Yangon owner) sends the member the 7-day reminder of a goal due 7 days after the member's today "
               "(6 after the owner's), and nothing to the owner", got)
 
+        # ---- the same member and a family budget whose last day was yesterday on the owner's (real) clock: at the
+        # member's 09:05 on that day it is still their last day, so they get "ends today", though the budget's stored
+        # status (refreshed on the owner's clock) is already "completed"
+        last = day - timedelta(days=1)
+        last_day = _finished_budget(book, last, "lastday")
+        db.sql("UPDATE budgets SET status = 'active', is_active = true, auto_create_enabled = false WHERE id = %s",
+               last_day)
+
+        def ending(p):
+            return db.sql("SELECT message FROM notifications WHERE user_id = %s AND type = 'budget_ending_soon' "
+                          "AND budget_id = %s", p["id"], last_day)
+        at2 = _at(last, 9, 5, honolulu)
+        _ticks([at2], people={member["id"]})
+        notes = ending(member)
+        check(at2.astimezone(YANGON).date() == day and len(notes) == 1 and "ends today" in notes[0]["message"]
+              and not ending(owner),
+              f"family_jobs: the Honolulu member gets 'ends today' at their 09:05 on {last}, the budget's last day, "
+              f"though on the Yangon owner's clock it is already {day} and the budget is over; the owner gets nothing",
+              (notes, ending(owner)))
+
         # ---- ownership passes west (Yangon -> Kolkata): the book's 00:30 rollover still runs once per local date
         kolkata = ZoneInfo("Asia/Kolkata")  # UTC+5:30, an hour behind Yangon
         d = day + timedelta(days=10)  # clear of the dates the ticks above claimed for the book

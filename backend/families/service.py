@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 INVITE_DAYS = 14
 STATUS = {
-    "no_family": 404,
+    "no_family": 409,  # as a family-book request answers it (families.book.get_book): one status for one code
     "not_found": 404,
     "already_in_family": 409,
     "family_full": 409,
@@ -523,7 +523,7 @@ async def accept_invite(user: Mapping[str, Any], invite_id: str) -> Dict[str, An
             if reuse is None:
                 reuse = await fdb.former_account_member(family_id, uid)
             # The family lock keeps the row as read (remove takes it too); a failed claim falls back to a new member.
-            if reuse is None or not await fdb.claim_member(reuse["id"], uid, now):
+            if reuse is None or not await fdb.claim_member(reuse["id"], uid, now, _own_name(user)):
                 await fdb.insert_member(str(uuid.uuid4()), family_id, _own_name(user), "account", "member", uid)
     except IntegrityError:  # joined another family concurrently (one active family per person)
         _fail(user, "already_in_family")

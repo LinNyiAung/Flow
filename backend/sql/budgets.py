@@ -123,12 +123,13 @@ async def rollover_candidates(book_id: str, today: date) -> List[Dict[str, Any]]
 
 async def ending_soon_candidates(book_ids: Sequence[str], today: date, window_start: date,
                                  window_end: date) -> List[Dict[str, Any]]:
-    """The books' running or upcoming budgets that have started by `today` and whose last day is in
-    [window_start, window_end]."""
+    """The books' budgets that have started by `today` and whose last day is in [window_start, window_end], whatever
+    their stored status: that is kept on the book's clock (a family's owner), so a member behind the owner can still be
+    on a budget's last day when it already reads "completed" (the caller checks the dates on the person's calendar)."""
     if not book_ids:
         return []
     return await _list(select(b).where(
-        b.c.book_id.in_(list(book_ids)), b.c.status.in_(RUNNING_OR_UPCOMING),
+        b.c.book_id.in_(list(book_ids)),
         b.c.start_date <= as_calendar_date(today), b.c.end_date >= as_calendar_date(window_start), b.c.end_date <= as_calendar_date(window_end),
     ).order_by(b.c.end_date, b.c.id))
 

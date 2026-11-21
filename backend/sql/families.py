@@ -168,12 +168,14 @@ async def make_owner(member_id: str) -> bool:
                          .values(role="owner")) == 1
 
 
-async def claim_member(member_id: str, user_id: str, now: datetime) -> bool:
-    """A placeholder or former member row becomes the person's active account member (role member; id, name and tags
-    kept). False when the row is gone or is an active account member now."""
+async def claim_member(member_id: str, user_id: str, now: datetime, display_name: str) -> bool:
+    """A placeholder or former member row becomes the person's active account member (role member; id and tags kept)
+    under `display_name`, the person's own name (an active account member's name is their own, and follows their
+    profile). False when the row is gone or is an active account member now."""
     return await execute(update(fm).where(
         fm.c.id == member_id, or_(fm.c.kind == "placeholder", fm.c.status == "former"))
-        .values(kind="account", user_id=user_id, role="member", status="active", joined_at=now, left_at=None)) == 1
+        .values(kind="account", user_id=user_id, role="member", status="active", joined_at=now, left_at=None,
+                display_name=display_name)) == 1
 
 
 async def delete_member(member_id: str) -> int:
