@@ -1368,6 +1368,12 @@ class AppLocalizations {
       'familySpendingNoneThisMonth': 'No family spending this month.',
       'familySpendingNoneYet': 'No family spending yet. Spending you add in the family book shows here by person.',
       'familySpendingCurrency': 'Currency',
+      'familySpendingByCategory': 'By category',
+      'familySpendingTrend': 'Last 6 months',
+      'familySpendingBiggest': 'Biggest entries',
+      'familySpendingSharedWith': 'Shared with {count} others',
+      'familySpendingSharedWithOne': 'Shared with 1 other',
+      'familySpendingAddedBy': 'Added by {names}',
       'whoWeSpentOn': 'Who we spent on',
       'noFamilySpending': 'No family spending in this period.',
       'addedByName': 'Added by {name}',
@@ -2656,6 +2662,12 @@ class AppLocalizations {
       'familySpendingNoneYet':
           'မိသားစု သုံးစွဲမှု မရှိသေးပါ။ မိသားစုစာအုပ်တွင် ထည့်သော သုံးစွဲမှုများကို လူအလိုက် ဤနေရာတွင် ပြပါမည်။',
       'familySpendingCurrency': 'ငွေကြေး',
+      'familySpendingByCategory': 'အမျိုးအစားအလိုက်',
+      'familySpendingTrend': 'ပြီးခဲ့သော ၆ လ',
+      'familySpendingBiggest': 'အများဆုံး သုံးစွဲမှုများ',
+      'familySpendingSharedWith': 'အခြား {count} ဦးနှင့် ခွဲဝေထားသည်',
+      'familySpendingSharedWithOne': 'အခြား ၁ ဦးနှင့် ခွဲဝေထားသည်',
+      'familySpendingAddedBy': 'ထည့်သူ - {names}',
       'whoWeSpentOn': 'ဘယ်သူ့အတွက် သုံးခဲ့သလဲ',
       'noFamilySpending': 'ဒီကာလမှာ မိသားစုအသုံးစရိတ် မရှိသေးပါ။',
       'addedByName': '{name} ထည့်ခဲ့သည်',
@@ -4054,6 +4066,15 @@ class AppLocalizations {
   String get familySpendingNoneThisMonth => translate('familySpendingNoneThisMonth');
   String get familySpendingNoneYet => translate('familySpendingNoneYet');
   String get familySpendingCurrency => translate('familySpendingCurrency');
+  String get familySpendingByCategory => translate('familySpendingByCategory');
+  String get familySpendingTrend => translate('familySpendingTrend');
+  String get familySpendingBiggest => translate('familySpendingBiggest');
+
+  /// "Shared with 2 others": [count] people besides this one were on the entry.
+  String familySpendingSharedWith(int count) => count == 1
+      ? translate('familySpendingSharedWithOne')
+      : translate('familySpendingSharedWith').replaceAll('{count}', '$count');
+  String familySpendingAddedBy(String names) => translate('familySpendingAddedBy').replaceAll('{names}', names);
   String get whoWeSpentOn => translate('whoWeSpentOn');
   String get noFamilySpending => translate('noFamilySpending');
   String addedByName(String name) => translate('addedByName').replaceAll('{name}', name);

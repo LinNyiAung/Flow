@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/models/family_spending.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/screens/family/family_person_spending_screen.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -278,6 +279,18 @@ class _FamilySpendingScreenState extends State<FamilySpendingScreen> {
   }
 
   void _openPerson(FamilySpendingRow row, FamilySpendingOverview data) {
-    // The person deep dive (Task 4).
+    final l = AppLocalizations.of(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FamilyPersonSpendingScreen(
+          month: data.month,
+          currency: data.currency,
+          memberId: row.memberId,
+          displayName: row.isWholeFamily ? l.wholeFamily : row.displayName,
+          loader: widget.personLoader ?? ApiService.getFamilyPersonSpending,
+        ),
+      ),
+    );
   }
 }

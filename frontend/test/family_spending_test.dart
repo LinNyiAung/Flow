@@ -1,3 +1,4 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +11,9 @@ import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
+import 'package:frontend/screens/family/family_person_spending_screen.dart';
 import 'package:frontend/screens/family/family_spending_screen.dart';
+import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/money.dart';
 import 'package:frontend/widgets/app_drawer.dart';
@@ -248,6 +251,164 @@ void main() {
     });
   });
 
+  group('the person screen', () {
+    FamilyPersonSpending person({String? id = 'mama', String name = 'Ma Ma'}) => FamilyPersonSpending(
+          currency: Currency.mmk,
+          month: DateTime(2025, 4),
+          memberId: id,
+          displayName: name,
+          amount: 42000,
+          previousAmount: 30000,
+          categories: const [
+            CategorySpending(mainCategory: 'Food & Daily Living', amount: 42000, subCategories: [
+              SubCategorySpending(subCategory: 'Groceries', amount: 30000),
+              SubCategorySpending(subCategory: 'Restaurants', amount: 12000),
+            ]),
+            CategorySpending(mainCategory: 'Shopping & Lifestyle', amount: 5000, subCategories: [
+              SubCategorySpending(subCategory: 'Clothing', amount: 5000),
+            ]),
+          ],
+          trend: [
+            for (var i = 0; i < 6; i++)
+              MonthAmount(month: DateTime(2024, 11 + i), amount: i == 5 ? 42000 : (i == 4 ? 30000 : 0)),
+          ],
+          topEntries: [
+            SpendingEntry(
+                id: 'e1', date: DateTime(2025, 4, 30), mainCategory: 'Food & Daily Living', subCategory: 'Groceries',
+                description: 'Market run', amount: 90000, share: 30000, splitBetween: 3),
+            SpendingEntry(
+                id: 'e2', date: DateTime(2025, 4, 20), mainCategory: 'Food & Daily Living', subCategory: 'Restaurants',
+                description: 'Lunch', amount: 12000, share: 12000, splitBetween: 1),
+          ],
+          addedBy: const [
+            AddedByCount(memberId: 'mum', displayName: 'Mum', count: 6),
+            AddedByCount(memberId: 'dad', displayName: 'Dad', count: 2),
+          ],
+        );
+
+    Future<List<(DateTime, String?, Currency?)>> pumpPerson(WidgetTester tester,
+        {FamilyPersonSpending? data, Object? failFirst, String? memberId = 'mama', String name = 'Ma Ma'}) async {
+      final calls = <(DateTime, String?, Currency?)>[];
+      var failed = false;
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(390 * 3, 2000 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('en'), Locale('my')],
+        home: FamilyPersonSpendingScreen(
+          month: DateTime(2025, 4),
+          currency: Currency.mmk,
+          memberId: memberId,
+          displayName: name,
+          loader: (month, {memberId, currency}) async {
+            calls.add((month, memberId, currency));
+            if (failFirst != null && !failed) {
+              failed = true;
+              throw failFirst;
+            }
+            return data ?? person();
+          },
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    testWidgets("shows the person's month and change", (tester) async {
+      final calls = await pumpPerson(tester);
+      expect(calls.single, (DateTime(2025, 4), 'mama', Currency.mmk));
+      expect(find.text('Ma Ma'), findsWidgets);
+      expect(find.text(formatMoney(42000, Currency.mmk)), findsWidgets);
+      expect(find.textContaining('▲ 40%'), findsOneWidget);
+    });
+
+    testWidgets('Whole family shows the app string', (tester) async {
+      await pumpPerson(tester, data: person(id: null, name: 'Whole family'), memberId: null, name: 'Whole family');
+      expect(find.text(_en.wholeFamily), findsWidgets);
+    });
+
+    testWidgets('categories largest first, expand to sub-categories', (tester) async {
+      await pumpPerson(tester);
+      final food = find.text('Food & Daily Living');
+      final shopping = find.text('Shopping & Lifestyle');
+      expect(tester.getTopLeft(food.first).dy, lessThan(tester.getTopLeft(shopping).dy));
+      expect(find.byKey(const Key('family-person-sub-Groceries')), findsNothing);
+      await tester.tap(find.byKey(const Key('family-person-category-Food & Daily Living')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('family-person-sub-Groceries')), findsOneWidget);
+      expect(find.byKey(const Key('family-person-sub-Restaurants')), findsOneWidget);
+    });
+
+    testWidgets('trend shows six bars, the selected month last', (tester) async {
+      await pumpPerson(tester);
+      final chart = tester.widget<BarChart>(find.byType(BarChart));
+      expect(chart.data.barGroups.length, 6);
+      expect(chart.data.barGroups.last.barRods.single.toY, 42000);
+      expect(chart.data.barGroups[4].barRods.single.toY, 30000);
+    });
+
+    testWidgets('biggest entries show the share and the split; they are not tappable', (tester) async {
+      await pumpPerson(tester);
+      expect(find.text('Market run'), findsOneWidget);
+      expect(find.text(_en.familySpendingSharedWith(2)), findsOneWidget);
+      expect(find.text(_en.familySpendingSharedWith(0)), findsNothing);
+      expect(find.text(formatMoney(30000, Currency.mmk)), findsWidgets);
+      expect(find.ancestor(of: find.text('Market run'), matching: find.byType(InkWell)), findsNothing);
+    });
+
+    testWidgets('added by line', (tester) async {
+      await pumpPerson(tester);
+      expect(find.text(_en.familySpendingAddedBy('Mum (6), Dad (2)')), findsOneWidget);
+      expect(find.text('Added by Mum (6), Dad (2)'), findsOneWidget);
+    });
+
+    testWidgets('a load error shows retry, which loads again', (tester) async {
+      final calls = await pumpPerson(tester, failFirst: ApiException('Could not load'));
+      expect(find.text('Could not load'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('family-person-retry')));
+      await tester.pumpAndSettle();
+      expect(calls.length, 2);
+      expect(find.text('Market run'), findsOneWidget);
+    });
+
+    testWidgets('tapping a row on the month screen opens that person', (tester) async {
+      final personCalls = <(DateTime, String?, Currency?)>[];
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('en'), Locale('my')],
+        home: FamilySpendingScreen(
+          loader: _Loader().call,
+          personLoader: (month, {memberId, currency}) async {
+            personCalls.add((month, memberId, currency));
+            return person();
+          },
+          now: () => DateTime(2025, 4, 18),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('family-spending-row-mama')));
+      await tester.pumpAndSettle();
+      expect(find.byType(FamilyPersonSpendingScreen), findsOneWidget);
+      expect(personCalls.single, (DateTime(2025, 4), 'mama', Currency.mmk));
+    });
+  });
+
   test('every new string has a Myanmar text of its own', () {
     final getters = <String Function(AppLocalizations)>[
       (l) => l.familySpending,
@@ -257,6 +418,11 @@ void main() {
       (l) => l.familySpendingNoneThisMonth,
       (l) => l.familySpendingNoneYet,
       (l) => l.familySpendingCurrency,
+      (l) => l.familySpendingByCategory,
+      (l) => l.familySpendingTrend,
+      (l) => l.familySpendingBiggest,
+      (l) => l.familySpendingSharedWith(2),
+      (l) => l.familySpendingAddedBy('Mum (6)'),
     ];
     for (final get in getters) {
       final english = get(_en);
