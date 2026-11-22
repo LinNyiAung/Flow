@@ -16,7 +16,7 @@ from sql import books as books_db
 from sql import families as fdb
 from user_zones import user_zone
 
-from .breakdown import entry_shares, rows_of, total_by_person
+from .breakdown import WHOLE_FAMILY, entry_shares, rows_of, total_by_person
 
 _MONTH = re.compile(r"(\d{4})-(\d{2})")
 TREND_MONTHS = 6
@@ -84,3 +84,61 @@ async def month_overview(family: Mapping[str, Any], person: Mapping[str, Any], c
     return {"currency": currency, "month": _label(month),
             "total": float(sum(now.values(), Decimal(0))), "previous_total": float(sum(before.values(), Decimal(0))),
             "rows": rows, "currencies": sorted(firsts), "first_month": _label(first) if first else None}
+
+
+def _sum_for(entries: Mapping[str, Mapping[str, Any]], member_id: Optional[str]) -> Decimal:
+    return sum((e["split"][member_id] for e in entries.values() if member_id in e["split"]), Decimal(0))
+
+
+async def person_month(family: Mapping[str, Any], person: Mapping[str, Any], currency: str, month: date,
+                       member_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """GET /api/family/spending/person: one person's month (member_id None: Whole family): their amount and previous
+    month's, their share by main and sub category, the TREND_MONTHS months ending at `month`, their TOP_ENTRIES biggest
+    entries by their share, and how many of the month's entries for them each member added. None when member_id is
+    not a member (current or former) of this family."""
+    first = _shift(month, -(TREND_MONTHS - 1))
+    by_month, members = await _entries(family, person, currency, first, month)
+    by_id = {m["id"]: m for m in members}
+    if member_id is not None and member_id not in by_id:
+        return None
+    mine = {eid: e for eid, e in by_month.get(_key(month), {}).items() if member_id in e["split"]}
+
+    mains: Dict[str, Dict[str, Any]] = {}
+    for e in mine.values():
+        share, row = e["split"][member_id], e["row"]
+        main = mains.setdefault(row["main_category"], {"amount": Decimal(0), "subs": {}})
+        main["amount"] += share
+        main["subs"][row["sub_category"]] = main["subs"].get(row["sub_category"], Decimal(0)) + share
+    categories = [{"main_category": name, "amount": float(v["amount"]),
+                   "sub_categories": [{"sub_category": s, "amount": float(a)}
+                                      for s, a in sorted(v["subs"].items(), key=lambda kv: (-kv[1], kv[0]))]}
+                  for name, v in sorted(mains.items(), key=lambda kv: (-kv[1]["amount"], kv[0]))]
+
+    trend = [{"month": _label(m), "amount": float(_sum_for(by_month.get(_key(m), {}), member_id))}
+             for m in (_shift(first, i) for i in range(TREND_MONTHS))]
+
+    # Biggest share first, then the latest, then by id (stable sorts, last key first).
+    ordered = sorted(mine.items(), key=lambda kv: kv[0])
+    ordered.sort(key=lambda kv: kv[1]["row"]["date"], reverse=True)
+    ordered.sort(key=lambda kv: kv[1]["split"][member_id], reverse=True)
+    top = [{"id": eid, "date": e["row"]["date"].date().isoformat(), "main_category": e["row"]["main_category"],
+            "sub_category": e["row"]["sub_category"], "description": e["row"]["description"],
+            "amount": float(e["amount"]), "share": float(e["split"][member_id]), "split_between": len(e["for"])}
+           for eid, e in ordered[:TOP_ENTRIES]]
+
+    position = {m["id"]: i for i, m in enumerate(members)}
+    counts: Dict[str, int] = {}
+    for e in mine.values():
+        adder = e["row"]["added_by_member_id"]
+        if adder in by_id:
+            counts[adder] = counts.get(adder, 0) + 1
+    added_by = [{"member_id": mid, "display_name": by_id[mid]["display_name"], "count": n}
+                for mid, n in sorted(counts.items(), key=lambda kv: (-kv[1], position[kv[0]]))]
+
+    member = by_id.get(member_id) or {}
+    return {"currency": currency, "month": _label(month), "member_id": member_id,
+            "display_name": WHOLE_FAMILY if member_id is None else member["display_name"],
+            "status": "active" if member_id is None else member["status"],
+            "amount": float(_sum_for(mine, member_id)),
+            "previous_amount": float(_sum_for(by_month.get(_key(_shift(month, -1)), {}), member_id)),
+            "categories": categories, "trend": trend, "top_entries": top, "added_by": added_by}

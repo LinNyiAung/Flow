@@ -1455,6 +1455,67 @@ def section_spending():
         check(spending(D, "2025-04", "mmk").json() == want and spending(D, "2025-04", "mmk", family=True).json() == want,
               "spending: any member -- Dad gets the same April, with or without X-Book: family")
 
+        # ---- one person's month ----
+        def person(u, month, member_id=None, currency="mmk"):
+            params = {"month": month, "currency": currency} | ({"member_id": member_id} if member_id else {})
+            return c.get("/api/family/spending/person", headers=H(u), params=params)
+
+        r = person(M, "2025-04", mama)
+        j = r.json() if r.status_code == 200 else {}
+        cats = [(x["main_category"], x["amount"], [(s["sub_category"], s["amount"]) for s in x["sub_categories"]])
+                for x in j.get("categories", [])]
+        check(r.status_code == 200 and j.get("member_id") == mama and j.get("display_name") == "Ma Ma"
+              and j.get("status") == "active" and j.get("amount") == 42000.0 and j.get("previous_amount") == 45000.0
+              and cats == [("Food & Daily Living", 42000.0, [("Groceries", 30000.0), ("Restaurants", 12000.0)])],
+              "spending person: Ma Ma April -- 42,000 (45,000 in March), Food 42,000 = Groceries 30,000 + Restaurants "
+              "12,000", f"{r.status_code} {r.text[:500]}")
+        check([(x.get("month"), x.get("amount")) for x in j.get("trend", [])]
+              == [("2024-11", 0.0), ("2024-12", 0.0), ("2025-01", 0.0), ("2025-02", 0.0), ("2025-03", 45000.0),
+                  ("2025-04", 42000.0)],
+              "spending person: Ma Ma's trend -- six months ending April, oldest first", j.get("trend"))
+        top = j.get("top_entries", [])
+        check([(x.get("share"), x.get("amount"), x.get("split_between"), x.get("date")) for x in top]
+              == [(30000.0, 30000.0, 1, "2025-04-30"), (12000.0, 12000.0, 1, "2025-04-20")]
+              and all(x.get("id") and x.get("main_category") == "Food & Daily Living" for x in top)
+              and [x.get("sub_category") for x in top] == ["Groceries", "Restaurants"],
+              "spending person: Ma Ma's biggest entries -- by her share, with date and category", top)
+        check([(x.get("member_id"), x.get("display_name"), x.get("count")) for x in j.get("added_by", [])]
+              == [(m_mid, "Mum", 1), (d_mid, "Dad", 1)],
+              "spending person: added by -- Mum 1, Dad 1 (ties in join order)", j.get("added_by"))
+        r = person(M, "2025-03", koko)
+        top = r.json().get("top_entries", []) if r.status_code == 200 else []
+        check([(x.get("amount"), x.get("share"), x.get("split_between")) for x in top] == [(90000.0, 45000.0, 2)],
+              "spending person: shared entry -- Ko Ko's March entry is 90,000, his share 45,000, split between 2",
+              f"{r.status_code} {r.text[:300]}")
+        r = person(M, "2025-03")
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("member_id") is None and j.get("display_name") == "Whole family"
+              and j.get("amount") == 50000.0
+              and [(x.get("share"), x.get("split_between")) for x in j.get("top_entries", [])] == [(50000.0, 0)],
+              "spending person: Whole family -- no member_id: March's untagged 50,000, split between 0",
+              f"{r.status_code} {r.text[:300]}")
+        r = person(M, "2025-04", m_mid)
+        check(r.status_code == 200 and r.json().get("amount") == 0.0 and r.json().get("top_entries") == []
+              and "999999" not in r.text,
+              "spending person: a personal entry never shows -- Mum's April family share is 0, her personal 999,999 "
+              "is nowhere", f"{r.status_code} {r.text[:300]}")
+        r = person(M, "2025-04", d_mid, "usd")
+        check(r.status_code == 200 and r.json().get("amount") == 3.34
+              and [(x.get("share"), x.get("split_between")) for x in r.json().get("top_entries", [])] == [(3.34, 3)],
+              "spending person: Dad's USD share carries the leftover cent, as the breakdown does", f"{r.status_code} {r.text[:300]}")
+        O = register("Other", "plus")
+        c.post("/api/family", headers=O["h"], json={"name": f"Other family {tag}"})
+        stranger = placeholder(O, "Stranger")
+        for label, mid in (("another family's placeholder", stranger), ("an unknown id", uuid.uuid4().hex)):
+            r = person(M, "2025-04", mid)
+            check(_code(r, 404, "not_found"), f"spending person: errors -- {label} is 404 not_found",
+                  f"{r.status_code} {r.text[:200]}")
+        r = person(L, "2025-04", mama)
+        check(_code(r, 409, "no_family"), "spending person: errors -- outside a family is 409 no_family",
+              f"{r.status_code} {r.text[:200]}")
+        r = person(M, "2025-4", mama)
+        check(r.status_code == 422, "spending person: errors -- a bad month is 422", f"{r.status_code} {r.text[:200]}")
+
         # ---- a member who leaves keeps their history ----
         c.post("/api/family/leave", headers=D["h"])
         r = spending(M, "2025-04", "usd")

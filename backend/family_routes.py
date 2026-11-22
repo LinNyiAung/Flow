@@ -10,7 +10,7 @@ from families import breakdown as family_breakdown
 from families import service
 from families import spending as family_spending
 from families import transfers
-from families.book import Book, get_book
+from families.book import Book, get_book, refuse
 from models import Currency, PositiveAmount
 from plans.contact import normalize_email
 from report_models import ReportPeriod
@@ -156,6 +156,18 @@ async def spending(month: str = Query(...), currency: Optional[Currency] = None,
     previous month, in `currency` (default: the family's). Any active member; X-Book is optional here."""
     family, person, code, first = await _spending_scope(book, month, currency)
     return await family_spending.month_overview(family, person, code, first)
+
+
+@router.get("/spending/person")
+async def spending_person(month: str = Query(...), currency: Optional[Currency] = None,
+                          member_id: Optional[str] = None, book: Book = Depends(get_book)):
+    """One person's month on the Family spending screen (no member_id: Whole family): categories, the 6-month trend,
+    the biggest entries and who added them. 404 not_found for a member_id that isn't in the caller's family."""
+    family, person, code, first = await _spending_scope(book, month, currency)
+    result = await family_spending.person_month(family, person, code, first, member_id)
+    if result is None:
+        refuse(person, status.HTTP_404_NOT_FOUND, "not_found")
+    return result
 
 
 @router.post("/placeholders")
