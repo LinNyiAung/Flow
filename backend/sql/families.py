@@ -213,14 +213,24 @@ async def beneficiaries_for(transaction_ids: List[str]) -> Dict[str, List[str]]:
 
 async def outflow_shares(book_id: str, currency: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
     """The book's outflows in `currency` dated within [date_from, date_to], transfers left out: one row per
-    (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry). An entry's members
-    come in the family's join order (stable: the breakdown gives an entry's leftover to its first member)."""
-    stmt = (select(t.c.id, t.c.amount, tb.c.member_id)
+    (entry, member it was for) with `id`, `amount` and `member_id` (None for a Whole-family entry), and the entry's
+    `date`, `main_category`, `sub_category`, `description` and `added_by_member_id`. An entry's members come in the
+    family's join order (stable: the breakdown gives an entry's leftover to its first member)."""
+    stmt = (select(t.c.id, t.c.amount, tb.c.member_id, t.c.date, t.c.main_category, t.c.sub_category,
+                   t.c.description, t.c.added_by_member_id)
             .select_from(t.outerjoin(tb, tb.c.transaction_id == t.c.id).outerjoin(fm, fm.c.id == tb.c.member_id))
             .where(t.c.book_id == book_id, t.c.type == "outflow", t.c.currency == currency,
                    t.c.transfer_id.is_(None), t.c.date >= wall_bound(date_from), t.c.date <= wall_bound(date_to))
             .order_by(t.c.id, fm.c.joined_at, fm.c.id))
     return await fetch_all(stmt)
+
+
+async def spending_firsts(book_id: str) -> Dict[str, datetime]:
+    """Currency -> the date of the book's earliest outflow in it (transfer legs left out)."""
+    rows = await fetch_all(select(t.c.currency, func.min(t.c.date).label("first"))
+                           .where(t.c.book_id == book_id, t.c.type == "outflow", t.c.transfer_id.is_(None))
+                           .group_by(t.c.currency))
+    return {r["currency"]: r["first"] for r in rows}
 
 
 async def transfer_totals(book_id: str, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:

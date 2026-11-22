@@ -1330,6 +1330,140 @@ def section_entries_breakdown():
         _cleanup_people(made)
 
 
+def section_spending():
+    """The Family spending screen's server side: GET /api/family/spending (one month, per person it was for, against the
+    previous month) and GET /api/family/spending/person (one person's month: categories, 6-month trend, biggest
+    entries, who added them). Same split as the breakdown; only the family book is read."""
+    c = httpx.Client(base_url=BASE, timeout=60)
+    tag = uuid.uuid4().hex[:6]
+    made = []
+    register = _registrar(c, tag, made)
+
+    def H(u, family=False):
+        return {**u["h"], **(FAM if family else {})}
+
+    def tx(u, when, amount, for_whom=None, currency="mmk", family=True, sub="Groceries", type_="outflow",
+           main="Food & Daily Living"):
+        body = {"type": type_, "main_category": main, "sub_category": sub, "date": when,
+                "amount": amount, "currency": currency, "description": f"spending {amount}"}
+        if for_whom is not None:
+            body["for_whom"] = for_whom
+        r = c.post("/api/transactions", headers=H(u, family), json=body)
+        check(r.status_code in (200, 201), f"setup: entry {amount} {currency} on {when}", f"{r.status_code} {r.text[:200]}")
+        return r.json() if r.status_code in (200, 201) else {}
+
+    def spending(u, month, currency=None, family=False):
+        params = {"month": month} | ({"currency": currency} if currency else {})
+        return c.get("/api/family/spending", headers=H(u, family), params=params)
+
+    def breakdown(u, first, last, currency):
+        return c.get("/api/family/breakdown", headers=H(u),
+                     params={"start_date": first, "end_date": last, "currency": currency})
+
+    def placeholder(owner, name):
+        view = c.post("/api/family/placeholders", headers=owner["h"], json={"display_name": name}).json()
+        return next((m["id"] for m in view.get("members", []) if m["display_name"] == name), None)
+
+    def rows(r):
+        j = r.json() if r.status_code == 200 else {}
+        return [(x.get("member_id"), x.get("status"), x.get("amount"), x.get("previous_amount")) for x in j.get("rows", [])]
+
+    try:
+        M = register("Mum", "plus")
+        D = register("Dad", "free")
+        L = register("Loner", "free")
+        c.put("/api/auth/currency", headers=M["h"], json={"default_currency": "mmk"})
+        r = c.post("/api/family", headers=M["h"], json={"name": f"Spending family {tag}"})
+        m_mid = (r.json().get("me") or {}).get("member_id") if r.status_code == 200 else None
+        c.post("/api/family/invites", headers=M["h"], json={"email": D["email"]})
+        inv = next(iter(c.get("/api/family/invites/mine", headers=D["h"]).json().get("invites", [])), None)
+        if inv:
+            c.post(f"/api/family/invites/{inv['id']}/accept", headers=D["h"])
+        d_mid = (c.get("/api/family", headers=D["h"]).json().get("me") or {}).get("member_id")
+        mama, koko = placeholder(M, "Ma Ma"), placeholder(M, "Ko Ko")
+        check(all((m_mid, d_mid, mama, koko)), "spending setup: Mum's family with Dad, Ma Ma and Ko Ko",
+              (m_mid, d_mid, mama, koko))
+
+        # March: 90,000 for Ma Ma and Ko Ko, 50,000 for the whole family, 20,000 for Mum
+        tx(M, "2025-03-10T12:00:00", 90000, [mama, koko])
+        tx(M, "2025-03-10T13:00:00", 50000)
+        tx(M, "2025-03-10T14:00:00", 20000, [m_mid])
+        # April: 30,000 for Ma Ma on the 30th at 23:59 (Mum), 12,000 Restaurants for Ma Ma (Dad); May 1st 00:00: 7,000
+        tx(M, "2025-04-30T23:59:00", 30000, [mama])
+        tx(D, "2025-04-20T12:00:00", 12000, [mama], sub="Restaurants")
+        tx(M, "2025-05-01T00:00:00", 7000, [mama])
+        # April USD: $10.00 for Ma Ma, Ko Ko and Dad
+        tx(M, "2025-04-15T12:00:00", 10, [mama, koko, d_mid], currency="usd")
+        # Mum's personal April spending and a move into the family wallet: never on this screen
+        tx(M, "2025-04-01T12:00:00", 2000000, family=False, type_="inflow", main="Employment Income", sub="Salary")
+        tx(M, "2025-04-15T12:00:00", 999999, family=False)
+        r = c.post("/api/transfers", headers=M["h"], json={"direction": "to_family", "amount": 100000, "currency": "mmk",
+                                                            "date": "2025-04-16T12:00:00"})
+        check(r.status_code in (200, 201), "spending setup: Mum moves 100,000 into the family wallet in April",
+              f"{r.status_code} {r.text[:200]}")
+
+        # ---- the month overview ----
+        r = spending(M, "2025-04", "mmk")
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("currency") == "mmk" and j.get("month") == "2025-04"
+              and j.get("total") == 42000.0 and j.get("previous_total") == 160000.0
+              and rows(r) == [(mama, "active", 42000.0, 45000.0)]
+              and j.get("currencies") == ["mmk", "usd"] and j.get("first_month") == "2025-03",
+              "spending: April MMK -- Ma Ma 42,000 (45,000 in March), total 42,000 vs 160,000; MMK and USD; from 2025-03",
+              f"{r.status_code} {r.text[:400]}")
+        r = spending(M, "2025-05", "mmk")
+        check(rows(r) == [(mama, "active", 7000.0, 42000.0)],
+              "spending: month edges -- the 1st at 00:00 is May's, the 30th at 23:59 April's", f"{r.status_code} {r.text[:300]}")
+        r = spending(M, "2025-03", "mmk")
+        check(r.status_code == 200 and r.json().get("total") == 160000.0
+              and rows(r) == [(None, "active", 50000.0, 0.0), (mama, "active", 45000.0, 0.0),
+                              (koko, "active", 45000.0, 0.0), (m_mid, "active", 20000.0, 0.0)],
+              "spending: March MMK -- Whole family on its own row, the shared entry split 45,000 / 45,000",
+              f"{r.status_code} {r.text[:400]}")
+        r = spending(M, "2025-04", "usd")
+        check(rows(r) == [(d_mid, "active", 3.34, 0.0), (mama, "active", 3.33, 0.0), (koko, "active", 3.33, 0.0)]
+              and r.json().get("total") == 10.0,
+              "spending: USD split -- $10.00 for three is 3.34 / 3.33 / 3.33, the cent to the first in join order (Dad)",
+              f"{r.status_code} {r.text[:400]}")
+        same = True
+        for month, first, last in (("2025-03", "2025-03-01", "2025-03-31"), ("2025-04", "2025-04-01", "2025-04-30")):
+            for cur in ("mmk", "usd"):
+                s, b = spending(M, month, cur).json(), breakdown(M, first, last, cur).json()
+                same = same and s.get("total") == b.get("total_spent") and [
+                    (x["member_id"], x["amount"]) for x in s.get("rows", [])] == [
+                    (x["member_id"], x["amount"]) for x in b.get("rows", [])]
+        check(same, "spending: matches the breakdown -- every month and currency gives the Reports rows exactly")
+        bodies = [spending(M, m, cur).text for m in ("2025-03", "2025-04", "2025-05") for cur in ("mmk", "usd")]
+        check(not any("999999" in t or "100000" in t for t in bodies),
+              "spending: a personal entry never shows (nor the move into the family wallet)")
+        r = spending(M, "2025-04")
+        check(r.status_code == 200 and r.json().get("currency") == "mmk",
+              "spending: default currency -- the family's (Mum's MMK)", f"{r.status_code} {r.text[:200]}")
+        r = spending(M, "2025-04", "thb")
+        check(r.status_code == 200 and r.json().get("total") == 0 and r.json().get("rows") == []
+              and r.json().get("first_month") is None,
+              "spending: a currency with nothing is total 0, no rows, no first month", f"{r.status_code} {r.text[:200]}")
+        r = spending(M, "2024-01", "mmk")
+        check(r.status_code == 200 and r.json().get("total") == 0 and r.json().get("rows") == [],
+              "spending: a month with nothing is total 0 with no rows", f"{r.status_code} {r.text[:200]}")
+        for bad in ("2025-13", "2025-4", "abc", "2025-00", "2025-04-01"):
+            r = spending(M, bad, "mmk")
+            check(r.status_code == 422, f"spending: errors -- month {bad!r} is 422", f"{r.status_code} {r.text[:200]}")
+        r = spending(L, "2025-04", "mmk")
+        check(_code(r, 409, "no_family"), "spending: errors -- outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
+        want = spending(M, "2025-04", "mmk").json()
+        check(spending(D, "2025-04", "mmk").json() == want and spending(D, "2025-04", "mmk", family=True).json() == want,
+              "spending: any member -- Dad gets the same April, with or without X-Book: family")
+
+        # ---- a member who leaves keeps their history ----
+        c.post("/api/family/leave", headers=D["h"])
+        r = spending(M, "2025-04", "usd")
+        check(rows(r) == [(d_mid, "former", 3.34, 0.0), (mama, "active", 3.33, 0.0), (koko, "active", 3.33, 0.0)],
+              "spending: former -- Dad, who left, still has April's 3.34, marked former", f"{r.status_code} {r.text[:300]}")
+    finally:
+        _cleanup_people(made)
+
+
 def section_breakdown_rounding():
     """R11, in-process: families.breakdown.compute splits each entry on its own (floor to the currency's quantum, the
     leftover to the entry's first member), so no row is negative and the rows sum exactly to total_spent."""
@@ -3166,6 +3300,7 @@ SECTIONS = {
     "book_scope": section_book_scope,
     "entries_breakdown": section_entries_breakdown,
     "breakdown_rounding": section_breakdown_rounding,
+    "spending": section_spending,
     "recurring_children": section_recurring_children,
     "transfers": section_transfers,
     "budgets_goals": section_budgets_goals,

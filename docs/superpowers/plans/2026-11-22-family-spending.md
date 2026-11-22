@@ -77,7 +77,7 @@ only. Two Flutter screens with injectable loaders (as `ReportsScreen` does), a r
   - 2025-03-10: 90,000 for [Ma Ma, Ko Ko]; 50,000 untagged; 20,000 for [Mum]
   - 2025-04-30 23:59: 30,000 for [Ma Ma] (added by Mum); 2025-05-01 00:00: 7,000 for [Ma Ma] (dates sent in the
     wall-clock form the app sends, so they land on those calendar days)
-  - 2025-04-20: 12,000 for [Ma Ma], sub-category Snacks, **added by Dad** (used by Task 2)
+  - 2025-04-20: 12,000 for [Ma Ma], sub-category Restaurants, **added by Dad** (used by Task 2)
   - 2025-04-15: $10.00 USD for [Ma Ma, Ko Ko, Dad]
   - a Mum **personal** outflow 2025-04-15, 999,999 MMK (no `X-Book`)
   - a family transfer leg in April (Mum moves 100,000 into the family wallet)
@@ -131,7 +131,7 @@ only. Two Flutter screens with injectable loaders (as `ReportsScreen` does), a r
 
 - [ ] **Step 1: Write the failing checks** (Task 1's data; inserted before the `spending: former` check):
   - `spending person: Ma Ma April` → amount 42,000 (30,000 + 12,000), previous_amount 45,000; categories
-    `[("Food & Daily Living", 42000.0, [("Groceries", 30000.0), ("Snacks", 12000.0)])]`; trend months
+    `[("Food & Daily Living", 42000.0, [("Groceries", 30000.0), ("Restaurants", 12000.0)])]`; trend months
     `2024-11..2025-04` with `[0, 0, 0, 0, 45000.0, 42000.0]`; top_entries shares `[30000.0, 12000.0]`, each
     `split_between` 1; added_by `[(Mum, 1), (Dad, 1)]` (tie order: join order).
   - `spending person: shared entry` → Ko Ko in March: one top entry, amount 90,000, share 45,000, split_between 2.

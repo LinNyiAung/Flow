@@ -28,37 +28,45 @@ def _quantum(currency: str) -> Decimal:
     return Decimal(1).scaleb(-_DECIMAL_PLACES.get(currency, 2))
 
 
-def compute(currency: str, shares: List[Mapping[str, Any]], members: List[Mapping[str, Any]]) -> Dict[str, Any]:
-    """The breakdown from outflow_shares rows (id, amount, member_id; an entry's members in their listed order) and the
-    family's members (join order)."""
+def entry_shares(currency: str, shares: List[Mapping[str, Any]],
+                 members: List[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Each entry's split, by entry id, from outflow_shares rows (an entry's members in their listed order) and the
+    family's members (join order): {"row": the entry's first row (its other columns), "amount": Decimal at the
+    currency's precision, "for": [member ids], "split": {member id, or None for Whole family: Decimal}}. An entry
+    tagged with someone outside the family (can't happen) is left out entirely."""
     quantum = _quantum(currency)
     by_id = {m["id"]: m for m in members}
     entries: Dict[str, Dict[str, Any]] = {}
+    unknown = set()
     for row in shares:
         entry = entries.setdefault(row["id"], {
-            "amount": Decimal(str(row["amount"])).quantize(quantum, rounding=ROUND_HALF_UP), "for": []})
+            "row": row, "amount": Decimal(str(row["amount"])).quantize(quantum, rounding=ROUND_HALF_UP), "for": []})
         if row["member_id"] is not None and row["member_id"] in by_id:
             entry["for"].append(row["member_id"])
         elif row["member_id"] is not None:
-            entry.setdefault("unknown", True)  # not a member of this family (can't happen): left out entirely
+            unknown.add(row["id"])
 
-    amounts: Dict[Optional[str], Decimal] = {}
-    for entry in entries.values():
-        if entry.get("unknown"):
+    out: Dict[str, Dict[str, Any]] = {}
+    for entry_id, entry in entries.items():
+        if entry_id in unknown:
             continue
         whom = entry["for"]
         if not whom:
-            amounts[None] = amounts.get(None, Decimal(0)) + entry["amount"]
-            continue
-        share = (entry["amount"] / len(whom)).quantize(quantum, rounding=ROUND_FLOOR)
-        for key in whom:
-            amounts[key] = amounts.get(key, Decimal(0)) + share
-        amounts[whom[0]] += entry["amount"] - share * len(whom)
+            entry["split"] = {None: entry["amount"]}
+        else:
+            share = (entry["amount"] / len(whom)).quantize(quantum, rounding=ROUND_FLOOR)
+            entry["split"] = {key: share for key in whom}
+            entry["split"][whom[0]] += entry["amount"] - share * len(whom)
+        out[entry_id] = entry
+    return out
 
+
+def rows_of(amounts: Mapping[Optional[str], Decimal], members: List[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Breakdown rows from per-person totals (None: Whole family): largest first; ties in the family's join order, with
+    Whole family first."""
+    by_id = {m["id"]: m for m in members}
     position = {m["id"]: i for i, m in enumerate(members)}
     keys = sorted(amounts, key=lambda k: (-amounts[k], -1 if k is None else position[k]))
-    total = sum(amounts.values(), Decimal(0))
-
     rows = []
     for k in keys:
         member = by_id.get(k) or {}
@@ -66,7 +74,24 @@ def compute(currency: str, shares: List[Mapping[str, Any]], members: List[Mappin
                      "display_name": WHOLE_FAMILY if k is None else member["display_name"],
                      "status": "active" if k is None else member["status"],
                      "amount": float(amounts[k])})
-    return {"currency": currency, "total_spent": float(total), "rows": rows}
+    return rows
+
+
+def total_by_person(entries: Mapping[str, Mapping[str, Any]]) -> Dict[Optional[str], Decimal]:
+    """Per-person totals (None: Whole family) of entry_shares entries."""
+    amounts: Dict[Optional[str], Decimal] = {}
+    for entry in entries.values():
+        for key, share in entry["split"].items():
+            amounts[key] = amounts.get(key, Decimal(0)) + share
+    return amounts
+
+
+def compute(currency: str, shares: List[Mapping[str, Any]], members: List[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The breakdown from outflow_shares rows (id, amount, member_id; an entry's members in their listed order) and the
+    family's members (join order)."""
+    amounts = total_by_person(entry_shares(currency, shares, members))
+    total = sum(amounts.values(), Decimal(0))
+    return {"currency": currency, "total_spent": float(total), "rows": rows_of(amounts, members)}
 
 
 async def family_breakdown(family: Mapping[str, Any], currency: str, date_from: datetime,

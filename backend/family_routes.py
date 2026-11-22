@@ -3,11 +3,12 @@ between a personal wallet and the family wallet). Thin routes over families.serv
 the refusals as {"detail": {"code", "message"}}, families.breakdown and families.transfers."""
 from typing import Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from families import breakdown as family_breakdown
 from families import service
+from families import spending as family_spending
 from families import transfers
 from families.book import Book, get_book
 from models import Currency, PositiveAmount
@@ -133,6 +134,28 @@ async def breakdown(start_date: CalendarDate = Query(...), end_date: CalendarDat
     if code not in {c.value for c in Currency}:
         code = Currency.USD.value
     return await family_breakdown.family_breakdown(family, code, date_from, date_to)
+
+
+async def _spending_scope(book: Book, month: str, currency: Optional[Currency]):
+    """(family, person, currency code, the month's 1st) for a Family spending request; 409 no_family outside a family,
+    422 for a month that isn't YYYY-MM."""
+    family = book.family if book.is_family else await service.family_of(book.person)
+    try:
+        first = family_spending.parse_month(month)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="month must be YYYY-MM")
+    code = currency.value if currency else await service.family_currency(family["id"])
+    if code not in {c.value for c in Currency}:
+        code = Currency.USD.value
+    return family, book.person, code, first
+
+
+@router.get("/spending")
+async def spending(month: str = Query(...), currency: Optional[Currency] = None, book: Book = Depends(get_book)):
+    """The Family spending screen's month: spending per person it was for (the breakdown's rows) with each person's
+    previous month, in `currency` (default: the family's). Any active member; X-Book is optional here."""
+    family, person, code, first = await _spending_scope(book, month, currency)
+    return await family_spending.month_overview(family, person, code, first)
 
 
 @router.post("/placeholders")
