@@ -90,8 +90,8 @@ The owner picked A, opened from the side drawer.
   expands to its sub-categories. *(Claude's call: main categories first, sub-categories on tap.)*
 - **Trend:** the 6 months ending at the selected month, one bar per month. *(Claude's call: bars, not a line.)*
 - **Biggest entries:** up to 5 of the month's entries for them, by their share: date, description or category, their
-  share, and "shared with N others" when it was split. Tapping one opens the existing transaction detail.
-  *(Claude's call.)*
+  share, and "shared with N others" when it was split. Not tappable: the app has no read-only entry view, and its
+  edit screen works on whichever book is switched on, which may be Personal here. *(Claude's call.)*
 - **Added by:** one small line, e.g. "Added by Mya (6), Ko Ko (2)".
 
 **Drawer:** a "Family spending" item, shown only when the person is in a family (whatever the Personal / Family
