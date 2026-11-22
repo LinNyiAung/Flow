@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -55,13 +57,18 @@ FamilySpendingOverview _overview(
 
 /// Records each call; answers with [answer] (default: [_overview] for the month and currency asked).
 class _Loader {
-  _Loader([this.answer]);
-  final FamilySpendingOverview Function(DateTime month, Currency? currency)? answer;
+  _Loader([FamilySpendingOverview Function(DateTime month, Currency? currency)? answer])
+      : _answer = ((m, c) => Future.value((answer ?? (m, c) => _overview(m, currency: c ?? Currency.mmk))(m, c)));
+
+  /// Answers with whatever future [answer] gives (a test can hold one open).
+  _Loader.raw(Future<FamilySpendingOverview> Function(DateTime month, Currency? currency) answer) : _answer = answer;
+
+  final Future<FamilySpendingOverview> Function(DateTime month, Currency? currency) _answer;
   final calls = <(DateTime, Currency?)>[];
 
-  Future<FamilySpendingOverview> call(DateTime month, {Currency? currency}) async {
+  Future<FamilySpendingOverview> call(DateTime month, {Currency? currency}) {
     calls.add((month, currency));
-    return (answer ?? (m, c) => _overview(m, currency: c ?? Currency.mmk))(month, currency);
+    return _answer(month, currency);
   }
 }
 
@@ -166,6 +173,31 @@ void main() {
       await tester.tap(next);
       await tester.pumpAndSettle();
       expect(loader.calls.last.$1, DateTime(2025, 4));
+    });
+
+    testWidgets("while another month loads, the old month's figures are gone (no stale numbers under the new month)",
+        (tester) async {
+      final held = Completer<FamilySpendingOverview>();
+      var first = true;
+      await _pump(
+          tester,
+          _Loader.raw((m, c) {
+            if (first) {
+              first = false;
+              return Future.value(_overview(m));
+            }
+            return held.future;
+          }));
+      expect(find.text('Ma Ma'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('family-spending-prev')));
+      await tester.pump();
+      expect(find.text('March 2025'), findsOneWidget);
+      expect(find.text('Ma Ma'), findsNothing, reason: "April's rows must not show under March");
+      expect(find.byKey(const Key('family-spending-row-mama')), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      held.complete(_overview(DateTime(2025, 3), rows: [_row('koko', 'Ko Ko', 5, 0)]));
+      await tester.pumpAndSettle();
+      expect(find.text('Ko Ko'), findsOneWidget);
     });
 
     testWidgets('currency picker lists only currencies with spending', (tester) async {

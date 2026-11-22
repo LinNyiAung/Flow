@@ -188,7 +188,8 @@ class _FamilySpendingScreenState extends State<FamilySpendingScreen> {
 
   List<Widget> _body(AppLocalizations l) {
     final data = _data;
-    if (_loading && data == null) {
+    // While a month or currency loads, never the previous figures: they'd sit under the new month's name.
+    if (_loading) {
       return const [Padding(padding: EdgeInsets.all(48), child: Center(child: CircularProgressIndicator()))];
     }
     if (_error != null) {
