@@ -24,6 +24,7 @@ import 'package:frontend/screens/charts/inflow_analytics_screen.dart';
 import 'package:frontend/screens/charts/outflow_analytics_screen.dart';
 import 'package:frontend/screens/goals/goals_screen.dart';
 import 'package:frontend/screens/family/family_screen.dart';
+import 'package:frontend/screens/family/family_spending_screen.dart';
 import 'package:frontend/screens/insights/insights_screen.dart';
 import 'package:frontend/navigation/restored_routes.dart';
 import 'package:frontend/screens/notifications/notifications_screen.dart';
@@ -314,6 +315,7 @@ class _MyAppState extends State<MyApp> {
     '/login': (context) => const LoginScreen(),
     '/feedback': (context) => FeedbackScreen(),
     '/family': (context) => const FamilyScreen(),
+    '/family-spending': (context) => const FamilySpendingScreen(),
   };
 
   Widget _languageSettings(BuildContext context) =>

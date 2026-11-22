@@ -1361,6 +1361,13 @@ class AppLocalizations {
       'forWhomTitle': 'Who was it for?',
       'forWhomHint': 'Pick one or more people, or the whole family.',
       'wholeFamily': 'Whole family',
+      'familySpending': 'Family spending',
+      'familySpendingTotal': 'Spent on the family',
+      'familySpendingVsLast': 'vs {month}',
+      'familySpendingNew': 'New',
+      'familySpendingNoneThisMonth': 'No family spending this month.',
+      'familySpendingNoneYet': 'No family spending yet. Spending you add in the family book shows here by person.',
+      'familySpendingCurrency': 'Currency',
       'whoWeSpentOn': 'Who we spent on',
       'noFamilySpending': 'No family spending in this period.',
       'addedByName': 'Added by {name}',
@@ -2641,6 +2648,14 @@ class AppLocalizations {
       'forWhomTitle': 'ဘယ်သူ့အတွက်လဲ',
       'forWhomHint': 'တစ်ယောက် သို့မဟုတ် အများကို ရွေးပါ၊ မဟုတ်ရင် မိသားစုတစ်ခုလုံးကို ရွေးပါ။',
       'wholeFamily': 'မိသားစုတစ်ခုလုံး',
+      'familySpending': 'မိသားစု အသုံးစရိတ်',
+      'familySpendingTotal': 'မိသားစုအတွက် သုံးစွဲငွေ',
+      'familySpendingVsLast': '{month} နှင့် နှိုင်းယှဉ်',
+      'familySpendingNew': 'အသစ်',
+      'familySpendingNoneThisMonth': 'ဤလတွင် မိသားစု သုံးစွဲမှု မရှိပါ။',
+      'familySpendingNoneYet':
+          'မိသားစု သုံးစွဲမှု မရှိသေးပါ။ မိသားစုစာအုပ်တွင် ထည့်သော သုံးစွဲမှုများကို လူအလိုက် ဤနေရာတွင် ပြပါမည်။',
+      'familySpendingCurrency': 'ငွေကြေး',
       'whoWeSpentOn': 'ဘယ်သူ့အတွက် သုံးခဲ့သလဲ',
       'noFamilySpending': 'ဒီကာလမှာ မိသားစုအသုံးစရိတ် မရှိသေးပါ။',
       'addedByName': '{name} ထည့်ခဲ့သည်',
@@ -4032,6 +4047,13 @@ class AppLocalizations {
 
   /// "For whom" with nobody picked (no tags).
   String get wholeFamily => translate('wholeFamily');
+  String get familySpending => translate('familySpending');
+  String get familySpendingTotal => translate('familySpendingTotal');
+  String familySpendingVsLast(String month) => translate('familySpendingVsLast').replaceAll('{month}', month);
+  String get familySpendingNew => translate('familySpendingNew');
+  String get familySpendingNoneThisMonth => translate('familySpendingNoneThisMonth');
+  String get familySpendingNoneYet => translate('familySpendingNoneYet');
+  String get familySpendingCurrency => translate('familySpendingCurrency');
   String get whoWeSpentOn => translate('whoWeSpentOn');
   String get noFamilySpending => translate('noFamilySpending');
   String addedByName(String name) => translate('addedByName').replaceAll('{name}', name);
@@ -4077,6 +4099,12 @@ class AppLocalizations {
   /// [formatPlanDate] with the time ("21 Nov 2026, 3:45 PM"), for a limit that
   /// lifts at a moment rather than on a date.
   String formatPlanDateTime(DateTime when) => AppDates.dateTimeIn(when.toLocal(), locale: dateLocaleFor(locale));
+
+  /// "April 2025", in this app language.
+  String formatMonthYear(DateTime month) => DateFormat('MMMM y', dateLocaleFor(locale)).format(month);
+
+  /// "Apr", in this app language.
+  String formatShortMonth(DateTime month) => DateFormat('MMM', dateLocaleFor(locale)).format(month);
 
   /// [AppDates.range] in this app language ("1 Oct – 31 Oct 2026"), in the
   /// device's local time.

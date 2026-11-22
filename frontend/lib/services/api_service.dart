@@ -10,6 +10,7 @@ import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/custom_insight.dart';
 import 'package:frontend/models/family.dart';
+import 'package:frontend/models/family_spending.dart';
 import 'package:frontend/models/feedback.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/goal_entry.dart';
@@ -2653,6 +2654,36 @@ class ApiService {
       return FamilyBreakdown.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
     }
     throw apiError(response, 'Failed to get the breakdown');
+  }
+
+  /// `GET /api/family/spending`: the family book's spending per person in
+  /// [month] (its 1st), in [currency] (default: the family's).
+  static Future<FamilySpendingOverview> getFamilySpending(DateTime month, {Currency? currency}) async {
+    final uri = _familyUri('/spending').replace(queryParameters: {
+      'month': spendingMonthParam(month),
+      if (currency != null) 'currency': currency.name,
+    });
+    final response = await _client.get(uri, headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      return FamilySpendingOverview.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw apiError(response, 'Failed to get the family spending');
+  }
+
+  /// `GET /api/family/spending/person`: one person's [month] ([memberId]
+  /// null: Whole family).
+  static Future<FamilyPersonSpending> getFamilyPersonSpending(DateTime month,
+      {String? memberId, Currency? currency}) async {
+    final uri = _familyUri('/spending/person').replace(queryParameters: {
+      'month': spendingMonthParam(month),
+      if (memberId != null) 'member_id': memberId,
+      if (currency != null) 'currency': currency.name,
+    });
+    final response = await _client.get(uri, headers: await _getHeaders());
+    if (response.statusCode == 200) {
+      return FamilyPersonSpending.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    throw apiError(response, 'Failed to get the family spending');
   }
 
   // ==================== TRANSFERS ====================

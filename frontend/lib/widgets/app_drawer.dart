@@ -7,6 +7,7 @@ import 'package:frontend/widgets/plan_badge.dart';
 import 'package:frontend/widgets/status_pill.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/family_provider.dart';
 import '../screens/transactions/transactions_list_screen.dart';
 import 'package:frontend/services/responsive_helper.dart';
 
@@ -40,6 +41,7 @@ class AppDrawer extends StatelessWidget {
     final currentRoute = ModalRoute.of(context)?.settings.name;
     final isHome = currentRoute == '/';
     final isPaid = authProvider.isPaid;
+    final inFamily = Provider.of<FamilyProvider?>(context)?.inFamily ?? false;
 
     void go(String routeName) {
       Navigator.pop(context);
@@ -110,6 +112,14 @@ class AppDrawer extends StatelessWidget {
         isActive: currentRoute == '/reports',
         onTap: () => go('/reports'),
       ),
+      // Only for people in a family; always the family book, whichever book is switched on.
+      if (inFamily)
+        _DrawerNavItem(
+          icon: Icons.family_restroom_rounded,
+          label: localizations.familySpending,
+          isActive: currentRoute == '/family-spending',
+          onTap: () => go('/family-spending'),
+        ),
       _DrawerNavItem(
         icon: Icons.lightbulb_rounded,
         label: localizations.aiInsights,
