@@ -138,12 +138,12 @@ async def breakdown(start_date: CalendarDate = Query(...), end_date: CalendarDat
 
 async def _spending_scope(book: Book, month: str, currency: Optional[Currency]):
     """(family, person, currency code, the month's 1st) for a Family spending request; 409 no_family outside a family,
-    422 for a month that isn't YYYY-MM."""
+    422 invalid_month for a month that isn't YYYY-MM in 1900..2999."""
     family = book.family if book.is_family else await service.family_of(book.person)
     try:
         first = family_spending.parse_month(month)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="month must be YYYY-MM")
+        refuse(book.person, status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid_month")
     code = currency.value if currency else await service.family_currency(family["id"])
     if code not in {c.value for c in Currency}:
         code = Currency.USD.value

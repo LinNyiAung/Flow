@@ -21,15 +21,18 @@ from .breakdown import WHOLE_FAMILY, entry_shares, rows_of, total_by_person
 _MONTH = re.compile(r"(\d{4})-(\d{2})")
 TREND_MONTHS = 6
 TOP_ENTRIES = 5
+# The months a request may name. Far enough from year 1 and 9999 that the trend's months back, the next month and the
+# viewer's time zone all stay inside what Python's dates can hold.
+FIRST_YEAR, LAST_YEAR = 1900, 2999
 
 Month = Tuple[int, int]
 
 
 def parse_month(value: str) -> date:
-    """The 1st of a `YYYY-MM` month; ValueError for anything else."""
+    """The 1st of a `YYYY-MM` month in FIRST_YEAR..LAST_YEAR; ValueError for anything else."""
     m = _MONTH.fullmatch(value or "")
-    if not m or not 1 <= int(m.group(2)) <= 12:
-        raise ValueError("month must be YYYY-MM")
+    if not m or not 1 <= int(m.group(2)) <= 12 or not FIRST_YEAR <= int(m.group(1)) <= LAST_YEAR:
+        raise ValueError("month must be YYYY-MM in 1900..2999")
     return date(int(m.group(1)), int(m.group(2)), 1)
 
 
@@ -51,19 +54,19 @@ def _key(value) -> Month:
 
 
 async def _entries(family: Mapping[str, Any], person: Mapping[str, Any], currency: str, first: date,
-                   last: date) -> Tuple[Dict[Month, Dict[str, Dict[str, Any]]], List[Mapping[str, Any]]]:
+                   last: date) -> Tuple[Dict[Month, Dict[str, Dict[str, Any]]], List[Mapping[str, Any]], Optional[str]]:
     """The family book's split entries in `currency` from the 1st of month `first` to the end of month `last`, grouped
-    by the calendar month of their date, and the family's members (join order)."""
+    by the calendar month of their date, the family's members (join order) and the family book's id (None: no book)."""
     members = await fdb.list_members(family["id"])
     book_id = await books_db.family_book_id(family["id"])
     if not book_id:
-        return {}, members
+        return {}, members, None
     date_from, date_to = calculate_report_dates(ReportPeriod.CUSTOM, first, _last_day(last), user_zone(person))
     shares = await fdb.outflow_shares(book_id, currency, date_from, date_to)
     by_month: Dict[Month, Dict[str, Dict[str, Any]]] = {}
     for entry_id, entry in entry_shares(currency, shares, members).items():
         by_month.setdefault(_key(entry["row"]["date"]), {})[entry_id] = entry
-    return by_month, members
+    return by_month, members, book_id
 
 
 async def month_overview(family: Mapping[str, Any], person: Mapping[str, Any], currency: str,
@@ -72,13 +75,12 @@ async def month_overview(family: Mapping[str, Any], person: Mapping[str, Any], c
     amount, the totals, the currencies the family book has spending in and the first month with spending in
     `currency`."""
     previous = _shift(month, -1)
-    by_month, members = await _entries(family, person, currency, previous, month)
+    by_month, members, book_id = await _entries(family, person, currency, previous, month)
     now = total_by_person(by_month.get(_key(month), {}))
     before = total_by_person(by_month.get(_key(previous), {}))
     rows = rows_of(now, members)
     for row in rows:
         row["previous_amount"] = float(before.get(row["member_id"], Decimal(0)))
-    book_id = await books_db.family_book_id(family["id"])
     firsts = await fdb.spending_firsts(book_id) if book_id else {}
     first = firsts.get(currency)
     return {"currency": currency, "month": _label(month),
@@ -97,7 +99,7 @@ async def person_month(family: Mapping[str, Any], person: Mapping[str, Any], cur
     entries by their share, and how many of the month's entries for them each member added. None when member_id is
     not a member (current or former) of this family."""
     first = _shift(month, -(TREND_MONTHS - 1))
-    by_month, members = await _entries(family, person, currency, first, month)
+    by_month, members, _ = await _entries(family, person, currency, first, month)
     by_id = {m["id"]: m for m in members}
     if member_id is not None and member_id not in by_id:
         return None
@@ -132,7 +134,7 @@ async def person_month(family: Mapping[str, Any], person: Mapping[str, Any], cur
         adder = e["row"]["added_by_member_id"]
         if adder in by_id:
             counts[adder] = counts.get(adder, 0) + 1
-    added_by = [{"member_id": mid, "display_name": by_id[mid]["display_name"], "count": n}
+    added_by = [{"member_id": mid, "display_name": by_id[mid]["display_name"], "status": by_id[mid]["status"], "count": n}
                 for mid, n in sorted(counts.items(), key=lambda kv: (-kv[1], position[kv[0]]))]
 
     member = by_id.get(member_id) or {}

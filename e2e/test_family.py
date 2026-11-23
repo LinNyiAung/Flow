@@ -1446,9 +1446,14 @@ def section_spending():
         r = spending(M, "2024-01", "mmk")
         check(r.status_code == 200 and r.json().get("total") == 0 and r.json().get("rows") == [],
               "spending: a month with nothing is total 0 with no rows", f"{r.status_code} {r.text[:200]}")
-        for bad in ("2025-13", "2025-4", "abc", "2025-00", "2025-04-01"):
+        for bad in ("2025-13", "2025-4", "abc", "2025-00", "2025-04-01", "0001-01", "1899-12", "3000-01", "9999-12"):
             r = spending(M, bad, "mmk")
-            check(r.status_code == 422, f"spending: errors -- month {bad!r} is 422", f"{r.status_code} {r.text[:200]}")
+            check(_code(r, 422, "invalid_month"), f"spending: errors -- month {bad!r} is 422 invalid_month",
+                  f"{r.status_code} {r.text[:200]}")
+        for edge in ("1900-01", "2999-12"):
+            r = spending(M, edge, "mmk")
+            check(r.status_code == 200 and r.json().get("total") == 0,
+                  f"spending: the range's edge month {edge} is an ordinary empty month", f"{r.status_code} {r.text[:200]}")
         r = spending(L, "2025-04", "mmk")
         check(_code(r, 409, "no_family"), "spending: errors -- outside a family is 409 no_family", f"{r.status_code} {r.text[:200]}")
         want = spending(M, "2025-04", "mmk").json()
@@ -1513,14 +1518,36 @@ def section_spending():
         r = person(L, "2025-04", mama)
         check(_code(r, 409, "no_family"), "spending person: errors -- outside a family is 409 no_family",
               f"{r.status_code} {r.text[:200]}")
-        r = person(M, "2025-4", mama)
-        check(r.status_code == 422, "spending person: errors -- a bad month is 422", f"{r.status_code} {r.text[:200]}")
+        for bad in ("2025-4", "0001-01", "9999-12"):
+            r = person(M, bad, mama)
+            check(_code(r, 422, "invalid_month"), f"spending person: errors -- month {bad!r} is 422 invalid_month",
+                  f"{r.status_code} {r.text[:200]}")
+        r = person(M, "1900-01", mama)
+        check(r.status_code == 200 and [x.get("month") for x in r.json().get("trend", [])][0] == "1899-08",
+              "spending person: 1900-01 works, its trend reaching back into 1899", f"{r.status_code} {r.text[:200]}")
 
         # ---- a member who leaves keeps their history ----
         c.post("/api/family/leave", headers=D["h"])
         r = spending(M, "2025-04", "usd")
         check(rows(r) == [(d_mid, "former", 3.34, 0.0), (mama, "active", 3.33, 0.0), (koko, "active", 3.33, 0.0)],
               "spending: former -- Dad, who left, still has April's 3.34, marked former", f"{r.status_code} {r.text[:300]}")
+        r = person(M, "2025-04", mama)
+        check([(x.get("member_id"), x.get("status")) for x in (r.json().get("added_by", []) if r.status_code == 200 else [])]
+              == [(m_mid, "active"), (d_mid, "former")],
+              "spending person: added by -- each adder's status, Dad (who left) former", f"{r.status_code} {r.text[:400]}")
+
+        # ---- a removed placeholder keeps its history too ----
+        r = c.delete(f"/api/family/members/{koko}", headers=M["h"])
+        check(r.status_code == 200, "spending setup: Mum removes Ko Ko", f"{r.status_code} {r.text[:200]}")
+        r = spending(M, "2025-03", "mmk")
+        check(rows(r) == [(None, "active", 50000.0, 0.0), (mama, "active", 45000.0, 0.0),
+                          (koko, "former", 45000.0, 0.0), (m_mid, "active", 20000.0, 0.0)],
+              "spending: removed placeholder -- Ko Ko keeps March's 45,000, marked former", f"{r.status_code} {r.text[:400]}")
+        r = person(M, "2025-03", koko)
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("status") == "former" and j.get("display_name") == "Ko Ko"
+              and j.get("amount") == 45000.0,
+              "spending person: removed placeholder -- Ko Ko's March still opens, 45,000, former", f"{r.status_code} {r.text[:300]}")
     finally:
         _cleanup_people(made)
 
