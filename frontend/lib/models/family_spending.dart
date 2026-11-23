@@ -175,12 +175,19 @@ class SpendingEntry {
 class AddedByCount {
   final String memberId;
   final String displayName;
+
+  /// [FamilyMember.statusActive] or [FamilyMember.statusFormer] (left the family).
+  final String status;
   final int count;
-  const AddedByCount({required this.memberId, required this.displayName, required this.count});
+  const AddedByCount(
+      {required this.memberId, required this.displayName, this.status = FamilyMember.statusActive, required this.count});
+
+  bool get isFormer => status == FamilyMember.statusFormer;
 
   factory AddedByCount.fromJson(Map<String, dynamic> json) => AddedByCount(
         memberId: _string(json['member_id']) ?? '',
         displayName: _string(json['display_name']) ?? '',
+        status: _string(json['status']) ?? FamilyMember.statusActive,
         count: _int(json['count']),
       );
 }

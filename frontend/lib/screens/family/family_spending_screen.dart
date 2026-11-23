@@ -53,6 +53,10 @@ class _FamilySpendingScreenState extends State<FamilySpendingScreen> {
   late final DateTime _currentMonth;
   late DateTime _month;
   Currency? _currency;
+
+  /// The family's own currency: what the first load (no currency asked) answered in. Always offered in the picker,
+  /// even with no spending in it, so switching away from it can be undone.
+  Currency? _familyCurrency;
   FamilySpendingOverview? _data;
   String? _error;
   bool _loading = true;
@@ -78,13 +82,14 @@ class _FamilySpendingScreenState extends State<FamilySpendingScreen> {
       if (!mounted || request != _request) return;
       setState(() {
         _data = data;
+        _familyCurrency ??= data.currency;
         _currency = data.currency;
         _loading = false;
       });
     } catch (e) {
       if (!mounted || request != _request) return;
       setState(() {
-        _error = e is ApiException ? e.message : e.toString();
+        _error = e is ApiException ? e.message : AppLocalizations.of(context).genericErrorOccurred;
         _loading = false;
       });
     }
@@ -105,7 +110,14 @@ class _FamilySpendingScreenState extends State<FamilySpendingScreen> {
   void _pickCurrency() {
     final l = AppLocalizations.of(context);
     final data = _data;
-    final options = data == null || data.currencies.isEmpty ? [_currency ?? Currency.mmk] : data.currencies;
+    final family = _familyCurrency;
+    final current = _currency;
+    final options = <Currency>{
+      if (family != null) family,
+      ...?data?.currencies,
+      if (current != null) current,
+    }.toList();
+    if (options.isEmpty) options.add(Currency.mmk);
     showAppBottomSheet<void>(
       context: context,
       builder: (sheet) => Column(

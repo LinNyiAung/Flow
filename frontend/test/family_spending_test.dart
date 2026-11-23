@@ -212,6 +212,41 @@ void main() {
       expect(loader.calls.last, (DateTime(2025, 4), Currency.usd));
     });
 
+    testWidgets("the family's own currency stays in the picker after switching away, even with no spending in it",
+        (tester) async {
+      // The family's currency is MMK (the first load, no currency asked); all its spending is in USD.
+      final loader = _Loader((m, c) => _overview(m, currency: c ?? Currency.mmk, currencies: const [Currency.usd]));
+      await _pump(tester, loader);
+      await tester.tap(find.byKey(const Key('family-spending-currency')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('family-spending-currency-mmk')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('family-spending-currency-usd')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('family-spending-currency')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('family-spending-currency-mmk')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('family-spending-currency-mmk')));
+      await tester.pumpAndSettle();
+      expect(loader.calls.last, (DateTime(2025, 4), Currency.mmk));
+    });
+
+    testWidgets("an unexpected error shows the app's own message, not its raw text", (tester) async {
+      var failed = false;
+      final loader = _Loader.raw((m, c) {
+        if (!failed) {
+          failed = true;
+          return Future.error(const FormatException('Unexpected character at offset 3'));
+        }
+        return Future.value(_overview(m));
+      });
+      await _pump(tester, loader);
+      expect(find.text(_en.genericErrorOccurred), findsOneWidget);
+      expect(find.textContaining('Unexpected character'), findsNothing);
+      await tester.tap(find.byKey(const Key('family-spending-retry')));
+      await tester.pumpAndSettle();
+      expect(find.text('Ma Ma'), findsOneWidget);
+    });
+
     testWidgets('a former member is marked former', (tester) async {
       await _pump(tester, _Loader((m, c) => _overview(m, rows: [_row('d', 'Dad', 10, 0, status: 'former')])));
       expect(find.text(_en.familyFormerName('Dad')), findsOneWidget);
@@ -401,6 +436,28 @@ void main() {
       expect(find.text('Added by Mum (6), Dad (2)'), findsOneWidget);
     });
 
+    testWidgets('added by marks an adder who left as former', (tester) async {
+      final p = person();
+      await pumpPerson(tester,
+          data: FamilyPersonSpending(
+            currency: p.currency, month: p.month, memberId: p.memberId, displayName: p.displayName,
+            amount: p.amount, previousAmount: p.previousAmount, categories: p.categories, trend: p.trend,
+            topEntries: p.topEntries,
+            addedBy: const [
+              AddedByCount(memberId: 'mum', displayName: 'Mum', count: 6),
+              AddedByCount(memberId: 'dad', displayName: 'Dad', count: 2, status: 'former'),
+            ],
+          ));
+      expect(find.text(_en.familySpendingAddedBy('Mum (6), ${_en.familyFormerName('Dad')} (2)')), findsOneWidget);
+    });
+
+    testWidgets("an unexpected error shows the app's own message, not its raw text", (tester) async {
+      await pumpPerson(tester, failFirst: const FormatException('Unexpected character at offset 3'));
+      expect(find.text(_en.genericErrorOccurred), findsOneWidget);
+      expect(find.textContaining('Unexpected character'), findsNothing);
+      expect(find.byKey(const Key('family-person-retry')), findsOneWidget);
+    });
+
     testWidgets('a load error shows retry, which loads again', (tester) async {
       final calls = await pumpPerson(tester, failFirst: ApiException('Could not load'));
       expect(find.text('Could not load'), findsOneWidget);
@@ -454,6 +511,7 @@ void main() {
       (l) => l.familySpendingTrend,
       (l) => l.familySpendingBiggest,
       (l) => l.familySpendingSharedWith(2),
+      (l) => l.familySpendingSharedWith(1),
       (l) => l.familySpendingAddedBy('Mum (6)'),
     ];
     for (final get in getters) {
@@ -463,5 +521,17 @@ void main() {
       expect(myanmar.trim(), isNotEmpty);
       expect(myanmar, isNot(english), reason: english);
     }
+  });
+
+  test('Myanmar "shared with" says 1 for one other and the count otherwise', () {
+    expect(_my.familySpendingSharedWith(1), contains('၁'));
+    expect(_my.familySpendingSharedWith(1), isNot(_my.familySpendingSharedWith(2)));
+    expect(_my.familySpendingSharedWith(3), contains('3'));
+  });
+
+  test('added by: each adder carries their status', () {
+    final a = AddedByCount.fromJson({'member_id': 'd', 'display_name': 'Dad', 'status': 'former', 'count': 2});
+    expect(a.isFormer, isTrue);
+    expect(AddedByCount.fromJson({'member_id': 'm', 'display_name': 'Mum', 'count': 1}).isFormer, isFalse);
   });
 }

@@ -65,7 +65,7 @@ class _FamilyPersonSpendingScreenState extends State<FamilyPersonSpendingScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e is ApiException ? e.message : e.toString();
+        _error = e is ApiException ? e.message : AppLocalizations.of(context).genericErrorOccurred;
         _loading = false;
       });
     }
@@ -119,7 +119,9 @@ class _FamilyPersonSpendingScreenState extends State<FamilyPersonSpendingScreen>
       if (data.addedBy.isNotEmpty) ...[
         const SizedBox(height: 8),
         Text(
-          l.familySpendingAddedBy(data.addedBy.map((a) => '${a.displayName} (${a.count})').join(', ')),
+          l.familySpendingAddedBy(data.addedBy
+              .map((a) => '${a.isFormer ? l.familyFormerName(a.displayName) : a.displayName} (${a.count})')
+              .join(', ')),
           style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       ],
