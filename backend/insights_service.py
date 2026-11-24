@@ -76,10 +76,15 @@ async def _has_period_insight(book_id: str, insight_type: str, tz: tzinfo) -> bo
     if not latest:
         return False
     if insight_type == "weekly":
-        ranges, key = (get_week_date_range(tz), current_week_to_date_range(tz)), "week_start"
+        (complete, _), (to_date, _), key = get_week_date_range(tz), current_week_to_date_range(tz), "week_start"
     else:
-        ranges, key = (get_month_date_range(tz), current_month_to_date_range(tz)), "month_start"
-    return as_calendar_date(latest.get(key)) in {start.date() for start, _ in ranges}
+        (complete, _), (to_date, _), key = get_month_date_range(tz), current_month_to_date_range(tz), "month_start"
+    start = as_calendar_date(latest.get(key))
+    if latest.get("is_period_to_date"):
+        # A "so far" report counts only for the period still running. Once that period is complete, the report covered
+        # just its first days: the complete period still needs its own report.
+        return start == to_date.date()
+    return start in {complete.date(), to_date.date()}
 
 
 async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, notify) -> None:
@@ -355,10 +360,8 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
         current_week_data = await get_financial_summary(book_id, week_start, week_end)
         prev_week_data = await get_financial_summary(book_id, prev_week_start, prev_week_end)
 
-        # Note: Assuming processor methods handle async internally or return data synchronously for now.
-        # If FinancialDataProcessor uses the same database.py, these might need updates too.
         goals = await processor.get_user_goals()
-        budgets = await processor.get_user_budgets()
+        budgets = await report_budgets(book_id, week_start, week_end)
 
         # Efficient check for activity
         total_tx_count = _tx_count(current_week_data)
@@ -378,6 +381,7 @@ async def generate_weekly_insight(book_id: str, notify: bool = False, background
                 prev_week_data = current_week_data  # last complete week = comparison baseline
                 current_week_data = ptd_data
                 week_start, week_end = ptd_start, ptd_end
+                budgets = await report_budgets(book_id, week_start, week_end)
                 has_activity = True
             else:
                 latest_real = await _latest_real_insight(book_id, "weekly")
@@ -621,6 +625,22 @@ CRITICAL RULES:
 Remember: This report is generated on Monday morning, reviewing the complete week (Monday-Sunday) that just ended, and providing actionable recommendations for the week ahead."""
 
 
+def change_text(previous: float, current: float, before: str) -> str:
+    """The change from `previous` to `current` as the insight contexts print it: "+25.0%", or, with nothing in the
+    earlier period (a percentage of nothing would read "+0.0%", i.e. unchanged), "none <before>" / "none in either".
+    before: how the earlier period is named, e.g. "the week before"."""
+    if previous > 0:
+        return f"{(current - previous) / previous * 100:+.1f}%"
+    return f"none {before}" if current > 0 else "none in either"
+
+
+async def report_budgets(book_id: str, start, end) -> list:
+    """The book's budgets whose days overlap the report period [start, end], as stored (newest first). A report on a
+    finished week or month judges the budgets that ran then, not the ones running when it is made (on the Monday or
+    the 1st, last period's budget has ended and the new one has almost nothing spent)."""
+    return await budgets_db.budgets_overlapping(book_id, start, end)
+
+
 def currency_label(code: str) -> tuple[str, str]:
     """(symbol, name) the insight contexts print money with: $ / USD, K / MMK, otherwise ฿ / THB."""
     return ("$" if code == "usd" else ("K" if code == "mmk" else "฿"),
@@ -631,10 +651,21 @@ def _weekly_money(sym: str, amount: float) -> str:
     return f"{sym}{amount:,.2f}"
 
 
-def goals_budgets_context(goals, budgets, money=_weekly_money) -> str:
+def budget_days(budget, today: Optional[date] = None) -> str:
+    """", Nov 01 to Nov 30, 2026" (", ended" after it when `today` is past its last day); "" for a budget without
+    dates."""
+    start, end = as_calendar_date(budget.get("start_date")), as_calendar_date(budget.get("end_date"))
+    if not start or not end:
+        return ""
+    return f", {start:%b %d} to {end:%b %d, %Y}" + (", ended" if today and end < today else "")
+
+
+def goals_budgets_context(goals, budgets, money=_weekly_money, *, header: str = "ACTIVE BUDGETS",
+                          today: Optional[date] = None) -> str:
     """The goals and budgets block of an insight context (weekly and custom): per currency, at most 5 active goals
-    with their progress, then each budget with its total and at most 5 category allocations. "" when both are empty.
-    money(symbol, amount) formats each amount (the weekly format by default)."""
+    with their progress, then each budget (with its days, when it has them) with its total and at most 5 category
+    allocations. "" when both are empty. money(symbol, amount) formats each amount (the weekly format by default).
+    header: the budgets block's title; today: marks budgets that have ended."""
     context = ""
     if goals:
         context += "\n=== FINANCIAL GOALS STATUS ===\n\n"
@@ -653,7 +684,7 @@ def goals_budgets_context(goals, budgets, money=_weekly_money) -> str:
             context += "\n"
 
     if budgets:
-        context += "\n=== ACTIVE BUDGETS ===\n\n"
+        context += f"\n=== {header} ===\n\n"
         budgets_by_currency = {}
         for b in budgets:
             budgets_by_currency.setdefault(b.get("currency", "usd"), []).append(b)
@@ -665,7 +696,7 @@ def goals_budgets_context(goals, budgets, money=_weekly_money) -> str:
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
-                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
+                context += f"  {status_emoji} {budget['name']} ({budget['period']}{budget_days(budget, today)}):\n"
                 context += f"     Total: {money(sym, budget['total_spent'])} / {money(sym, budget['total_budget'])} ({utilization:.1f}%)\n"
 
                 # Show category breakdowns
@@ -777,15 +808,17 @@ Total Transactions: {total_tx}
             current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
 
-            # Calculate % change
-            income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
-            expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
+            before = "the last complete week" if period_to_date else "the week before"
+            income_change = change_text(prev["inflow"], current["inflow"], before)
+            expense_change = change_text(prev["outflow"], current["outflow"], before)
 
             context += f"{currency_name}:\n"
-            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
-            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
+            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change})\n"
+            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change})\n\n"
 
-    context += goals_budgets_context(goals, budgets)
+    context += goals_budgets_context(
+        goals, budgets, today=today,
+        header="BUDGETS DURING THIS WEEK SO FAR" if period_to_date else "BUDGETS DURING LAST WEEK")
 
     # Previous insight summary
     if previous_insight:
@@ -1052,9 +1085,9 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
         current_month_data = await get_financial_summary(book_id, month_start, month_end)
         prev_month_data = await get_financial_summary(book_id, prev_month_start, prev_month_end)
 
-        # Get goals & budgets
+        # Get goals & the budgets that ran during the month
         goals = await processor.get_user_goals()
-        budgets = await processor.get_user_budgets()
+        budgets = await report_budgets(book_id, month_start, month_end)
 
         # Check for activity
         total_tx_count = _tx_count(current_month_data)
@@ -1072,6 +1105,7 @@ async def generate_monthly_insight(book_id: str, notify: bool = False, backgroun
                 prev_month_data = current_month_data  # last complete month = comparison baseline
                 current_month_data = ptd_data
                 month_start, month_end = ptd_start, ptd_end
+                budgets = await report_budgets(book_id, month_start, month_end)
                 has_activity = True
             else:
                 latest_real = await _latest_real_insight(book_id, "monthly")
@@ -1405,13 +1439,13 @@ Total Transactions: {total_tx}
             current = curr_summary.get(currency, {"inflow": 0, "outflow": 0})
             prev = prev_summary.get(currency, {"inflow": 0, "outflow": 0})
 
-            # Calculate % change
-            income_change = ((current["inflow"] - prev["inflow"]) / prev["inflow"] * 100) if prev["inflow"] > 0 else 0
-            expense_change = ((current["outflow"] - prev["outflow"]) / prev["outflow"] * 100) if prev["outflow"] > 0 else 0
+            before = "the last complete month" if period_to_date else "the month before"
+            income_change = change_text(prev["inflow"], current["inflow"], before)
+            expense_change = change_text(prev["outflow"], current["outflow"], before)
 
             context += f"{currency_name}:\n"
-            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change:+.1f}%)\n"
-            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change:+.1f}%)\n\n"
+            context += f"  Income: {currency_symbol}{prev['inflow']:,.2f} → {currency_symbol}{current['inflow']:,.2f} ({income_change})\n"
+            context += f"  Expenses: {currency_symbol}{prev['outflow']:,.2f} → {currency_symbol}{current['outflow']:,.2f} ({expense_change})\n\n"
 
     # Goals - Logic remains same
     if goals:
@@ -1433,9 +1467,10 @@ Total Transactions: {total_tx}
                 context += f"  - {goal['name']}: {sym}{goal['current_amount']:,.2f} / {sym}{goal['target_amount']:,.2f} ({progress:.1f}%)\n"
             context += "\n"
 
-    # Budgets - Logic remains same
+    # The budgets that ran during the report's month (report_budgets), each with its days
     if budgets:
-        context += "\n=== ACTIVE BUDGETS ===\n\n"
+        context += ("\n=== BUDGETS DURING THIS MONTH SO FAR ===\n\n" if period_to_date
+                    else "\n=== BUDGETS DURING LAST MONTH ===\n\n")
         budgets_by_currency = {}
         for b in budgets:
             curr = b.get("currency", "usd")
@@ -1450,7 +1485,7 @@ Total Transactions: {total_tx}
             for budget in curr_budgets:
                 utilization = budget.get("percentage_used", 0)
                 status_emoji = "✅" if utilization < 80 else "⚠️" if utilization < 100 else "🚨"
-                context += f"  {status_emoji} {budget['name']} ({budget['period']}):\n"
+                context += f"  {status_emoji} {budget['name']} ({budget['period']}{budget_days(budget, today)}):\n"
                 context += f"     Total: {sym}{budget['total_spent']:,.2f} / {sym}{budget['total_budget']:,.2f} ({utilization:.1f}%)\n"
 
                 # Show category breakdowns
