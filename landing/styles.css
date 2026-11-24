@@ -78,8 +78,9 @@ a{color:#0B6B54}a:hover{color:#095A47}
 .tp .nav-link[aria-current="location"]{color:#0B6B54 !important;background:#DCEFE8}
 /* the header is two rows below 1000px: keep a section's heading clear of it after a nav tap */
 @media (max-width:999px){.tp section[id],.tp #contact{scroll-margin-top:var(--header-h, 112px)}}
-/* small phones: tighten the top row so Myanmar's longer 'Go to app' fits (the design overflowed by a few px at 360px) */
-@media (max-width:419px){.tp header>div{gap:8px !important}.tp header .btn-fill{padding:0 12px !important}.tp .lang-btn{padding:0 10px !important}}
+/* small phones: tighten the top row so Myanmar's longer 'Go to app' fits (the design overflowed by a few px at 360px).
+   Up to 459px: from 420px the wordmark shows again, and at 420-447px Myanmar's button stuck out past the edge */
+@media (max-width:459px){.tp header>div{gap:8px !important}.tp header .btn-fill{padding:0 12px !important}.tp .lang-btn{padding:0 10px !important}}
 @media (max-width:359px){.tp header .btn-fill,.tp .lang-btn{font-size:13px !important}.tp .lang-btn{padding:0 8px !important}}
 
 /* ---- Ko Toe Pwar, the mascot (SVG <img>s; assets/mascot/) ---- */
