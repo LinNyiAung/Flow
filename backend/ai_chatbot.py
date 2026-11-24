@@ -26,7 +26,8 @@ from sql import transactions as transactions_db
 from sql import goals as goals_db
 from sql import users as users_db
 from tz_utils import (
-    as_calendar_date, as_wall_clock, current_month_to_date_range, days_until, local_now, local_today,
+    as_calendar_date, as_wall_clock, current_month_to_date_range, current_week_to_date_range, days_until, local_now,
+    local_today, previous_month_range,
 )
 from user_zones import user_zone
 from dotenv import load_dotenv
@@ -313,6 +314,36 @@ class FinancialDataProcessor:
             return budgets
         except Exception as e:
             print(f"Error fetching budgets: {e}")
+            return []
+
+    # The periods a chat question most often names, on the asker's calendar (self.tz).
+    PERIODS = (("This week so far", current_week_to_date_range), ("This month so far", current_month_to_date_range),
+               ("Last month", previous_month_range))
+    TOP_SPENDING = 5
+
+    async def get_period_totals(self) -> List[Dict[str, Any]]:
+        """Income and spending per currency for each of PERIODS, with the period's top spending categories, computed
+        in the database (transfers between wallets left out), so the model never adds up entries itself:
+        [{"label", "from", "to", "currencies": {cur: {"income", "spending"}}, "top_spending": {cur: [(category,
+        total)]}}]. A failure gives [] (the chat goes on without them)."""
+        try:
+            out = []
+            for label, period in self.PERIODS:
+                start, end = period(self.tz)
+                totals = await transactions_db.currency_totals(self.book_id, date_from=start, date_to=end)
+                cats = await transactions_db.category_totals(self.book_id, type_="outflow", date_from=start, date_to=end)
+                top: Dict[str, List[Tuple[str, float]]] = {}
+                for c in cats:  # largest first
+                    rows = top.setdefault(c["currency"], [])
+                    if len(rows) < self.TOP_SPENDING:
+                        rows.append((f"{c['main_category']} > {c['sub_category']}", c["total"]))
+                out.append({"label": label, "from": start.date(), "to": end.date(),
+                            "currencies": {r["currency"]: {"income": r["total_inflow"], "spending": r["total_outflow"]}
+                                           for r in totals if r["count"]},
+                            "top_spending": top})
+            return out
+        except Exception as e:
+            print(f"Error computing period totals: {e}")
             return []
 
     async def get_financial_summary(self) -> Dict[str, Any]:
@@ -666,11 +697,16 @@ class FinancialDataProcessor:
                     summary_text += f"Allocated to Goals: {currency_symbol}{total_allocated:,.2f}\n"
                     summary_text += f"Available Balance: {currency_symbol}{available_balance:,.2f}\n"
 
-                summary_text += f"Total Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
-                summary_text += f"Total Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
+                summary_text += f"Total Income (all time): {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
+                summary_text += f"Total Expenses (all time): {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
                 summary_text += f"Total Transactions: {data.get('total_transactions', 0)}\n"
                 summary_text += f"Average Transaction: {currency_symbol}{data.get('avg_transaction_amount', 0):,.2f}\n"
-                summary_text += f"Data Period: {data.get('date_range', {}).get('from', 'N/A')[:10]} to {data.get('date_range', {}).get('to', 'N/A')[:10]}\n\n"
+                # A currency whose only rows are transfers (moves to or from the family wallet) has no dates here.
+                span = data.get("date_range") or {}
+                if span.get("from") and span.get("to"):
+                    summary_text += f"Data Period: {span['from'][:10]} to {span['to'][:10]}\n\n"
+                else:
+                    summary_text += "No income or spending entries in this currency (only moves between wallets).\n\n"
 
                 summary_text += f"Top Income Sources ({currency_name}):\n"
                 for cat, amount in list(data.get('top_inflow_categories', {}).items())[:5]:
@@ -911,6 +947,9 @@ class FinancialDataProcessor:
             categories_by_currency[currency][cat_key]["transactions"].append(t)
             categories_by_currency[currency][cat_key]["total"] += t["amount"]
 
+        # The entries these totals count (get_user_transactions: the last 90 days, at most 500): say from when.
+        window_from = min((as_calendar_date(t["date"]) for t in transactions), default=None)
+        window_label = f"since {window_from:%b %d, %Y}" if window_from else "recent entries"
         for currency, categories in categories_by_currency.items():
             currency_symbol = "$" if currency == "usd" else ("K" if currency == "mmk" else "฿")
             currency_name = "USD" if currency == "usd" else ("MMK" if currency == "mmk" else "THB")
@@ -918,7 +957,7 @@ class FinancialDataProcessor:
             for category, data in sorted(categories.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
                 category_text = f"─── Category: {category} ({currency_name}) ───\n\n"
                 category_text += f"Type: {data['type'].title()}\n"
-                category_text += f"Total: {currency_symbol}{data['total']:,.2f}\n"
+                category_text += f"Total {window_label}: {currency_symbol}{data['total']:,.2f}\n"
                 category_text += f"Transactions: {len(data['transactions'])}\n"
                 category_text += f"Average: {currency_symbol}{data['total'] / len(data['transactions']):,.2f}\n\n"
                 category_text += "Recent Examples:\n"
@@ -1182,12 +1221,33 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
 ဘာသာစကားကို သဘာဝကျကျ သုံးပါ။ (Use language naturally.)"""
 
+    @staticmethod
+    def _period_totals_text(period_totals: Optional[List[Dict[str, Any]]]) -> str:
+        """The INCOME AND SPENDING BY PERIOD block (FinancialDataProcessor.get_period_totals); "" without periods."""
+        if not period_totals:
+            return ""
+        text = ("\n📅 INCOME AND SPENDING BY PERIOD (computed by the app from the entries, transfers between wallets "
+                "left out; use these for \"this week\", \"this month\" and \"last month\"):\n")
+        for p in period_totals:
+            text += f"  {p['label']} ({p['from']:%b %d} to {p['to']:%b %d, %Y}):\n"
+            if not p["currencies"]:
+                text += "    No income or spending entries.\n"
+            for cur, t in p["currencies"].items():
+                text += f"    {cur.upper()}: income {_money(cur, t['income'])}, spending {_money(cur, t['spending'])}\n"
+                top = p["top_spending"].get(cur)
+                if top:
+                    text += f"    Top spending ({cur.upper()}): " + "; ".join(
+                        f"{name} {_money(cur, total)}" for name, total in top) + "\n"
+        return text
+
     def _build_user_prompt(self, user: Dict, summary: Dict, goals_summary: Dict, budgets_summary: Dict, context: str,
-                           history_text: str, message: str, today: str, family_text: str = "") -> str:
+                           history_text: str, message: str, today: str, family_text: str = "",
+                           period_totals: Optional[List[Dict[str, Any]]] = None) -> str:
         """Build comprehensive user prompt with multi-currency support including budgets.
 
         user: the person asking (their own name, language and default currency, in Family mode too). family_text: the
-        FAMILY section of a family book (FinancialDataProcessor.get_family_context), "" for a personal book."""
+        FAMILY section of a family book (FinancialDataProcessor.get_family_context), "" for a personal book.
+        period_totals: FinancialDataProcessor.get_period_totals (this week, this month, last month)."""
         language = _LANGUAGE_NAMES.get(user.get("language") or "en", "English")
         book_line = ("Family book (shared household money), not the user's personal money" if family_text
                      else "Personal")
@@ -1246,8 +1306,10 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
                         available -= allocated
 
                 prompt += f"  ✨ Available Balance: {currency_symbol}{available:,.2f}\n"
-                prompt += f"  📈 Income: {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
-                prompt += f"  📉 Expenses: {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
+                prompt += f"  📈 Income (all time): {currency_symbol}{data.get('total_inflow', 0):,.2f}\n"
+                prompt += f"  📉 Expenses (all time): {currency_symbol}{data.get('total_outflow', 0):,.2f}\n"
+
+        prompt += self._period_totals_text(period_totals)
 
         # Goals summary by currency
         if goals_summary and goals_summary.get('goals_by_currency'):
@@ -1332,11 +1394,12 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             processor = FinancialDataProcessor(book_id, tz)
 
             # [FIX] Fetch data concurrently using native async methods
-            summary, goals, budgets, family_text = await asyncio.gather(
+            summary, goals, budgets, family_text, period_totals = await asyncio.gather(
                 processor.get_financial_summary(),
                 processor.get_user_goals(),
                 processor.get_user_budgets(),
                 processor.get_family_context(),
+                processor.get_period_totals(),
             )
 
             # Calculate goals summary
@@ -1462,7 +1525,7 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
             system_prompt = self._build_system_prompt(today, response_style, family=bool(family_text))
 
             user_prompt = self._build_user_prompt(user, summary, goals_summary, budgets_summary, context, history_text,
-                                                  message, today, family_text)
+                                                  message, today, family_text, period_totals)
 
             prompt = Prompt(
                 system=system_prompt,
