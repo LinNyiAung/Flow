@@ -54,6 +54,13 @@ class Insight {
   /// the schedule); null when the server sent none.
   final DateTime? nextInsightAt;
 
+  /// The days the report covers (calendar dates, inclusive); null for a
+  /// welcome placeholder or an older server. [isPeriodToDate]: the period was
+  /// still running when it was written (a "so far" report).
+  final DateTime? periodStart;
+  final DateTime? periodEnd;
+  final bool isPeriodToDate;
+
   Insight({
     required this.id,
     required this.bookId,
@@ -64,6 +71,9 @@ class Insight {
     this.translationLocked = false,
     this.translationUnavailable,
     this.nextInsightAt,
+    this.periodStart,
+    this.periodEnd,
+    this.isPeriodToDate = false,
   });
 
   factory Insight.fromJson(Map<String, dynamic> json) {
@@ -78,6 +88,9 @@ class Insight {
       translationUnavailable:
           TranslationUnavailable.tryParse(json['translation_unavailable']),
       nextInsightAt: parseInstantOrNull(json['next_insight_at']),
+      periodStart: json['period_start'] is String ? parseCalendarDate(json['period_start']) : null,
+      periodEnd: json['period_end'] is String ? parseCalendarDate(json['period_end']) : null,
+      isPeriodToDate: json['is_period_to_date'] == true,
     );
   }
 }

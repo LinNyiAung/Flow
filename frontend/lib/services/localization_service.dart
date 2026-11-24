@@ -455,6 +455,8 @@ class AppLocalizations {
       'name': 'Name',
       'aiAnalysis': 'Ko Toe Pwar\'s analysis',
       'budgetRulesAnalysis': 'Based on your past spending',
+      'insightCovers': 'Covers {range}',
+      'insightCoversSoFar': 'Covers {range} (so far)',
       'useThisBudget': 'Use This Budget',
 
 
@@ -1760,6 +1762,8 @@ class AppLocalizations {
       'name': 'အမည်',
       'aiAnalysis': 'ကိုတိုးပွား၏ ခွဲခြမ်းစိတ်ဖြာချက်',
       'budgetRulesAnalysis': 'သင်၏ ယခင်အသုံးစရိတ်များအပေါ် အခြေခံထားသည်',
+      'insightCovers': 'ကာလ: {range}',
+      'insightCoversSoFar': 'ကာလ: {range} (ယခုအထိ)',
       'useThisBudget': 'အသုံးပြုရန်',
 
       //ai chat screen
@@ -3089,6 +3093,10 @@ class AppLocalizations {
   String get name => translate('name');
   String get aiAnalysis => translate('aiAnalysis');
   String get budgetRulesAnalysis => translate('budgetRulesAnalysis');
+
+  /// "Covers 16 – 22 Nov 2026" ([soFar]: the period was still running).
+  String insightCovers(String range, {bool soFar = false}) =>
+      translate(soFar ? 'insightCoversSoFar' : 'insightCovers').replaceAll('{range}', range);
   String get useThisBudget => translate('useThisBudget');
 
 

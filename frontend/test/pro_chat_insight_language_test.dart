@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/chat.dart';
 import 'package:frontend/models/insight.dart';
@@ -5,6 +6,7 @@ import 'package:frontend/models/notification.dart';
 import 'package:frontend/providers/chat_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
 import 'package:frontend/services/api_service.dart';
+import 'package:frontend/services/localization_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 30));
@@ -288,6 +290,31 @@ void main() {
       });
       expect(plain.translationLocked, isFalse);
       expect(plain.translationUnavailable, isNull);
+    });
+
+    test('the period a report covers is read from the response, and said in both languages', () {
+      final i = Insight.fromJson({
+        'id': 'i',
+        'book_id': 'u',
+        'content': 'English',
+        'generated_at': '2026-11-23T00:00:00Z',
+        'period_start': '2026-11-16',
+        'period_end': '2026-11-22',
+        'is_period_to_date': true,
+      });
+      expect(i.periodStart, DateTime(2026, 11, 16));
+      expect(i.periodEnd, DateTime(2026, 11, 22));
+      expect(i.isPeriodToDate, isTrue);
+      final none = Insight.fromJson({'id': 'i', 'book_id': 'u', 'content': 'x', 'generated_at': '2026-11-23T00:00:00Z'});
+      expect(none.periodStart, isNull);
+      expect(none.isPeriodToDate, isFalse);
+
+      final en = AppLocalizations(const Locale('en'));
+      final my = AppLocalizations(const Locale('my'));
+      expect(en.insightCovers('16 – 22 Nov 2026'), 'Covers 16 – 22 Nov 2026');
+      expect(en.insightCovers('16 – 22 Nov 2026', soFar: true), 'Covers 16 – 22 Nov 2026 (so far)');
+      expect(my.insightCovers('x'), isNot(en.insightCovers('x')));
+      expect(my.insightCovers('x', soFar: true), contains('x'));
     });
 
     test('translation_unavailable is read from the response (an object, or null)', () {

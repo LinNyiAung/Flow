@@ -334,6 +334,18 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 _languageToggle(insightProvider, scheme),
               ],
             ),
+            // The days the report covers, so an older one (a failed run, a quiet
+            // period) never reads as the latest.
+            if (insightProvider.insight?.periodStart != null && insightProvider.insight?.periodEnd != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                AppLocalizations.of(context).insightCovers(
+                    AppDates.range(context, insightProvider.insight!.periodStart!, insightProvider.insight!.periodEnd!),
+                    soFar: insightProvider.insight!.isPeriodToDate),
+                key: const Key('insight-covers'),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onTertiaryContainer),
+              ),
+            ],
             // When the next insight arrives (the weekly / monthly schedule, or
             // the start of next month for a Free user's on-demand insight).
             NextInsightLine(nextAt: insightProvider.insight?.nextInsightAt),
