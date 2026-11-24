@@ -423,8 +423,53 @@ def section_extraction():
               f"extraction: currency {name!r} is {code.upper()} and keeps its amount", got)
 
 
+# ------------------------------------------------------------------------------- extraction prompts (audit group 2)
+def section_extraction_prompts():
+    """What the text, voice-list and receipt prompts tell the model (pure functions, no database)."""
+    import transaction_routes as tr
+    cats = tr._categories_text({"categories": [{"main_category": "Food & Daily Living", "sub_categories": ["Groceries"]}]},
+                               {"categories": []})
+    today = date(2026, 11, 24)
+    prompts = {"text": tr._text_prompt(cats, today, "mmk"), "voice": tr._multi_prompt(cats, today, "mmk"),
+               "receipt": tr._receipt_prompt(cats, today, "mmk")}
+    for name, p in prompts.items():
+        check("Today is Tuesday, 2026-11-24" in p and "Yesterday was Monday, 2026-11-23" in p and "Last <weekday>" in p,
+              f"extraction prompts ({name}): today and yesterday with their weekdays, and how to read 'last Friday'")
+        check("Never make up a date" in p and "never use a date after" in p,
+              f"extraction prompts ({name}): no invented or future dates")
+        check('set "amount": 0 and "confidence": 0' in p and "Never invent an amount" in p,
+              f"extraction prompts ({name}): never guess an amount (0 and confidence 0 instead)")
+        check("၀ ၁ ၂ ၃ ၄ ၅ ၆ ၇ ၈ ၉" in p and "ထောင် = 1,000" in p and "သောင်း = 10,000" in p
+              and "သိန်း = 100,000" in p and '"တစ်သိန်းခွဲ" = 150000' in p,
+              f"extraction prompts ({name}): Myanmar digits and number words (ထောင်, သောင်း, သိန်း, ခွဲ)")
+        check('"5k" = 5000' in p and "lakh" in p and "is the kyat sign" in p,
+              f"extraction prompts ({name}): '5k' is 5,000, lakh is 100,000, K before a full amount is kyat")
+        check('"SGD"' in p and "never relabel" in p and "ကျပ်" in p and "กျ" not in p,
+              f"extraction prompts ({name}): another currency is returned as written; the kyat word is Myanmar")
+        check("Never make up an amount, a date, a merchant or an item" in p,
+              f"extraction prompts ({name}): use only what the source says")
+    check("two items" in prompts["voice"] and "don't add an item that wasn't said" in prompts["voice"],
+          "extraction prompts (voice): one item per purchase, none invented")
+    r = prompts["receipt"]
+    check("grand total after tax" in r and "change given back" in r and "Tendered" in r and "subtotal" in r
+          and "isn't a receipt" in r,
+          "extraction prompts (receipt): the total is the amount payable, never cash handed over or change")
+
+    async def no_type():
+        x = await tr._build_extraction({"main_category": "Food & Daily Living", "sub_category": "Groceries",
+                                        "amount": 500000, "currency": "mmk", "confidence": 0.95, "reasoning": "salary?"},
+                                       "mmk", True, today=today)
+        return getattr(x.type, "value", x.type), x.confidence, x.reasoning
+    try:
+        got = _backend_async(no_type)
+    except Exception as e:  # noqa: BLE001
+        got = repr(e)
+    check(isinstance(got, tuple) and got[0] == "outflow" and got[1] <= 0.5 and "money in or out" in got[2],
+          "extraction: an item with no type is spending with a note, and at most 50% sure (left unticked)", got)
+
+
 SECTIONS = {"chat": section_chat, "insights": section_insights, "budgets": section_budgets,
-            "extraction": section_extraction}
+            "extraction": section_extraction, "extraction_prompts": section_extraction_prompts}
 
 
 def main():

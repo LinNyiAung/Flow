@@ -6,7 +6,7 @@ import uuid
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import date, datetime, UTC
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
 from typing import Dict, List, Optional, Set, Tuple
 import logging
@@ -43,7 +43,7 @@ from sql import books as books_db
 from sql.categories import get_categories_doc
 from sql.db import transaction as db_transaction
 
-from category_matching import normalize_type, parse_positive_amount, snap_category
+from category_matching import is_known_type, normalize_type, parse_positive_amount, snap_category
 from tz_utils import WallClock, as_calendar_date, as_wall_clock, local_today
 from user_zones import book_zone, user_zone
 from finite_utils import finite_amount_or_none, is_finite_number
@@ -177,6 +177,11 @@ async def _build_extraction(
     elif flipped:
         notes.append("Amount was negative; using its absolute value.")
 
+    # No usable type: it was recorded as spending by default. Say so, and don't let it pass as a sure item.
+    if not is_known_type(data.get("type")):
+        notes.append("It wasn't clear whether this is money in or out; recorded as spending.")
+        confidence = min(confidence, 0.5)
+
     # A currency the app doesn't record (e.g. a 25 SGD receipt): its number must not be saved as the book's currency
     # (25 SGD as K25). Like a missing amount: dropped from a list, or left for the person to enter.
     if amount and _named_currency(data.get("currency")) is None:
@@ -202,6 +207,164 @@ async def _build_extraction(
         confidence=confidence,
         reasoning=reasoning,
     )
+
+
+# --- The extraction prompts (one source for the rules all three share) ---
+def _categories_text(inflow_cats, outflow_cats) -> str:
+    text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
+    for cat in (inflow_cats or {}).get("categories", []):
+        text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+    text += "\nOUTFLOW:\n"
+    for cat in (outflow_cats or {}).get("categories", []):
+        text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
+    return text
+
+
+def _type_rule() -> str:
+    return ("TYPE: \"outflow\" for money spent or paid out; \"inflow\" for money received (salary, a sale, a refund, a "
+            "gift received). If it is unclear, use \"outflow\" and lower the confidence.")
+
+
+def _date_rules(today: date) -> str:
+    yesterday = today - timedelta(days=1)
+    return f"""DATES:
+   - Today is {today:%A}, {today.isoformat()}. Yesterday was {yesterday:%A}, {yesterday.isoformat()}.
+   - Work out words like "yesterday", "last Friday" or "on the 3rd" from today. "Last <weekday>" is the most recent
+     past one.
+   - When no date is said or shown, use today ({today.isoformat()}). Never make up a date, and never use a date after
+     today unless the text says so."""
+
+
+def _amount_rules() -> str:
+    return """AMOUNTS (never guess one):
+   - Use the amount exactly as said or shown, as a plain number with no thousands separators. If no amount is stated,
+     or it can't be read, set "amount": 0 and "confidence": 0. Never invent an amount.
+   - Myanmar digits ၀ ၁ ၂ ၃ ၄ ၅ ၆ ၇ ၈ ၉ are 0 to 9: "၄,၅၀၀" is 4500.
+   - Myanmar number words: ထောင် = 1,000; သောင်း = 10,000; သိန်း = 100,000; သန်း = 1,000,000; ခွဲ adds a half:
+     "၅ ထောင်" = 5000, "နှစ်သောင်း" = 20000, "၁ သိန်းခွဲ" or "တစ်သိန်းခွဲ" = 150000.
+   - "lakh" is 100,000: "1.5 lakh" = 150000.
+   - A short number followed by the letter k means thousands: "5k" = 5000, "2.5k" = 2500, "12K" = 12000. K or Ks
+     written before a full amount, or after one with thousands ("K 4,500", "4,500 Ks"), is the kyat sign, not
+     thousands."""
+
+
+def _currency_rules(default_currency: str) -> str:
+    return f"""CURRENCY:
+   - The app records only "usd", "mmk" and "thb". Use "mmk" for K, Ks, Kyat, ကျပ် or MMK; "usd" for $, USD or
+     dollars; "thb" for ฿, THB, baht or บาท.
+   - If an amount is in any other currency, return that currency's code as written (for example "SGD"). Never
+     convert it, and never relabel it as one of the three.
+   - If no currency is mentioned, use the user's default currency: "{default_currency}"."""
+
+
+def _ground_rule(source: str) -> str:
+    return (f"Use only what the {source} says. Never make up an amount, a date, a merchant or an item; when something "
+            "is missing, use the defaults above and lower the confidence.")
+
+
+def _text_prompt(categories_text: str, today: date, default_currency: str) -> str:
+    return f"""You are a financial transaction extraction assistant. Extract one transaction from the user's text.
+
+{categories_text}
+
+RULES:
+1. {_type_rule()}
+2. Select the most appropriate main_category and sub_category from the list above.
+3. {_amount_rules()}
+4. {_date_rules(today)}
+5. Put any description or notes in "description".
+6. {_currency_rules(default_currency)}
+7. Give a confidence score (0.0-1.0) for how clearly the text states the amount, date and category.
+8. In "reasoning", say briefly what you read and why you chose the category.
+9. {_ground_rule("text")}
+
+Respond in JSON format:
+{{
+    "type": "inflow" or "outflow",
+    "main_category": "selected main category",
+    "sub_category": "selected sub category",
+    "date": "YYYY-MM-DD",
+    "description": "optional description",
+    "amount": 4500,
+    "currency": "mmk",
+    "confidence": 0.95,
+    "reasoning": "why you chose these categories"
+}}"""
+
+
+def _multi_prompt(categories_text: str, today: date, default_currency: str) -> str:
+    return f"""You are a financial transaction extraction assistant. Extract EVERY transaction in the user's text (often a
+voice note): there may be one or many.
+
+{categories_text}
+
+RULES:
+1. Each separate purchase, payment or income is its own item: "lunch 3000 and taxi 5000" is two items. Don't split
+   one purchase into its parts, and don't add an item that wasn't said.
+2. For each item:
+   - {_type_rule()}
+   - Select the most appropriate main_category and sub_category from the list above.
+   - {_amount_rules()}
+   - {_date_rules(today)}
+   - Put any description or notes in "description".
+   - {_currency_rules(default_currency)} Each item can have its own currency.
+   - Give a confidence score (0.0-1.0) for how clearly the item's amount, date and category were said.
+   - In "reasoning", say briefly what you heard for this item.
+3. {_ground_rule("text")}
+4. Give an overall confidence and a brief analysis of what you found.
+
+Respond in JSON format:
+{{
+    "transactions": [
+        {{
+            "type": "inflow" or "outflow",
+            "main_category": "selected main category",
+            "sub_category": "selected sub category",
+            "date": "YYYY-MM-DD",
+            "description": "optional description",
+            "amount": 3000,
+            "currency": "mmk",
+            "confidence": 0.95,
+            "reasoning": "what you heard"
+        }}
+    ],
+    "total_count": 1,
+    "overall_confidence": 0.90,
+    "analysis": "Found 1 transaction: lunch"
+}}"""
+
+
+def _receipt_prompt(categories_text: str, today: date, default_currency: str) -> str:
+    return f"""You are a financial receipt analyzer. Extract the transaction from a photo of a receipt.
+
+{categories_text}
+
+RULES:
+1. {_type_rule()} A receipt is almost always "outflow".
+2. Select the most appropriate category from the list above, from the merchant and the items.
+3. TOTAL: use the final amount payable, the grand total after tax, service charge and discounts. Never use the cash
+   handed over ("Cash", "Paid", "Tendered"), the change given back, a subtotal, or a single line item. If the photo
+   isn't a receipt, or the total can't be read, set "amount": 0 and "confidence": 0.
+4. {_amount_rules()}
+5. {_date_rules(today)} Use the date printed on the receipt when there is one.
+6. Put the merchant name and a brief description in "description".
+7. {_currency_rules(default_currency)} Clues: Myanmar text or Ks prices suggest "mmk", Thai text suggests "thb".
+8. Give a confidence score (0.0-1.0) for how clearly you could read the total, the date and the merchant.
+9. In "reasoning", say what you saw on the receipt.
+10. {_ground_rule("receipt")}
+
+Respond in JSON format:
+{{
+    "type": "inflow" or "outflow",
+    "main_category": "selected main category",
+    "sub_category": "selected sub category",
+    "date": "YYYY-MM-DD",
+    "description": "merchant name and brief description",
+    "amount": 12500,
+    "currency": "mmk",
+    "confidence": 0.95,
+    "reasoning": "what you saw on the receipt"
+}}"""
 
 
 # --- AI calls (the transaction_text / transaction_image / transaction_audio provider chains) ---
@@ -952,55 +1115,9 @@ async def _extract_transaction_from_text(request: TextExtractionRequest, current
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
 
-        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
-        if inflow_cats:
-            for cat in inflow_cats["categories"]:
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
-        categories_text += "\nOUTFLOW:\n"
-        if outflow_cats:
-            for cat in outflow_cats["categories"]:
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
         user_default_currency = default_currency
         today = local_today(user_zone(current_user))
-
-        system_prompt = f"""You are a financial transaction extraction assistant. Extract transaction details from user text.
-
-{categories_text}
-
-RULES:
-1. Determine if it's 'inflow' (income) or 'outflow' (expense)
-2. Select the most appropriate main_category and sub_category from the list above
-3. Extract the amount as a positive number
-4. Determine the date (default to today if not specified: {today.isoformat()})
-5. Extract any description/notes
-6. CURRENCY DETECTION (VERY IMPORTANT):
-   - Carefully analyze the text for currency indicators
-   - Look for currency symbols: $, USD, K, Ks, Kyat, ฿, THB, etc.
-   - Look for currency codes: USD, MMK, THB, etc.
-   - Look for currency names: dollars, kyat, myanmar Kyat, baht, thai baht, etc.
-   - Common patterns:
-     * "$" or "USD" or "dollar" → use "usd"
-     * "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
-     * "฿", "THB", "baht", "Baht" → use "thb"  
-   - If NO currency is mentioned anywhere in the text, use the user's default currency: "{user_default_currency}"
-   - Be thorough - check the entire text, not just near the amount
-7. Provide a confidence score (0.0-1.0) based on clarity
-8. Provide brief reasoning for your categorization
-
-Respond in JSON format:
-{{
-    "type": "inflow" or "outflow",
-    "main_category": "selected main category",
-    "sub_category": "selected sub category",
-    "date": "YYYY-MM-DD",
-    "description": "optional description",
-    "amount": 123.45,
-    "currency": "usd" or "mmk",
-    "confidence": 0.95,
-    "reasoning": "why you chose these categories"
-}}"""
+        system_prompt = _text_prompt(_categories_text(inflow_cats, outflow_cats), today, user_default_currency)
 
         result = await _run_ai(
             "transaction_text", current_user["_id"],
@@ -1044,69 +1161,9 @@ async def _extract_multiple_transactions_from_text(request: TextExtractionReques
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
 
-        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
-        if inflow_cats:
-            for cat in inflow_cats["categories"]:
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
-        categories_text += "\nOUTFLOW:\n"
-        if outflow_cats:
-            for cat in outflow_cats["categories"]:
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
         user_default_currency = default_currency
         today = local_today(user_zone(current_user))
-
-        system_prompt = f"""You are a financial transaction extraction assistant. Extract ALL transaction details from user text, even if there are multiple transactions mentioned.
-
-{categories_text}
-
-RULES:
-1. Identify ALL transactions in the text (there may be one or many)
-2. For each transaction:
-   - Determine if it's 'inflow' (income) or 'outflow' (expense)
-   - Select the most appropriate main_category and sub_category from the list above
-   - Extract the amount as a positive number
-   - Determine the date (default to today if not specified: {today.isoformat()})
-   - Extract any description/notes
-   - CURRENCY DETECTION (VERY IMPORTANT):
-     * Carefully analyze the text for currency indicators for EACH transaction
-     * Look for currency symbols: $, USD, K, Ks, Kyat, etc.
-     * Look for currency codes: USD, MMK, etc.
-     * Look for currency names: dollars, kyat, myanmar Kyat, etc.
-     * Common patterns:
-       - "$" or "USD" or "dollar" → use "usd"
-       - "K", "Ks", "Kyat", "kyat", "MMK" → use "mmk"
-       - "฿", "THB", "baht", "Baht" → use "thb"
-     * If a transaction mentions no currency, use the user's default currency: "{user_default_currency}"
-     * Each transaction can have a different currency
-   - Provide a confidence score (0.0-1.0) based on clarity
-   - Provide brief reasoning for your categorization
-
-3. If multiple transactions are mentioned, extract each one separately
-4. Calculate an overall confidence score based on all transactions
-5. Provide a brief analysis of what you found
-
-Respond in JSON format:
-{{
-    "transactions": [
-        {{
-            "type": "inflow" or "outflow",
-            "main_category": "selected main category",
-            "sub_category": "selected sub category",
-            "date": "YYYY-MM-DD",
-            "description": "optional description",
-            "amount": 123.45,
-            "currency": "usd" or "mmk",
-            "confidence": 0.95,
-            "reasoning": "why you chose these categories"
-        }},
-        // ... more transactions if found
-    ],
-    "total_count": 2,
-    "overall_confidence": 0.90,
-    "analysis": "Found 2 transactions: a grocery purchase and a salary payment"
-}}"""
+        system_prompt = _multi_prompt(_categories_text(inflow_cats, outflow_cats), today, user_default_currency)
 
         result = await _run_ai(
             "transaction_text", current_user["_id"],
@@ -1301,56 +1358,11 @@ async def _extract_transaction_from_image(image: UploadFile, current_user: dict,
         inflow_cats = await get_categories_doc("inflow")
         outflow_cats = await get_categories_doc("outflow")
 
-        categories_text = "AVAILABLE CATEGORIES:\n\nINFLOW:\n"
-        if inflow_cats:
-            for cat in inflow_cats.get("categories", []):
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
-        categories_text += "\nOUTFLOW:\n"
-        if outflow_cats:
-            for cat in outflow_cats.get("categories", []):
-                categories_text += f"- {cat['main_category']}: {', '.join(cat['sub_categories'])}\n"
-
         user_default_currency = default_currency
         today = local_today(user_zone(current_user))
 
         # 6. Construct System Prompt
-        system_prompt = f"""You are a financial receipt analyzer. Extract transaction details from receipt images.
-
-{categories_text}
-
-RULES:
-1. Identify if it's 'inflow' or 'outflow' (receipts are usually outflow)
-2. Select the most appropriate category from the list above based on merchant/items
-3. Extract the total amount
-4. Extract the date from receipt (default to today if not visible: {today.isoformat()})
-5. Create a brief description including merchant name
-6. CURRENCY DETECTION (VERY IMPORTANT):
-   - Look CAREFULLY at the receipt for currency indicators
-   - Check for currency symbols: $, K, Ks, ฿, etc.
-   - Check for currency codes: USD, MMK, THB, etc.
-   - Check for country/language clues (Myanmar text → MMK, English with $ → USD, Thai text → THB)
-   - Look at price format (e.g., "1,000 K" or "Ks 1,000" → MMK, "฿1,000" → THB)
-   - Common patterns:
-     * "$" or "USD" or "US Dollar" → use "usd"
-     * "K", "Ks", "Kyat", "กျပ်", "MMK" → use "mmk"
-     * "฿", "THB", "baht", "บาท" → use "thb"  
-   - If NO currency indicators are visible on the receipt, use the user's default currency: "{user_default_currency}"
-7. Provide confidence score (0.0-1.0)
-8. Explain your reasoning
-
-Respond in JSON format:
-{{
-    "type": "inflow" or "outflow",
-    "main_category": "selected main category",
-    "sub_category": "selected sub category",
-    "date": "YYYY-MM-DD",
-    "description": "merchant name and brief description",
-    "amount": 123.45,
-    "currency": "usd" or "mmk",
-    "confidence": 0.95,
-    "reasoning": "what you saw on the receipt"
-}}"""
+        system_prompt = _receipt_prompt(_categories_text(inflow_cats, outflow_cats), today, user_default_currency)
 
         # 7. Ask the transaction_image provider chain (the resized receipt goes as one JPEG image)
         result = await _run_ai(

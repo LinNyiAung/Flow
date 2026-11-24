@@ -143,6 +143,11 @@ def normalize_type(tx_type: Optional[str]) -> str:
     return _TYPE_ALIASES.get((tx_type or "").strip().lower(), "outflow")
 
 
+def is_known_type(tx_type: Optional[str]) -> bool:
+    """True when normalize_type recognised `tx_type` (False: it fell back to the outflow default)."""
+    return isinstance(tx_type, str) and tx_type.strip().lower() in _TYPE_ALIASES
+
+
 def _ci_lookup(value: str, options: Sequence[str]) -> Optional[str]:
     v = (value or "").strip().lower()
     if not v:
