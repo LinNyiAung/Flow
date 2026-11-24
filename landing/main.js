@@ -134,6 +134,9 @@
       }
     });
     root.querySelector('[data-contact-nav]').hidden = !any;
+    // the header's "Contact" links go to that column, so they show only when it does
+    root.querySelectorAll('[data-contact-link]').forEach((a) => { a.hidden = !any; });
+    measureHeader();
   }
 
   // ---------------------------------------------------------------- Android download (GET /api/app/latest-android)

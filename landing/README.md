@@ -21,7 +21,7 @@ The backend address is the `tp-api-base` meta tag in `index.html`. Both endpoint
 
 - **`GET /api/plan/public`** returns the Plus and Pro prices and the owner contact details, as set on the admin **Plans** page.
   - **Prices:** a plan with no monthly price shows no price. "Save N%" uses the same rule as the app.
-  - **Contact icons:** only the details that are set are shown, and the whole Contact column is hidden when none are.
+  - **Contact icons:** only the details that are set are shown, and the whole Contact column is hidden when none are. The header's "Contact" link (it scrolls to that column, `#contact`) shows and hides with it.
 - **`GET /api/app/latest-android`** returns the newest Android build from the admin **App versions** page.
   - The three "Download for Android" links appear only when a version exists.
   - They never appear on iPhone or iPad. This is the same rule as the app's `shouldOfferAndroidDownload`.
