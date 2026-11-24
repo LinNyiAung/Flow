@@ -49,6 +49,19 @@ def _with_usage(text: str, finish: str, usage, served: str | None, prompt: Promp
                       finish, served_model=served, cached_input_tokens=cached if isinstance(cached, int) else 0)
 
 
+# A verbose_json segment this likely to hold no speech is silence (OpenAI's own whisper uses 0.6).
+NO_SPEECH_THRESHOLD = 0.6
+
+
+def is_silence(response) -> bool:
+    """True when a verbose_json transcription says every segment is probably silence (no_speech_prob >=
+    NO_SPEECH_THRESHOLD): its text, if any, was made up. False without segments (other models, other formats)."""
+    segments = getattr(response, "segments", None) or []
+    probs = [getattr(s, "no_speech_prob", None) if not isinstance(s, dict) else s.get("no_speech_prob") for s in segments]
+    probs = [p for p in probs if isinstance(p, (int, float))]
+    return bool(probs) and all(p >= NO_SPEECH_THRESHOLD for p in probs)
+
+
 def audio_seconds_of(response) -> float | None:
     """The transcribed audio's length from a transcription response: `usage` of type "duration" (whisper-1;
     openai.types.audio.Transcription.usage is UsageTokens | UsageDuration), else a verbose_json `duration`.
@@ -163,8 +176,12 @@ class OpenAIClient:
         kwargs = {"model": model, "file": (filename, audio)}
         if language:
             kwargs["language"] = language  # omitted -> auto-detect
+        if model.strip().lower().startswith("whisper"):
+            # verbose_json: each segment's no_speech_prob, so a silent recording can be told from speech (whisper is
+            # known to "hear" words in silence). The gpt-4o*-transcribe models don't offer it.
+            kwargs["response_format"] = "verbose_json"
         r = await self._client().audio.transcriptions.create(**kwargs)
-        text = r.text or ""
+        text = "" if is_silence(r) else (r.text or "")
         served = getattr(r, "model", None)
         tokens = transcription_tokens_of(r)
         if tokens is not None:  # gpt-4o*-transcribe: billed by tokens, reported exactly

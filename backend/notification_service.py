@@ -120,6 +120,8 @@ NOTIFICATION_TRANSLATIONS = {
         "budget_ai_rules_fallback_msg": "Ko Toe Pwar can't answer right now, so these suggestions use simple rules instead.",
         "insight_translation_failed_msg": "The Myanmar translation isn't available right now, so this report is in English. Try again later.",
         "chat_no_data_msg": "I don't have any of your financial data yet. Add some transactions, goals or budgets first, and I can help!",
+        "chat_cut_off_note": "(This answer was cut short. Ask me to continue, or ask a narrower question.)",
+        "entry_ai_failed_msg": "Ko Toe Pwar couldn't read that just now. Please try again, or add the entry by hand.",
         # Family book: notifications, and the refusals of /api/family (families.service; keys family_<code>_msg).
         "family_invite_title": "Family invitation",
         "family_invite_msg": "{inviter} invited you to join the family '{family_name}'. Open Family to join or decline.",
@@ -241,6 +243,8 @@ NOTIFICATION_TRANSLATIONS = {
         "budget_ai_rules_fallback_msg": "ကိုတိုးပွား ယခု မဖြေနိုင်သေးသဖြင့် ဤအကြံပြုချက်များကို ရိုးရှင်းသော စည်းမျဉ်းများဖြင့် တွက်ထားပါသည်။",
         "insight_translation_failed_msg": "မြန်မာဘာသာပြန်ကို ယခု မရနိုင်သေးသဖြင့် ဤအစီရင်ခံစာကို အင်္ဂလိပ်ဘာသာဖြင့် ပြထားပါသည်။ နောက်မှ ထပ်ကြိုးစားပါ။",
         "chat_no_data_msg": "သင့်ငွေကြေးအချက်အလက် မရှိသေးပါ။ ငွေဝင်ငွေထွက်၊ ရည်မှန်းချက် သို့မဟုတ် ဘတ်ဂျက် အရင်ထည့်ပါ၊ ပြီးရင် ကူညီပေးနိုင်ပါတယ်။",
+        "chat_cut_off_note": "(ဤအဖြေ တိုသွားပါသည်။ ဆက်ပြောရန် တောင်းဆိုပါ သို့မဟုတ် ပိုတိကျသော မေးခွန်း မေးပါ။)",
+        "entry_ai_failed_msg": "ကိုတိုးပွား ယခု ဖတ်၍ မရသေးပါ။ ထပ်ကြိုးစားပါ သို့မဟုတ် ကိုယ်တိုင် ထည့်ပါ။",
         "family_invite_title": "မိသားစုသို့ ဖိတ်ကြားချက်",
         "family_invite_msg": "{inviter} က '{family_name}' မိသားစုသို့ ဝင်ရန် ဖိတ်ကြားထားပါသည်။ ဝင်ရန် သို့မဟုတ် ငြင်းရန် မိသားစု စာမျက်နှာကို ဖွင့်ပါ။",
         "family_invite_accepted_title": "မိသားစုဝင် အသစ်",

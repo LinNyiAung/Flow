@@ -206,7 +206,8 @@ class TransactionExtraction(BaseModel):
     reasoning: Optional[str] = None
 
 class TextExtractionRequest(BaseModel):
-    text: str
+    # At most about 7 minutes of speech (every character is paid for in the prompt).
+    text: str = _Field(..., max_length=10_000)
     # The voice_token transcribe-audio returned for this exact text: the voice entry is then one use, not two.
     voice_token: Optional[str] = None  # any value is accepted: an invalid or oversize one is ignored, never a 422
 

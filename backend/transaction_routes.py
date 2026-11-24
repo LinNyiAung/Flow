@@ -1,7 +1,8 @@
 import io
 import json
 import os
-from PIL import Image
+import re
+from PIL import Image, ImageOps
 import uuid
 import time
 from collections import defaultdict
@@ -207,6 +208,29 @@ async def _build_extraction(
         confidence=confidence,
         reasoning=reasoning,
     )
+
+
+# What speech-to-text models are known to "hear" in silence or noise (whisper's training on subtitled video): a
+# transcript that is only one of these is treated as no speech, so it never becomes an entry (and the use is given
+# back, as for silence).
+_FILLER_TRANSCRIPTS = frozenset({
+    "thank you", "thank you very much", "thanks", "thanks for watching", "thank you for watching",
+    "please subscribe", "subscribe", "bye", "you", "okay", "ok", "music", "applause", "silence",
+})
+
+
+def _without_filler(transcript: str) -> str:
+    """`transcript`, or "" when it is only a known silence filler ("Thank you.", "[Music]", "Thanks for watching!")."""
+    words = re.sub(r"[\W_]+", " ", (transcript or "").lower()).strip()
+    return "" if not words or words in _FILLER_TRANSCRIPTS else transcript
+
+
+def _entry_failed(user: dict) -> str:
+    """The message an AI entry read (text, voice, receipt) fails with, in the user's language: never the exception's
+    own text, which can carry provider or internal details (those go to the server log)."""
+    from notification_service import translate
+    from plans.access import user_language
+    return translate("entry_ai_failed_msg", user_language(user))
 
 
 # --- The extraction prompts (one source for the rules all three share) ---
@@ -1086,7 +1110,7 @@ async def _transcribe_audio(audio: UploadFile, language: Optional[str], current_
         # Silence or noise transcribes to "": that is a valid answer, not a reason to ask a backup provider.
         result = await _run_ai("transaction_audio", current_user["_id"], call, allow_empty=True)
         _log_ai_usage("Audio Transcription", current_user["_id"], result)
-        return {"transcription": result.value.text}
+        return {"transcription": _without_filler(result.value.text)}
 
     except HTTPException:
         raise
@@ -1094,7 +1118,7 @@ async def _transcribe_audio(audio: UploadFile, language: Optional[str], current_
         logger.error(f"Transcription internal error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to transcribe audio: {str(e)}"
+            detail=_entry_failed(current_user)
         )
 
 
@@ -1139,7 +1163,7 @@ async def _extract_transaction_from_text(request: TextExtractionRequest, current
         print(f"Extraction error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract transaction: {str(e)}"
+            detail=_entry_failed(current_user)
         )
 
 
@@ -1203,7 +1227,7 @@ async def _extract_multiple_transactions_from_text(request: TextExtractionReques
         print(f"Extraction error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract transactions: {str(e)}"
+            detail=_entry_failed(current_user)
         )
 
 
@@ -1278,21 +1302,31 @@ async def batch_create_transactions(
 
 # Constants
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB Hard Limit
-TARGET_IMAGE_SIZE = (1024, 1024)         # Resize target for Vision API
+# The largest receipt image sent to the model: its long and short sides. A receipt is long and narrow, so fitting it
+# in a square (1024 x 1024, before) made a 1000 x 4000 photo 256 px wide and its figures hard to read.
+MAX_IMAGE_LONG_SIDE, MAX_IMAGE_SHORT_SIDE = 3200, 1600
+
 
 def process_and_resize_image(image_data: bytes) -> bytes:
     """
-    CPU-bound task: Opens image, resizes it, and re-encodes it as an optimized JPEG (returns the JPEG bytes).
-    This runs in a threadpool to avoid blocking the async event loop.
+    CPU-bound task: opens the image, turns it upright (the camera's EXIF orientation), shrinks it to fit
+    MAX_IMAGE_LONG_SIDE x MAX_IMAGE_SHORT_SIDE (never enlarges it, keeps the aspect ratio) and re-encodes it as an
+    optimized JPEG (returns the JPEG bytes). This runs in a threadpool to avoid blocking the async event loop.
     """
     try:
         with Image.open(io.BytesIO(image_data)) as img:
-            # 1. Convert to RGB (Handy for PNGs with transparency)
-            if img.mode in ("RGBA", "P"):
+            # 1. Upright: a phone photo is often stored sideways with an EXIF "rotate me" tag the model doesn't read.
+            img = ImageOps.exif_transpose(img)
+
+            # 2. JPEG takes RGB or greyscale (PNGs with transparency, palettes, CMYK... become RGB)
+            if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")
 
-            # 2. Resize if the image is too large (maintains aspect ratio)
-            img.thumbnail(TARGET_IMAGE_SIZE)
+            # 3. Shrink a large image to the long / short side limits
+            w, h = img.size
+            scale = min(1.0, MAX_IMAGE_LONG_SIDE / max(w, h), MAX_IMAGE_SHORT_SIDE / min(w, h))
+            if scale < 1.0:
+                img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
 
             # 3. Save to optimized JPEG buffer
             buffer = io.BytesIO()
@@ -1385,5 +1419,5 @@ async def _extract_transaction_from_image(image: UploadFile, current_user: dict,
         logger.error(f"Image extraction error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract from image: {str(e)}"
+            detail=_entry_failed(current_user)
         )

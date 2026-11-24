@@ -801,6 +801,9 @@ def _insight_response(insight: dict, translation_locked: bool = False, plan_tran
         translation_locked=translation_locked,
         translation_unavailable=translation_unavailable,
         next_insight_at=next_insight_at,
+        period_start=None if insight.get("is_placeholder") else (insight.get("week_start") or insight.get("month_start")),
+        period_end=None if insight.get("is_placeholder") else (insight.get("week_end") or insight.get("month_end")),
+        is_period_to_date=bool(insight.get("is_period_to_date")),
     )
 
 

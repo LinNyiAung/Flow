@@ -625,10 +625,132 @@ def section_chat_prompts():
           "chat prompt: overlapping budgets are each listed with their dates, never added into one total", prompt[:1400])
 
 
+# ------------------------------------------------------------------------------------- reliability (audit group 3)
+def section_reliability():
+    import io as _io
+    from types import SimpleNamespace
+    from PIL import Image
+    import insights_service as ins
+    import custom_insights_service as cis
+    import transaction_routes as tr
+    from ai_providers.clients import openai_client as oc
+    from ai_providers import features
+    from ai_providers.errors import UnusableAnswer
+    from ai_providers.types import Target
+
+    # cut-off answers
+    try:
+        ins._whole_report(SimpleNamespace(text="## Summary\nYou spent", finish="length"))
+        cut = "accepted"
+    except UnusableAnswer:
+        cut = "unusable"
+    check(cut == "unusable" and ins._whole_report(SimpleNamespace(text="## Summary\nok.", finish="stop")) == "## Summary\nok.",
+          "reliability: a weekly/monthly report cut off at the output limit is unusable (the next provider tries)", cut)
+    got = cis.drop_cut_off_tail("## What to do next\n- Cook at home twice.\n- Set a taxi lim")
+    check(got == "## What to do next\n- Cook at home twice.",
+          "reliability: a custom insight cut off mid-sentence loses its broken last line", got)
+    check(cis.drop_cut_off_tail("## Summary\nAll good.") == "## Summary\nAll good.",
+          "reliability: ... a complete last line stays")
+
+    # the period a report covers
+    import main
+    resp = main._insight_response({"_id": "i1", "book_id": "b1", "content": "## Summary\nx", "generated_at": datetime.now(),
+                                   "week_start": date(2026, 11, 16), "week_end": date(2026, 11, 22),
+                                   "is_period_to_date": False})
+    check(resp.period_start == date(2026, 11, 16) and resp.period_end == date(2026, 11, 22) and not resp.is_period_to_date,
+          "reliability: an insight says which days it covers (period_start / period_end)", resp)
+    resp = main._insight_response({"_id": "i2", "book_id": "b1", "content": "## Welcome", "generated_at": datetime.now(),
+                                   "week_start": date(2026, 11, 16), "week_end": date(2026, 11, 22), "is_placeholder": True})
+    check(resp.period_start is None, "reliability: a welcome placeholder covers no period")
+
+    # receipt images: upright, and a long receipt stays readable
+    def jpeg_size(img, **save):
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", **save)
+        out = Image.open(_io.BytesIO(tr.process_and_resize_image(buf.getvalue())))
+        return out.size
+    got = jpeg_size(Image.new("RGB", (1000, 4000), "white"))
+    check(got == (800, 3200), "reliability: a 1000 x 4000 receipt goes as 800 x 3200 (was 256 x 1024)", got)
+    sideways = Image.new("RGB", (400, 200), "white")
+    exif = sideways.getexif()
+    exif[0x0112] = 6  # "rotate 90° clockwise to view"
+    got = jpeg_size(sideways, exif=exif.tobytes())
+    check(got == (200, 400), "reliability: a photo stored sideways (EXIF orientation 6) is turned upright", got)
+    check(jpeg_size(Image.new("RGB", (640, 480), "white")) == (640, 480), "reliability: a small photo isn't enlarged")
+
+    # voice: silence and filler transcripts
+    seg = lambda p: SimpleNamespace(no_speech_prob=p)  # noqa: E731
+    check(oc.is_silence(SimpleNamespace(segments=[seg(0.9), seg(0.7)])) and not oc.is_silence(SimpleNamespace(segments=[seg(0.9), seg(0.1)]))
+          and not oc.is_silence(SimpleNamespace(segments=None)) and not oc.is_silence(SimpleNamespace()),
+          "reliability: a whisper transcript is silence only when every segment is probably no speech")
+    check(all(tr._without_filler(t) == "" for t in ("Thank you.", "Thanks for watching!", "[Music]", "  ", "Bye."))
+          and tr._without_filler("lunch 3000 and taxi 5000") == "lunch 3000 and taxi 5000"
+          and tr._without_filler("ထမင်း ၄,၅၀၀") == "ထမင်း ၄,၅၀၀",
+          "reliability: a transcript that is only a known silence filler is treated as no speech; real speech stays")
+
+    # raw errors and size limits
+    src = open(tr.__file__, encoding="utf-8").read()
+    check("Failed to extract transaction: {str(e)}" not in src and "Failed to transcribe audio: {str(e)}" not in src
+          and "_entry_failed(current_user)" in src,
+          "reliability: an entry read that fails shows a plain message, never the exception's text")
+    from pydantic import ValidationError
+    import chat_models
+    import models as tx_models
+    try:
+        chat_models.ChatRequest(message="x" * (chat_models.CHAT_MESSAGE_MAX + 1))
+        too_long = "accepted"
+    except ValidationError:
+        too_long = "refused"
+    req = chat_models.ChatRequest(message="hi", chat_history=[{"role": "user", "content": "y" * 9000}] * 30)
+    check(too_long == "refused" and len(req.chat_history) == chat_models.CHAT_HISTORY_MAX_MESSAGES
+          and len(req.chat_history[0].content) == chat_models.CHAT_MESSAGE_MAX,
+          "reliability: a chat message over 4,000 characters is refused; history is kept to 20 trimmed messages")
+    try:
+        tx_models.TextExtractionRequest(text="z" * 10_001)
+        long_text = "accepted"
+    except ValidationError:
+        long_text = "refused"
+    check(long_text == "refused", "reliability: text for an AI entry read is at most 10,000 characters")
+
+    # the models Google serves from 2026-12-01, named outright
+    check(features.FEATURES["chat"].default == Target("gemini", "gemini-3.5-flash-lite")
+          and features.FEATURES["insight_weekly"].default == Target("gemini", "gemini-3.5-flash-lite")
+          and features.FEATURES["insight_translation"].default == Target("gemini", "gemini-3.8-flash"),
+          "reliability: the Gemini defaults name gemini-3.5-flash-lite / gemini-3.8-flash")
+
+    # a scheduled report that fails is retried (raises, so local_jobs releases its claim)
+    c, made = _client(), []
+    try:
+        p = _person(c, made, "Retry", plan="plus")
+
+        async def failing(book, **_):
+            raise RuntimeError("provider down")
+
+        async def nothing(book, **_):
+            return None
+
+        async def notify(book):
+            return None
+
+        async def run(gen):
+            from tz_utils import default_zone
+            try:
+                await ins._scheduled_insight(p["book"], default_zone(), "insight_weekly", gen, notify)
+                return "returned"
+            except Exception as e:  # noqa: BLE001
+                return type(e).__name__
+        got = (_backend_async(lambda: run(failing)), _backend_async(lambda: run(nothing)))
+        check(got == ("RuntimeError", "RuntimeError"),
+              "reliability: a scheduled report that fails (or makes nothing) raises, so a later tick that day retries",
+              got)
+    finally:
+        _cleanup(made)
+
+
 SECTIONS = {"chat": section_chat, "insights": section_insights, "budgets": section_budgets,
             "extraction": section_extraction, "extraction_prompts": section_extraction_prompts,
             "budget_prompts": section_budget_prompts, "insight_prompts": section_insight_prompts,
-            "chat_prompts": section_chat_prompts}
+            "chat_prompts": section_chat_prompts, "reliability": section_reliability}
 
 
 def main():

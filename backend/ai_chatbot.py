@@ -1605,6 +1605,11 @@ Remember: Accuracy is more important than speed. Double-check dates, amounts, AN
 
             if result is None:  # the runner always ends with a RunResult or raises; guard anyway
                 raise ChatServiceError()
+            if result.completion.finish == "length":
+                # Cut off at the output limit: say so, so a sentence that stops halfway isn't read as the whole answer.
+                from notification_service import translate  # local: notification_service is a heavier import
+                from plans.access import user_language
+                yield f"\n\n{translate('chat_cut_off_note', user_language(user))}", None
             # A "filtered"/"refusal" finish after chunks were sent ends the stream like a normal one:
             # the text already sent stands and no other provider is asked.
             c = result.completion

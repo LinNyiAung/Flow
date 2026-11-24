@@ -102,7 +102,8 @@ async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, n
     A book that already has a real insight for the period this run would cover (_has_period_insight: the old cron made
     it on deploy day, or the period was already done) gets nothing: no AI call and no notice, and the run counts as done.
 
-    An insight that can't be made (every provider failed) is logged and not retried until the next period, as before.
+    An insight that can't be made (every provider failed, or an error) raises, so local_jobs releases the claim and the
+    next tick of that day (the job's weekday / day of the month) tries again.
     """
     book = await books_db.get_book_row(book_id)
     plan_user = await books_db.book_profile(book_id) if book else None
@@ -118,11 +119,13 @@ async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, n
         # background: the runner retries a rate-limited provider before falling back.
         result = await generate(book_id, notify=False, background=True, tz=tz)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"❌ Error generating {label} insight for {book_id}: {e}")
-        return
+        # Raised on, so local_jobs releases the claim and a later tick that day tries again: otherwise one provider
+        # outage at 05:00 left last period's report on screen for the whole new period.
+        logger.error(f"❌ Error generating {label} insight for {book_id}: {e}; a later tick retries")
+        raise
     if not result:
-        logger.warning(f"⚠️ Failed to generate {label} insight for book {book_id} (Returned None)")
-        return
+        logger.warning(f"⚠️ Failed to generate {label} insight for book {book_id} (Returned None); a later tick retries")
+        raise RuntimeError(f"no {label} insight was made for book {book_id}")
     logger.info(f"✅ Generated {label} insight for book {book_id} ({result.get('ai_provider')})")
     # One "insights ready" notification, only for a new real (non-placeholder) insight (a reused older insight
     # returned for a quiet period is not "new").
@@ -291,9 +294,17 @@ def _feature_prompt_call(feature: str, system: str, user: str, max_tokens: dict,
     return call
 
 
+def _whole_report(c: Completion) -> str:
+    """A runner `parse` for the weekly and monthly reports: the text, or UnusableAnswer (the next provider tries) when
+    the answer was cut off at the output limit. A half report must never be saved and announced as ready."""
+    if c.finish == "length":
+        raise UnusableAnswer("report cut off at the output limit")
+    return c.text
+
+
 async def run_insight_model(feature: str, system_prompt: str, context: str, label: str, *,
                             user_id: Optional[str] = None, book_id: Optional[str] = None,
-                            background: bool = False) -> _runner.RunResult:
+                            background: bool = False, parse=None) -> _runner.RunResult:
     """Run the insight feature on its provider chain; the RunResult carries the completion and the answering target.
 
     The runner tracks usage under exactly one of `user_id` (a person: a personal book's insight, or the person who
@@ -305,6 +316,7 @@ async def run_insight_model(feature: str, system_prompt: str, context: str, labe
         result = await _runner.run(
             feature, user_id=user_id, book_id=book_id, background=background,
             call=_feature_prompt_call(feature, system_prompt, context, INSIGHT_MAX_TOKENS[feature], INSIGHT_TEMPERATURE),
+            **({"parse": parse} if parse else {}),
         )
     except AllProvidersFailed as e:
         raise _ai_error(e, feature, label) from e
@@ -329,9 +341,10 @@ async def run_insight_model(feature: str, system_prompt: str, context: str, labe
 async def _call_insight_model(feature: str, system_prompt: str, context: str, label: str, *,
                               user_id: Optional[str] = None, book_id: Optional[str] = None,
                               background: bool = False):
-    """run_insight_model as (content, provider, in, out, total), for the weekly and monthly insights."""
+    """run_insight_model as (content, provider, in, out, total), for the weekly and monthly insights. A cut-off report
+    is never used (_whole_report)."""
     result = await run_insight_model(feature, system_prompt, context, label, user_id=user_id, book_id=book_id,
-                                     background=background)
+                                     background=background, parse=_whole_report)
     c, t = result.completion, result.target
     return c.text, t.provider, c.input_tokens, c.output_tokens, c.input_tokens + c.output_tokens
 

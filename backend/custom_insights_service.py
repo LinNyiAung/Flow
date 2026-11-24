@@ -56,6 +56,17 @@ STUCK_AFTER = timedelta(minutes=20)
 # for and then thrown away because the sweeper failed the report first).
 MODEL_TIMEOUT = STUCK_AFTER - timedelta(minutes=2)
 LAST_HEADING = re.compile(r"^#{1,6}[ \t]*What to do next\b", re.IGNORECASE | re.MULTILINE)
+# How a finished line ends (a sentence, a Myanmar sentence, a list item ending in a figure or a bracket).
+_LINE_END = re.compile(r"[.!?။)\]%*\d]\s*$")
+
+
+def drop_cut_off_tail(text: str) -> str:
+    """`text` without its last line when that line stops mid-sentence (an answer cut off at the output limit). The
+    heading lines and complete lines before it stay; a text of one line is kept whole."""
+    lines = text.rstrip().splitlines()
+    if len(lines) > 1 and not _LINE_END.search(lines[-1]) and not lines[-1].lstrip().startswith("#"):
+        lines = lines[:-1]
+    return "\n".join(lines).rstrip()
 
 
 OFF_TOPIC_WINDOW = 80        # the marker counts when it appears within the answer's first 80 characters ...
@@ -404,6 +415,8 @@ async def run_report(report_id: str) -> dict | None:
                          report_id, result.target.provider)
         else:
             text = strip_marker(text)
+            if result.completion.finish == "length":
+                text = drop_cut_off_tail(text)  # its last section is there, but its last line may stop mid-sentence
             if text:  # never empty here (a short answer with the marker is refused), but a ready row needs content
                 status = "ready"
                 fields = {"content": text, "ai_provider": result.target.provider, "ai_model": result.target.model,
