@@ -403,18 +403,20 @@ async def run(t):
             return (len(calls), alloc, used(uid, "budget_suggestion"),
                     child is not None and child.get("parent_budget_id") == parent_id, ai_wording)
 
-        # an AI-optimised budget for the fake answer is 450; the non-AI adjusted budget of 50 spent 0 is 40
+        # the fake AI answers 450, held to 2x the parent's 50 (budget_service._guard_auto_budget): 100; the non-AI
+        # adjusted budget of 50 spent 0 is 40
         # (AI calls, child allocation, budget_suggestion uses, child created, notification uses the AI wording)
         got = await auto_create("free")
         check(got == (0, 40.0, 0, True, False),
               "auto_create_ai_only_paid: a Free owner's auto-create makes no AI call and uses the adjusted budget (40), "
               "and the notification has the non-AI wording", got)
         got = await auto_create("plus", "plus")
-        check(got == (1, 450, 0, True, True),
-              "auto_create_ai_only_paid: a Plus owner's auto-create makes one AI call and uses its answer (450); no allowance used; "
+        check(got == (1, 100, 0, True, True),
+              "auto_create_ai_only_paid: a Plus owner's auto-create makes one AI call and uses its answer (450 held to "
+              "2x the parent's 50: 100); no allowance used; "
               "the notification has the AI wording", got)
         got = await auto_create("pro", "pro")
-        check(got == (1, 450, 0, True, True), "auto_create_ai_only_paid: a Pro owner's auto-create makes one AI call", got)
+        check(got == (1, 100, 0, True, True), "auto_create_ai_only_paid: a Pro owner's auto-create makes one AI call", got)
         got = await auto_create("expired", "plus", datetime.now(UTC) - timedelta(days=1))
         check(got == (0, 40.0, 0, True, False),
               "auto_create_ai_only_paid: an owner whose Plus ended yesterday is Free at once: no AI call, non-AI wording", got)

@@ -988,9 +988,11 @@ def section_jobs():
             calls, alloc, usage = rollover("plus")
         except Exception as e:  # noqa: BLE001
             calls, alloc, usage = repr(e)[:300], None, []
-        check(isinstance(calls, list) and len(calls) == 1 and calls[0][1:] == (None, fbook) and alloc == 450,
+        # The fake AI answers 450; an auto-created line is held to 2x what the parent's line had (50): 100.
+        check(isinstance(calls, list) and len(calls) == 1 and calls[0][1:] == (None, fbook) and alloc == 100,
               "family AI budgets follow the owner: owner on Plus: the rollover makes one budget_auto_create call (spend "
-              "on the family book) and the next budget has the AI's allocations (450)", (calls, alloc))
+              "on the family book) and the next budget has the AI's allocation (its 450, held to 2x the parent's 50: "
+              "100)", (calls, alloc))
         check(len(usage) == 1 and usage[0]["user_id"] is None,
               "family AI budgets follow the owner: the AI budget's ai_usage row has book_id = the family book and "
               "user_id NULL", usage)

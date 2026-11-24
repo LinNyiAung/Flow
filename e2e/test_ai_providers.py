@@ -4081,7 +4081,10 @@ async def _budget_inprocess_checks(uid):
                     got = (kw.get("max_tokens"), kw.get("temperature", "absent"), fmt.get("type"))
                 want = {"openai": (4096, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
                         "claude": (8000, "absent", "json_schema")}[provider]
-                check(got == want and kw.get("model", model) == model and out and out[0].allocated_amount == 450,
+                # The fake AI answers 450: a suggestion shows it as is; an auto-created line is held to 2x what the
+                # parent's line had (100): 200.
+                answer = 450 if feature == "budget_suggestion" else 200
+                check(got == want and kw.get("model", model) == model and out and out[0].allocated_amount == answer,
                       f"budget request: {feature} on {provider} sends {want}", (got, out[:1]))
 
         # --- the parser: today's field checks, anything unusable moves on to the next provider

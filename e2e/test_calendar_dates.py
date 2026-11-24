@@ -1171,6 +1171,11 @@ def section_family_jobs():
 
         def weekly():
             return db.sql("SELECT count(*) n FROM insights WHERE book_id = %s AND insight_type = 'weekly'", book)[0]["n"]
+        # The rollover ticks above (Tokyo's Tuesday 00:35 is still Monday evening in Yangon) already ran this book's
+        # weekly job once, and its report covers the real last week, so this tick would rightly find that week done
+        # (insights_service._has_period_insight). Start the book's weekly reports afresh: this check is about which
+        # tick runs the job.
+        db.sql("DELETE FROM insights WHERE book_id = %s AND insight_type = 'weekly'", book)
         before = weekly()
         ticks = _ticks([_at(monday, 5, 5, TOKYO), _at(monday, 5, 5, YANGON), _at(monday, 5, 20, YANGON)],
                        people=people, books=books, probe=lambda: weekly() - before)
