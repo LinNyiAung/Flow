@@ -1105,6 +1105,9 @@ class AppLocalizations {
       'amountNeededLabel': 'Amount needed',
       'amountNeededHint': "The amount couldn't be read. Tap to enter it.",
       'amountNeededBeforeSaving': 'Enter the missing amount before saving.',
+      // Ko Toe Pwar's entries: correcting one in the full entry form
+      'tapEntryToCorrectHint': 'Tap an entry to correct it.',
+      'editDetailsButton': 'Edit details',
       'amountAmbiguousFormat': 'Unclear amount. Use a dot for decimals, e.g. 1,500.50',
       'insightsTemporarilyUnavailable': 'Insights are temporarily unavailable. Please try again in a few minutes.',
       'goalOverdue': 'Overdue',
@@ -2398,6 +2401,9 @@ class AppLocalizations {
       'amountNeededLabel': 'ပမာဏ ထည့်ရန် လိုအပ်',
       'amountNeededHint': 'ပမာဏကို ဖတ်၍ မရပါ။ ထည့်ရန် နှိပ်ပါ။',
       'amountNeededBeforeSaving': 'မသိမ်းဆည်းမီ မပါဝင်သေးသော ပမာဏကို ထည့်ပါ။',
+      // Ko Toe Pwar's entries: correcting one in the full entry form
+      'tapEntryToCorrectHint': 'ပြင်ချင်တဲ့ စာရင်းကို နှိပ်ပါ။',
+      'editDetailsButton': 'အသေးစိတ် ပြင်ရန်',
       'amountAmbiguousFormat': 'ပမာဏ မရှင်းလင်းပါ။ ဒဿမအတွက် အစက် (.) ကို သုံးပါ၊ ဥပမာ 1,500.50',
       'insightsTemporarilyUnavailable': 'သုံးသပ်ချက်များကို ယာယီ အသုံးပြု၍ မရသေးပါ။ မိနစ်အနည်းငယ်အကြာတွင် ထပ်ကြိုးစားပါ။',
       'goalOverdue': 'ရက်လွန်',
@@ -3745,6 +3751,12 @@ class AppLocalizations {
   String get amountNeededLabel => translate('amountNeededLabel');
   String get amountNeededHint => translate('amountNeededHint');
   String get amountNeededBeforeSaving => translate('amountNeededBeforeSaving');
+
+  /// Voice list: tapping an entry opens the full form to correct it.
+  String get tapEntryToCorrectHint => translate('tapEntryToCorrectHint');
+
+  /// Receipt: opens the full form to correct what was read.
+  String get editDetailsButton => translate('editDetailsButton');
   String get amountAmbiguousFormat => translate('amountAmbiguousFormat');
   String get insightsTemporarilyUnavailable => translate('insightsTemporarilyUnavailable');
   String get goalOverdue => translate('goalOverdue');

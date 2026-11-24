@@ -7,9 +7,11 @@ import 'package:frontend/models/family.dart';
 import 'package:frontend/models/transaction.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/family_entries.dart';
 import 'package:frontend/widgets/amount_entry_dialog.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
@@ -21,6 +23,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/voice_image_models.dart';
+import 'add_transaction_screen.dart';
 import 'voice_extraction.dart';
 import 'voice_retry_hint.dart';
 import 'package:intl/intl.dart';
@@ -59,6 +62,12 @@ class VoiceInputScreen extends StatefulWidget {
   /// Tests: starts with these entries read, as if a recording had been.
   @visibleForTesting
   final MultipleExtractedTransactions? initialExtraction;
+
+  /// Item [index]'s card: tapping it opens the entry form to correct it.
+  static Key itemKey(int index) => ValueKey('voice-item-$index');
+
+  /// Item [index]'s tick: ticks / unticks it for saving.
+  static Key tickKey(int index) => ValueKey('voice-item-tick-$index');
 
   @override
   _VoiceInputScreenState createState() => _VoiceInputScreenState();
@@ -312,6 +321,27 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     if (amount == null || !mounted || !identical(_extractedData, data)) return;
     final updated = List<ExtractedTransactionData>.of(data.transactions);
     updated[index] = item.copyWith(amount: amount);
+    setState(() {
+      _extractedData = data.copyWith(transactions: updated);
+      if (index < _selected.length) _selected[index] = true;
+    });
+  }
+
+  /// Correct item [index] in the full entry form (type, category, date,
+  /// currency, note, amount, for whom). Its Save brings the corrected item
+  /// back, ticked; closing it changes nothing.
+  Future<void> _editItem(int index) async {
+    final data = _extractedData;
+    if (data == null || index >= data.transactions.length || _isSaving) return;
+    final edited = await Navigator.push<ExtractedTransactionData>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddTransactionScreen(draft: data.transactions[index], draftBook: widget.book),
+      ),
+    );
+    if (edited == null || !mounted || !identical(_extractedData, data)) return;
+    final updated = List<ExtractedTransactionData>.of(data.transactions);
+    updated[index] = edited;
     setState(() {
       _extractedData = data.copyWith(transactions: updated);
       if (index < _selected.length) _selected[index] = true;
@@ -614,6 +644,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final data = _extractedData!;
     final selectedCount = _selected.where((s) => s).length;
     final missingAmount = _selectedTransactions.any((t) => t.needsAmount);
+    final family = Provider.of<FamilyProvider?>(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -683,6 +714,14 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
             ),
           ),
 
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            localizations.tapEntryToCorrectHint,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ),
+
         Column(
           children: List.generate(data.transactions.length, (index) {
             final t = data.transactions[index];
@@ -691,19 +730,23 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
             final amountColor = isInflow ? scheme.primary : scheme.error;
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: isOn ? Theme.of(context).cardTheme.color : AppTheme.trackFor(context),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isOn ? amountColor.withValues(alpha: 0.3) : scheme.outline),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      onTap: () => setState(() => _selected[index] = !isOn),
-                      child: Row(
+              // Tapping the card opens the entry form to correct the item; the
+              // amount and the tick keep their own taps.
+              child: InkWell(
+                key: VoiceInputScreen.itemKey(index),
+                onTap: _isSaving ? null : () => _editItem(index),
+                borderRadius: BorderRadius.circular(16),
+                child: Ink(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isOn ? Theme.of(context).cardTheme.color : AppTheme.trackFor(context),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: isOn ? amountColor.withValues(alpha: 0.3) : scheme.outline),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
                           Container(
                             width: 40,
@@ -763,48 +806,65 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                               ),
                             ],
                           ),
-                          SizedBox(width: 8),
-                          Icon(
-                            isOn ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                            color: isOn ? amountColor : AppTheme.hintFor(context),
+                          SizedBox(width: 2),
+                          // Ticks / unticks it for saving (the card opens the form).
+                          IconButton(
+                            key: VoiceInputScreen.tickKey(index),
+                            onPressed: _isSaving ? null : () => setState(() => _selected[index] = !isOn),
+                            isSelected: isOn,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                            icon: Icon(
+                              isOn ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                              color: isOn ? amountColor : AppTheme.hintFor(context),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    if (isOn) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Container(height: 1, color: scheme.outlineVariant),
-                      ),
-                      if (t.needsAmount)
+                      if (isOn) ...[
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
-                          child: InkWell(
-                            onTap: _isSaving ? null : () => _enterAmount(index),
-                            child: Text(
-                              localizations.amountNeededHint,
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.error),
+                          child: Container(height: 1, color: scheme.outlineVariant),
+                        ),
+                        if (t.needsAmount)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: InkWell(
+                              onTap: _isSaving ? null : () => _enterAmount(index),
+                              child: Text(
+                                localizations.amountNeededHint,
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.error),
+                              ),
                             ),
                           ),
-                        ),
-                      // The date always (the AI may have resolved "yesterday" to the wrong day), its note under it.
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          AppDates.full(context, t.date),
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
-                        ),
-                      ),
-                      if ((t.reasoning ?? '').trim().isNotEmpty)
+                        // The date always (the AI may have resolved "yesterday" to the wrong day), its note under it.
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.only(top: 10),
                           child: Text(
-                            t.reasoning!,
-                            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
+                            AppDates.full(context, t.date),
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                           ),
                         ),
+                        // Chosen in the form (family book): who it was for.
+                        if (t.forWhom != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '${localizations.forWhomLabel}: ${forWhomSummary(localizations, t.forWhom!, family)}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
+                            ),
+                          ),
+                        if ((t.reasoning ?? '').trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              t.reasoning!,
+                              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
+                            ),
+                          ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             );

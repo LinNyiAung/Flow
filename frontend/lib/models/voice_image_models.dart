@@ -56,6 +56,10 @@ class ExtractedTransactionData {
   final double confidence;
   final String? reasoning;
 
+  /// Family book: who it was for (member ids), as chosen in the entry form.
+  /// null: not chosen (Whole family), and `for_whom` is not sent.
+  final List<String>? forWhom;
+
   ExtractedTransactionData({
     required this.type,
     required this.mainCategory,
@@ -66,6 +70,7 @@ class ExtractedTransactionData {
     required this.currency,  // ADDED CURRENCY
     required this.confidence,
     this.reasoning,
+    this.forWhom,
   });
 
   factory ExtractedTransactionData.fromJson(Map<String, dynamic> json) {
@@ -83,6 +88,9 @@ class ExtractedTransactionData {
       currency: Currency.fromString(json['currency'] ?? 'usd'),  // ADDED CURRENCY WITH FALLBACK
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
       reasoning: json['reasoning'],
+      forWhom: json['for_whom'] is List
+          ? List<String>.unmodifiable((json['for_whom'] as List).whereType<String>())
+          : null,
     );
   }
 
@@ -90,17 +98,31 @@ class ExtractedTransactionData {
   /// this item can be saved — the backend rejects amount <= 0 with 422.
   bool get needsAmount => !(amount > 0);
 
-  ExtractedTransactionData copyWith({double? amount}) {
+  /// [description], [reasoning] and [forWhom] are cleared by passing null;
+  /// left out, every field keeps its value.
+  ExtractedTransactionData copyWith({
+    TransactionType? type,
+    String? mainCategory,
+    String? subCategory,
+    DateTime? date,
+    Object? description = _unset,
+    double? amount,
+    Currency? currency,
+    double? confidence,
+    Object? reasoning = _unset,
+    Object? forWhom = _unset,
+  }) {
     return ExtractedTransactionData(
-      type: type,
-      mainCategory: mainCategory,
-      subCategory: subCategory,
-      date: date,
-      description: description,
+      type: type ?? this.type,
+      mainCategory: mainCategory ?? this.mainCategory,
+      subCategory: subCategory ?? this.subCategory,
+      date: date ?? this.date,
+      description: identical(description, _unset) ? this.description : description as String?,
       amount: amount ?? this.amount,
-      currency: currency,
-      confidence: confidence,
-      reasoning: reasoning,
+      currency: currency ?? this.currency,
+      confidence: confidence ?? this.confidence,
+      reasoning: identical(reasoning, _unset) ? this.reasoning : reasoning as String?,
+      forWhom: identical(forWhom, _unset) ? this.forWhom : forWhom as List<String>?,
     );
   }
 
@@ -113,9 +135,15 @@ class ExtractedTransactionData {
       'description': description,
       'amount': amount,
       'currency': currency.name,  // ADDED CURRENCY
+      // As New entry sends it: family book only; [] is Whole family.
+      if (forWhom != null) 'for_whom': forWhom,
     };
   }
 }
+
+/// [ExtractedTransactionData.copyWith]: "not given", for the fields that can
+/// be cleared with null.
+const Object _unset = Object();
 
 // NEW: Model for multiple transaction extractions
 class MultipleExtractedTransactions {

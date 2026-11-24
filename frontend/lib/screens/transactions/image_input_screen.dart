@@ -5,9 +5,11 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/models/family.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/platform/platform_info.dart';
+import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/family_entries.dart';
 import 'package:frontend/widgets/amount_entry_dialog.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
@@ -21,6 +23,7 @@ import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import '../../models/transaction.dart';
 import '../../models/voice_image_models.dart';
+import 'add_transaction_screen.dart';
 
 class ImageInputScreen extends StatefulWidget {
   const ImageInputScreen({super.key, this.book, this.initialExtraction});
@@ -33,6 +36,9 @@ class ImageInputScreen extends StatefulWidget {
   /// Tests: starts with this receipt read, as if an image had been.
   @visibleForTesting
   final ExtractedTransactionData? initialExtraction;
+
+  /// "Edit details": opens the entry form to correct what was read.
+  static const Key editKey = ValueKey('receipt-edit');
 
   @override
   _ImageInputScreenState createState() => _ImageInputScreenState();
@@ -167,6 +173,23 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
     setState(() => _extractedData = data.copyWith(amount: amount));
   }
 
+  /// Correct the receipt in the full entry form (type, category, date,
+  /// currency, note, amount, for whom). Its Save brings the corrected entry
+  /// back; closing it changes nothing. Only this screen's Save creates it.
+  Future<void> _editDetails() async {
+    final data = _extractedData;
+    if (data == null || _isSaving) return;
+    final edited = await Navigator.push<ExtractedTransactionData>(
+      context,
+      MaterialPageRoute(builder: (_) => AddTransactionScreen(draft: data, draftBook: widget.book)),
+    );
+    if (edited == null || !mounted || !identical(_extractedData, data)) return;
+    setState(() {
+      _extractedData = edited;
+      _error = null;
+    });
+  }
+
   Future<void> _saveTransaction() async {
     if (_extractedData == null || _isSaving) return;
     if (_extractedData!.needsAmount) {
@@ -189,6 +212,8 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
       description: _extractedData!.description,
       amount: _extractedData!.amount,
       currency: _extractedData!.currency, // Use detected currency from AI
+      // Chosen in the entry form (family book); null is not sent.
+      forWhom: _extractedData!.forWhom,
       context: context,
       // New entry's flipped book; the provider sends it only when it differs
       // from the current book, and then leaves the current list alone.
@@ -535,6 +560,20 @@ class _ImageInputScreenState extends State<ImageInputScreen> {
           _dataRow(localizations.dataLabelCategory, '${data.mainCategory} > ${data.subCategory}'),
           _dataRow(localizations.dataLabelDate, AppDates.full(context, data.date)),
           if (data.description != null) _dataRow(localizations.dataLabelDescription, data.description!),
+          if (data.forWhom != null)
+            _dataRow(
+              localizations.forWhomLabel,
+              forWhomSummary(localizations, data.forWhom!, Provider.of<FamilyProvider?>(context)),
+            ),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              key: ImageInputScreen.editKey,
+              onPressed: (_isSaving || _isProcessing) ? null : _editDetails,
+              icon: Icon(Icons.edit_note_rounded),
+              label: Text(localizations.editDetailsButton),
+            ),
+          ),
           if (data.reasoning != null) ...[
             SizedBox(height: 8),
             Container(

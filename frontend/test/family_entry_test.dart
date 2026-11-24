@@ -309,6 +309,41 @@ Future<void> openSheet(WidgetTester tester, TransferDirection direction,
   await tester.pumpAndSettle();
 }
 
+/// Opens [screen] above the host and lets it build (the voice screen's
+/// pulse animation never settles).
+Future<void> openUnsettled(WidgetTester tester, Widget Function(BuildContext) screen,
+    {required BookModeProvider books, FamilyOverview? overview}) async {
+  await _pump(tester, screen, family: _Family(overview ?? _overview()), books: books, open: false);
+  await tester.tap(find.text('open'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+/// The review screen's own Save (voice list or receipt).
+Future<void> tapSave(WidgetTester tester) async {
+  final save = find.widgetWithText(FilledButton, _en.saveTransactionButton);
+  await tester.ensureVisible(save);
+  await tester.pump();
+  await tester.tap(save);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+/// Lets routes, sheets, dialogs and fake requests finish without waiting
+/// for the voice screen's endless pulse to settle.
+Future<void> _settleSome(WidgetTester tester) async {
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
+Future<void> _tapSome(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pump();
+  await tester.tap(finder);
+  await _settleSome(tester);
+}
+
 AppBarSaveButton _saveButton(WidgetTester tester) => tester.widget<AppBarSaveButton>(find.byType(AppBarSaveButton));
 
 IconButton _deleteButton(WidgetTester tester) => tester.widget<IconButton>(
@@ -563,25 +598,6 @@ void main() {
   });
 
   group('R20: voice and scan follow the book chip', () {
-    /// Opens [screen] above the host and lets it build (the voice screen's
-    /// pulse animation never settles).
-    Future<void> openUnsettled(WidgetTester tester, Widget Function(BuildContext) screen,
-        {required BookModeProvider books}) async {
-      await _pump(tester, screen, family: _Family(_overview()), books: books, open: false);
-      await tester.tap(find.text('open'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-
-    Future<void> tapSave(WidgetTester tester) async {
-      final save = find.widgetWithText(FilledButton, _en.saveTransactionButton);
-      await tester.ensureVisible(save);
-      await tester.pump();
-      await tester.tap(save);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-
     final lunch = ExtractedTransactionData(
       type: TransactionType.outflow,
       mainCategory: 'Food & Daily Living',
@@ -708,6 +724,316 @@ void main() {
 
       expect(_sent('POST', '/api/transactions').single.headers.containsKey('X-Book'), isFalse);
       expect(ApiService.bookMode, BookMode.family);
+    });
+  });
+
+  group('Ko Toe Pwar\'s entries: corrected in the full form', () {
+    // A day in this month, so the date picker (up to a year from now) always
+    // shows it and the day after it.
+    final now = DateTime.now();
+    final day10 = DateTime(now.year, now.month, 10, 12);
+
+    ExtractedTransactionData item({
+      String sub = 'Restaurants',
+      double amount = 12,
+      double confidence = 0.9,
+      String? description = 'Lunch at the noodle shop',
+      String? reasoning,
+    }) =>
+        ExtractedTransactionData(
+          type: TransactionType.outflow,
+          mainCategory: 'Food & Daily Living',
+          subCategory: sub,
+          date: day10,
+          description: description,
+          amount: amount,
+          currency: Currency.usd,
+          confidence: confidence,
+          reasoning: reasoning,
+        );
+
+    MultipleExtractedTransactions heard(List<ExtractedTransactionData> items) =>
+        MultipleExtractedTransactions(transactions: items, totalCount: items.length, overallConfidence: 0.9);
+
+    List<Map<String, dynamic>> batchItems() {
+      final body = jsonDecode(_sent('POST', '/api/transactions/batch-create').single.body);
+      return [for (final t in (body is List ? body : (body as Map)['transactions']) as List) t as Map<String, dynamic>];
+    }
+
+    /// Only the review screens create entries: never the form itself.
+    Iterable<http.Request> singleCreates() => _requests.where((r) => r.method == 'POST' && r.url.path == '/api/transactions');
+
+    Finder inForm(Finder f) => find.descendant(of: find.byType(AddTransactionScreen), matching: f);
+
+    /// In the form: Category → Food & Daily Living → [sub].
+    Future<void> pickSubCategory(WidgetTester tester, String sub) async {
+      await _tapSome(tester, inForm(find.byIcon(Icons.unfold_more_rounded)));
+      await _tapSome(tester, find.descendant(of: find.byType(ListTile), matching: find.text('Food & Daily Living')));
+      await _tapSome(tester, find.descendant(of: find.byType(ListTile), matching: find.text(sub)));
+    }
+
+    Future<void> saveForm(WidgetTester tester) async {
+      await tester.tap(_inBar(find.text(_en.save)));
+      await _settleSome(tester);
+    }
+
+    test('ExtractedTransactionData: copyWith changes only what it is given; for_whom is sent only when chosen', () {
+      final original = item(reasoning: 'Heard "lunch"');
+      final same = original.copyWith();
+      expect(same.toJson(), original.toJson());
+      expect(same.reasoning, 'Heard "lunch"');
+      expect(same.forWhom, isNull);
+      expect(original.toJson().containsKey('for_whom'), isFalse);
+
+      final changed = original.copyWith(
+        type: TransactionType.inflow,
+        mainCategory: 'Employment Income',
+        subCategory: 'Salary',
+        date: DateTime(2026, 11, 12, 9),
+        description: null,
+        amount: 30,
+        currency: Currency.mmk,
+        confidence: 1.0,
+        forWhom: ['m3', 'p1'],
+      );
+      expect(changed.type, TransactionType.inflow);
+      expect(changed.mainCategory, 'Employment Income');
+      expect(changed.subCategory, 'Salary');
+      expect(changed.date, DateTime(2026, 11, 12, 9));
+      expect(changed.description, isNull, reason: 'null clears the description');
+      expect(changed.amount, 30);
+      expect(changed.currency, Currency.mmk);
+      expect(changed.confidence, 1.0);
+      expect(changed.reasoning, 'Heard "lunch"', reason: 'kept');
+      final json = changed.toJson();
+      expect(json['for_whom'], ['m3', 'p1']);
+      expect(json['type'], 'inflow');
+      expect(json['currency'], 'mmk');
+      expect(json['description'], isNull);
+
+      expect(changed.copyWith(forWhom: null).toJson().containsKey('for_whom'), isFalse);
+      expect(original.copyWith(forWhom: const <String>[]).toJson()['for_whom'], <String>[]);
+    });
+
+    testWidgets('voice: tapping an item opens the form filled in; the corrected item goes back and is saved',
+        (tester) async {
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item()])),
+          books: BookModeProvider());
+
+      await _tapSome(tester, find.text('Restaurants'));
+      expect(find.byType(AddTransactionScreen), findsOneWidget);
+      expect(inForm(find.text('Lunch at the noodle shop')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('amount-display')), matching: find.text('12')),
+          findsOneWidget);
+      expect(inForm(find.text('Restaurants')), findsWidgets);
+      expect(inForm(find.textContaining(AppDates.fullIn(day10))), findsOneWidget);
+      expect(inForm(find.text(_en.repeatLabel)), findsNothing, reason: 'a draft has no repeat');
+      expect(_inBar(find.byIcon(Icons.mic_rounded)), findsNothing, reason: 'no second AI read from a draft');
+      expect(_inBar(find.byIcon(Icons.document_scanner_rounded)), findsNothing);
+
+      await pickSubCategory(tester, 'Groceries');
+      await _tapSome(tester, inForm(find.textContaining(AppDates.fullIn(day10))));
+      await _tapSome(tester, find.descendant(of: find.byType(Dialog), matching: find.text('12')).hitTestable());
+      await _tapSome(tester, find.text('OK'));
+      await saveForm(tester);
+
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(singleCreates(), isEmpty, reason: 'the form never creates the entry itself');
+      expect(_sent('POST', '/api/transactions/batch-create'), isEmpty);
+      final day12 = DateTime(now.year, now.month, 12);
+      expect(find.text('Groceries'), findsOneWidget);
+      expect(find.text(AppDates.fullIn(day12)), findsOneWidget);
+      expect(find.text('100%'), findsOneWidget, reason: 'checked by a person');
+
+      await tapSave(tester);
+      final sent = batchItems().single;
+      expect(sent['sub_category'], 'Groceries');
+      expect(sent['main_category'], 'Food & Daily Living');
+      expect(sent['description'], 'Lunch at the noodle shop');
+      expect(sent['amount'], 12);
+      final date = DateTime.parse(sent['date'] as String);
+      expect([date.year, date.month, date.day], [day12.year, day12.month, day12.day]);
+      expect(sent.containsKey('for_whom'), isFalse, reason: 'a personal entry has nobody to be for');
+      expect(singleCreates(), isEmpty);
+    });
+
+    testWidgets('voice: closing the form changes nothing', (tester) async {
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item()])),
+          books: BookModeProvider());
+
+      await _tapSome(tester, find.text('Restaurants'));
+      await pickSubCategory(tester, 'Groceries');
+      await _tapSome(tester, _inBar(find.byIcon(Icons.close_rounded)));
+
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(find.text('Groceries'), findsNothing);
+      expect(find.text('90%'), findsOneWidget);
+      await tapSave(tester);
+      expect(batchItems().single['sub_category'], 'Restaurants');
+      expect(singleCreates(), isEmpty);
+    });
+
+    testWidgets('voice: the tick still ticks and unticks without opening the form', (tester) async {
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item()])),
+          books: BookModeProvider());
+
+      await _tapSome(tester, find.byIcon(Icons.check_circle_rounded));
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(find.byIcon(Icons.radio_button_unchecked_rounded), findsOneWidget);
+      final save = tester.widget<FilledButton>(find.widgetWithText(FilledButton, _en.saveTransactionButton));
+      expect(save.onPressed, isNull);
+
+      await _tapSome(tester, find.byIcon(Icons.radio_button_unchecked_rounded));
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+    });
+
+    testWidgets('voice: an unsure item corrected in the form comes back ticked and is sent', (tester) async {
+      final unsure = item(sub: 'Groceries', amount: 5, confidence: 0.3, description: 'Eggs');
+      await openUnsettled(
+          tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item(), unsure])),
+          books: BookModeProvider());
+      expect(find.text('30%'), findsOneWidget);
+
+      await _tapSome(tester, find.text('Groceries'));
+      expect(inForm(find.text('Eggs')), findsOneWidget);
+      await saveForm(tester);
+
+      await tapSave(tester);
+      expect(batchItems().map((t) => t['amount']), [12, 5]);
+    });
+
+    testWidgets('voice: an item with no amount gets it in the form', (tester) async {
+      await openUnsettled(
+          tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item(amount: 0)])),
+          books: BookModeProvider());
+      expect(find.text(_en.amountNeededLabel), findsOneWidget);
+
+      await _tapSome(tester, find.text('Restaurants'));
+      await saveForm(tester);
+      expect(find.byType(AddTransactionScreen), findsOneWidget, reason: 'validated as normal: an amount is needed');
+      expect(find.text(_en.validationAmountRequired), findsOneWidget);
+
+      for (final key in ['7', '5']) {
+        await tester.tap(find.byKey(ValueKey('keypad-$key')));
+        await tester.pump();
+      }
+      await saveForm(tester);
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(find.text(_en.amountNeededLabel), findsNothing);
+      await tapSave(tester);
+      expect(batchItems().single['amount'], 75);
+    });
+
+    testWidgets('voice, family book: the people chosen in For whom are sent as for_whom for that item',
+        (tester) async {
+      final books = await _books(BookMode.family);
+      await openUnsettled(
+          tester,
+          (_) => VoiceInputScreen(
+              book: BookMode.family, initialExtraction: heard([item(), item(sub: 'Groceries', description: 'Eggs')])),
+          books: books);
+
+      await _tapSome(tester, find.text('Restaurants'));
+      expect(inForm(find.byKey(ForWhomPicker.rowKey)), findsOneWidget);
+      await _tapSome(tester, find.byKey(ForWhomPicker.rowKey));
+      await _tapSome(tester, find.byKey(ForWhomPicker.memberKey('p1')));
+      await _tapSome(tester, find.byKey(ForWhomPicker.memberKey('m3')));
+      await _tapSome(tester, find.byKey(ForWhomPicker.doneKey));
+      await saveForm(tester);
+
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      await tapSave(tester);
+      final sent = batchItems();
+      expect(sent[0]['for_whom'], ['m3', 'p1']);
+      expect(sent[1].containsKey('for_whom'), isFalse, reason: 'not chosen: Whole family, as before');
+      expect(singleCreates(), isEmpty);
+    });
+
+    testWidgets('draft: the book is the review screen\'s; the chip does not switch it', (tester) async {
+      await openUnsettled(tester, (_) => VoiceInputScreen(book: BookMode.personal, initialExtraction: heard([item()])),
+          books: BookModeProvider());
+
+      await _tapSome(tester, find.text('Restaurants'));
+      expect(find.text(_en.addingToBook(_en.bookPersonal)), findsOneWidget);
+      await _tapSome(tester, find.byKey(AddTransactionScreen.bookChipKey));
+      expect(find.text(_en.addingToBook(_en.bookPersonal)), findsOneWidget);
+      expect(find.byKey(ForWhomPicker.rowKey), findsNothing);
+    });
+
+    testWidgets('draft in a read-only family: Save is refused as normal and nothing goes back', (tester) async {
+      final books = await _books(BookMode.family);
+      await openUnsettled(
+          tester, (_) => VoiceInputScreen(book: BookMode.family, initialExtraction: heard([item()])),
+          books: books, overview: _overview(readOnly: true));
+
+      await _tapSome(tester, find.text('Restaurants'));
+      await saveForm(tester);
+      expect(find.byType(AddTransactionScreen), findsOneWidget);
+      expect(find.descendant(of: find.byType(SnackBar), matching: find.text(_en.familyReadOnlyBanner)),
+          findsOneWidget);
+      expect(singleCreates(), isEmpty);
+    });
+
+    testWidgets('receipt: Edit opens the form filled in; the corrected details are shown and saved',
+        (tester) async {
+      await _pump(tester, (_) => ImageInputScreen(book: BookMode.personal, initialExtraction: item()),
+          family: _Family(_overview()), books: BookModeProvider());
+
+      await _tapAndSettle(tester, find.byKey(ImageInputScreen.editKey));
+      expect(find.byType(AddTransactionScreen), findsOneWidget);
+      expect(inForm(find.text('Lunch at the noodle shop')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('amount-display')), matching: find.text('12')),
+          findsOneWidget);
+
+      await pickSubCategory(tester, 'Groceries');
+      await _tapAndSettle(tester, inForm(find.text('Lunch at the noodle shop')));
+      await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          'Weekly groceries');
+      await _tapAndSettle(tester, find.descendant(of: find.byType(AlertDialog), matching: find.text(_en.save)));
+      await tester.tap(_inBar(find.text(_en.save)));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(singleCreates(), isEmpty, reason: 'the form never creates the entry itself');
+      expect(find.text('Food & Daily Living > Groceries'), findsOneWidget);
+      expect(find.text('Weekly groceries'), findsOneWidget);
+
+      await tapSave(tester);
+      final body = _bodyOf(singleCreates().single);
+      expect(body['sub_category'], 'Groceries');
+      expect(body['description'], 'Weekly groceries');
+      expect(body['amount'], 12);
+      expect(body.containsKey('for_whom'), isFalse);
+    });
+
+    testWidgets('receipt, family book: For whom chosen in the form is sent', (tester) async {
+      final books = await _books(BookMode.family);
+      await _pump(tester, (_) => ImageInputScreen(book: BookMode.family, initialExtraction: item()),
+          family: _Family(_overview()), books: books);
+
+      await _tapAndSettle(tester, find.byKey(ImageInputScreen.editKey));
+      await _tapAndSettle(tester, find.byKey(ForWhomPicker.rowKey));
+      await _tapAndSettle(tester, find.byKey(ForWhomPicker.memberKey('m3')));
+      await _tapAndSettle(tester, find.byKey(ForWhomPicker.doneKey));
+      await tester.tap(_inBar(find.text(_en.save)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ko Ko'), findsOneWidget);
+      await tapSave(tester);
+      expect(_bodyOf(singleCreates().single)['for_whom'], ['m3']);
+    });
+
+    testWidgets('receipt: closing the form keeps the details as read', (tester) async {
+      await _pump(tester, (_) => ImageInputScreen(book: BookMode.personal, initialExtraction: item()),
+          family: _Family(_overview()), books: BookModeProvider());
+
+      await _tapAndSettle(tester, find.byKey(ImageInputScreen.editKey));
+      await pickSubCategory(tester, 'Groceries');
+      await _tapAndSettle(tester, _inBar(find.byIcon(Icons.close_rounded)));
+
+      expect(find.text('Food & Daily Living > Restaurants'), findsOneWidget);
+      await tapSave(tester);
+      expect(_bodyOf(singleCreates().single)['sub_category'], 'Restaurants');
     });
   });
 

@@ -16,6 +16,7 @@ import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
 import '../../models/transaction.dart';
+import '../../models/voice_image_models.dart';
 import '../../services/api_service.dart';
 import '../../providers/transaction_provider.dart';
 import 'voice_input_screen.dart';
@@ -71,7 +72,7 @@ extension FirstWhereOrNullExtension<E> on Iterable<E> {
 }
 
 class AddTransactionScreen extends StatefulWidget {
-  const AddTransactionScreen({super.key, this.categoriesLoader});
+  const AddTransactionScreen({super.key, this.categoriesLoader, this.draft, this.draftBook});
 
   /// The "Adding to: Personal / (family name)" chip (members of a family only).
   static const Key bookChipKey = ValueKey('add-book-chip');
@@ -79,6 +80,17 @@ class AddTransactionScreen extends StatefulWidget {
   /// Loads the category list for a type; [ApiService.getCategories] unless
   /// given (tests pass a fixed list).
   final Future<List<Category>> Function(TransactionType type)? categoriesLoader;
+
+  /// Draft mode: an entry Ko Toe Pwar read (a voice list item or a receipt),
+  /// to correct before its review screen saves it. Every field starts from
+  /// it; Save checks as usual, then pops the corrected
+  /// [ExtractedTransactionData] (nothing is created here). Close pops null.
+  /// No repeat, no voice / scan, and the book chip doesn't switch the book.
+  final ExtractedTransactionData? draft;
+
+  /// Draft mode: the book the review screen was opened for; null: the app's
+  /// current book.
+  final BookMode? draftBook;
 
   @override
   _AddTransactionScreenState createState() => _AddTransactionScreenState();
@@ -121,14 +133,31 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _headerPinned = false;
   bool _initialCategoriesLoaded = false;
 
+  bool get _isDraft => widget.draft != null;
+
   @override
   void initState() {
     super.initState();
+    final draft = widget.draft;
+    if (draft != null) {
+      _selectedType = draft.type;
+      _selectedMainCategory = draft.mainCategory;
+      _selectedSubCategory = draft.subCategory;
+      _selectedDate = draft.date;
+      _descriptionController.text = draft.description?.trim() ?? '';
+      _selectedCurrency = draft.currency;
+      _amountText = draft.needsAmount ? '' : _formatAmountForField(draft.amount);
+      _forWhom = draft.forWhom ?? const [];
+      _flippedBook = widget.draftBook;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() {
-        _selectedCurrency = bookCurrency(context, listen: false);
-      });
+      // A draft keeps the currency it was read in.
+      if (!_isDraft) {
+        setState(() {
+          _selectedCurrency = bookCurrency(context, listen: false);
+        });
+      }
       // On small phones the keypad starts below the fold — reveal its first
       // row once the first layout is done.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -148,11 +177,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     try {
       final categories = await (widget.categoriesLoader ?? ApiService.getCategories)(_selectedType);
       if (!mounted) return;
+      // A draft keeps its own category on the first load (type unchanged).
+      final keepDraftCategory = !_initialCategoriesLoaded && widget.draft?.type == _selectedType;
       setState(() {
         _categories = categories;
         // Reset selected categories when type changes or categories load to ensure validity
-        _selectedMainCategory = null;
-        _selectedSubCategory = null;
+        if (!keepDraftCategory) {
+          _selectedMainCategory = null;
+          _selectedSubCategory = null;
+        }
         _isLoadingCategories = false;
       });
       if (!_initialCategoriesLoaded) {
@@ -540,13 +573,19 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         title: LayoutBuilder(
           builder: (context, constraints) {
             if (constraints.maxWidth < AppBarTitle.minWidth) return const SizedBox.shrink();
-            return AppBarTitle(localizations.addTransactionTitle, style: const TextStyle(fontSize: 18));
+            return AppBarTitle(
+              _isDraft ? localizations.editTransactionTitle : localizations.addTransactionTitle,
+              style: const TextStyle(fontSize: 18),
+            );
           },
         ),
         actions: [
-          _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
-          const SizedBox(width: 6),
-          _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan),
+          // A draft already is Ko Toe Pwar's read: no second one from here.
+          if (!_isDraft) ...[
+            _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
+            const SizedBox(width: 6),
+            _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan),
+          ],
           AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _addTransaction),
         ],
       ),
@@ -599,17 +638,18 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   /// "Adding to: Personal / (family name)": which book the entry goes to. Tapping
-  /// it flips the book for this entry only.
+  /// it flips the book for this entry only (never for a draft: its book is the
+  /// review screen's).
   Widget _bookChip(AppLocalizations localizations, ColorScheme scheme, FamilyProvider family) {
     final target = _targetBook();
     final toFamily = target == BookMode.family;
     final name = toFamily ? (family.family?.name.trim() ?? '') : localizations.bookPersonal;
     return Center(
       child: Semantics(
-        button: true,
+        button: !_isDraft,
         child: InkWell(
           key: AddTransactionScreen.bookChipKey,
-          onTap: () => setState(() => _flippedBook = toFamily ? BookMode.personal : BookMode.family),
+          onTap: _isDraft ? null : () => setState(() => _flippedBook = toFamily ? BookMode.personal : BookMode.family),
           borderRadius: BorderRadius.circular(20),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -640,8 +680,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Icon(Icons.swap_horiz_rounded, size: 16, color: scheme.primary),
+                if (!_isDraft) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.swap_horiz_rounded, size: 16, color: scheme.primary),
+                ],
               ],
             ),
           ),
@@ -897,46 +939,49 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         onChanged: (picked) => setState(() => _forWhom = picked),
                       ),
                     ],
-                    Divider(height: 1, indent: 52),
-                    InkWell(
-                      onTap: _openRepeatSheet,
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            Icon(Icons.autorenew_rounded, color: scheme.onSurface),
-                            SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(localizations.repeatLabel, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    _recurrence?.enabled == true
-                                        ? _recurrence!.config!.getDisplayText()
-                                        : localizations.offLabel,
-                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
+                    // A draft is one entry, saved by its review screen: no repeat.
+                    if (!_isDraft) ...[
+                      Divider(height: 1, indent: 52),
+                      InkWell(
+                        onTap: _openRepeatSheet,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Icon(Icons.autorenew_rounded, color: scheme.onSurface),
+                              SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(localizations.repeatLabel, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      _recurrence?.enabled == true
+                                          ? _recurrence!.config!.getDisplayText()
+                                          : localizations.offLabel,
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: scheme.onSurfaceVariant),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Switch(
-                              value: _recurrence?.enabled ?? false,
-                              onChanged: (value) {
-                                if (value) {
-                                  _openRepeatSheet();
-                                } else {
-                                  setState(() => _recurrence = null);
-                                }
-                              },
-                            ),
-                          ],
+                              Switch(
+                                value: _recurrence?.enabled ?? false,
+                                onChanged: (value) {
+                                  if (value) {
+                                    _openRepeatSheet();
+                                  } else {
+                                    setState(() => _recurrence = null);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -1262,6 +1307,28 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
+    final description = _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim();
+    final draft = widget.draft;
+    if (draft != null) {
+      // Checked by a person now, so never left unticked as "unsure". The
+      // review screen saves it, in the draft's book.
+      Navigator.pop(
+        context,
+        draft.copyWith(
+          type: _selectedType,
+          mainCategory: _selectedMainCategory,
+          subCategory: _selectedSubCategory,
+          date: _selectedDate,
+          description: description,
+          amount: amount,
+          currency: _selectedCurrency,
+          confidence: 1.0,
+          forWhom: toFamily && family != null ? _forWhom : null,
+        ),
+      );
+      return;
+    }
+
     final transactionProvider = Provider.of<TransactionProvider>(context, listen: false);
 
     setState(() {
@@ -1277,7 +1344,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       mainCategory: _selectedMainCategory!,
       subCategory: _selectedSubCategory!,
       date: _selectedDate,
-      description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+      description: description,
       amount: amount,
       currency: _selectedCurrency,
       context: context,
