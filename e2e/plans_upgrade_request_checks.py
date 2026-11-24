@@ -640,6 +640,14 @@ async def run(t):
             r = c.get("/api/admin/users", headers=h, params={"search": f"-{tag}@", "limit": 100, **params})
             return next((x for x in (r.json() if r.status_code == 200 else []) if x["id"] == uid_), None)
 
+        def expired_plus():
+            # The stubbed server's hourly expire_paid_plans job (minute 5) downgrades an expired Plus to stored
+            # 'free'. This user was set up minutes ago, so a run in between would flip it: set it again right
+            # before each read that needs the stored 'plus' (a fresh expiry also loses any job run already reading).
+            db.users.update_one({"_id": exp_uid}, {"$set": {"subscription_type": "plus",
+                                                            "subscription_expires_at": datetime.now(UTC) - timedelta(days=1)}})
+
+        expired_plus()
         expired = user_row(MOD, exp_uid)
         check(expired is not None and expired["subscription_type"] == "plus" and expired["effective_plan"] == "free",
               "admin_users_effective_plan: an expired Plus lists effective_plan 'free' and keeps the stored 'plus'", expired)
@@ -652,12 +660,14 @@ async def run(t):
         fresh = user_row(MOD, other_uid)
         check(fresh is not None and fresh["effective_plan"] == "free" and fresh["subscription_type"] == "free",
               "admin_users_effective_plan: a Free user lists 'free'", fresh)
+        expired_plus()
         check(user_row(MOD, exp_uid, subscription_type="free") is not None
               and user_row(MOD, exp_uid, subscription_type="plus") is None,
               "admin_users_effective_plan: the plan filter uses the plan now (expired Plus is under Free, not Plus)")
         check(user_row(MOD, plus_uid, subscription_type="plus") is not None and user_row(MOD, plus_uid, subscription_type="free") is None
               and user_row(MOD, pro_uid, subscription_type="pro") is not None and user_row(MOD, pro_uid, subscription_type="plus") is None,
               "admin_users_effective_plan: the plan filter finds live Plus and Pro")
+        expired_plus()
         detail = c.get(f"/api/admin/users/{exp_uid}", headers=MOD).json()
         check(detail.get("effective_plan") == "free" and detail.get("subscription_type") == "plus",
               "admin_users_effective_plan: the user detail has effective_plan too", detail)
