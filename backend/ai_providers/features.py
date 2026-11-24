@@ -11,7 +11,9 @@ PROVIDERS = ("openai", "gemini", "claude")
 
 # Environment variable that names each provider's default model, and the fallback when it is unset.
 _MODEL_ENV = {"openai": "OPENAI_MODEL", "gemini": "GEMINI_MODEL", "claude": "CLAUDE_MODEL"}
-_MODEL_FALLBACK = {"openai": "gpt-4o-mini", "gemini": "gemini-2.5-flash", "claude": "claude-sonnet-5-5"}
+# Gemini: the models Google serves for gemini-2.5-flash / gemini-2.5-pro from 2026-12-01, named outright so the panel
+# and the usage records show the real model (the owner's choice, 2026-11-24).
+_MODEL_FALLBACK = {"openai": "gpt-4o-mini", "gemini": "gemini-3.5-flash-lite", "claude": "claude-sonnet-5-5"}
 
 
 @dataclass(frozen=True)
@@ -32,12 +34,12 @@ def _spec(key, label, allowed, provider, model, usage_type):
 
 
 FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
-    _spec("chat", "AI chat", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.CHAT),
+    _spec("chat", "AI chat", _ALL, "gemini", "gemini-3.5-flash-lite", AIFeatureType.CHAT),
     # Pro's Advanced chat: the same chatbot (persona, prompt, max tokens) on its own chain. Its usage rows are chat rows.
     _spec("chat_advanced", "Advanced chat", _ALL, "claude", "claude-sonnet-5-5", AIFeatureType.CHAT),
-    _spec("insight_weekly", "Weekly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.WEEKLY_INSIGHT),
-    _spec("insight_monthly", "Monthly insight", _ALL, "gemini", "gemini-2.5-flash", AIFeatureType.MONTHLY_INSIGHT),
-    _spec("insight_translation", "Insight translation", _ALL, "gemini", "gemini-2.5-pro", AIFeatureType.TRANSLATION),
+    _spec("insight_weekly", "Weekly insight", _ALL, "gemini", "gemini-3.5-flash-lite", AIFeatureType.WEEKLY_INSIGHT),
+    _spec("insight_monthly", "Monthly insight", _ALL, "gemini", "gemini-3.5-flash-lite", AIFeatureType.MONTHLY_INSIGHT),
+    _spec("insight_translation", "Insight translation", _ALL, "gemini", "gemini-3.8-flash", AIFeatureType.TRANSLATION),
     # Pro's custom insight: a report the user asks for over a date range and an instruction. Claude by default.
     _spec("insight_custom", "Custom insight", _ALL, "claude", "claude-sonnet-5-5", AIFeatureType.CUSTOM_INSIGHT),
     _spec("budget_suggestion", "Budget suggestion", _ALL, "openai", "gpt-4o-mini", AIFeatureType.BUDGET_SUGGESTION),
@@ -54,9 +56,9 @@ FEATURES: dict[str, FeatureSpec] = {s.key: s for s in (
 # offered only for voice input: see known_models().
 KNOWN_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-4o-mini", "gpt-4o"],
-    # The 2.5 models first: they are still the built-in defaults. Google routes gemini-2.5-flash to
-    # gemini-3.5-flash-lite and gemini-2.5-pro to gemini-3.8-flash from 2026-12-01.
-    "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
+    # The built-in defaults first. Google routes gemini-2.5-flash to gemini-3.5-flash-lite and gemini-2.5-pro to
+    # gemini-3.8-flash from 2026-12-01; the 2.5 names stay offered for panel settings that still name them.
+    "gemini": ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
     "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
 }
 AUDIO_FEATURE = "transaction_audio"

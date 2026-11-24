@@ -229,7 +229,7 @@ async def run(t):
               "advanced_uses_advanced_chain: the owner's Advanced setting (openai gpt-4o) is what answers", (r.status_code, calls))
         before = counts(pro)
         r, fr, calls = chat(ph, "standard")
-        check(answered(fr) and is_meta(fr[0], "standard", False) and calls == [("gemini", "gemini-2.5-flash")]
+        check(answered(fr) and is_meta(fr[0], "standard", False) and calls == [("gemini", "gemini-3.5-flash-lite")]
               and plus_one(before, counts(pro), "chat/week", "chat/month"),
               "advanced: a Pro user's Standard message runs the chat chain and counts chat only", (calls, before, counts(pro)))
         reset_ai()
@@ -240,7 +240,7 @@ async def run(t):
         r, fr, calls = chat(ph, "advanced")
         check(r.status_code == 200 and answered(fr) and is_meta(fr[0], "standard", True),
               "advanced_exhausted_falls_back: answered with mode_used standard, advanced_exhausted true", fr[:1])
-        check(calls == [("gemini", "gemini-2.5-flash")] and plus_one(before, counts(pro), "chat/week", "chat/month"),
+        check(calls == [("gemini", "gemini-3.5-flash-lite")] and plus_one(before, counts(pro), "chat/week", "chat/month"),
               "advanced_exhausted_falls_back: the chat chain answered and only chat +1 (Advanced stays 100)", (calls, before, counts(pro)))
         p = c.get("/api/plan", headers=ph).json().get("features", {})
         check(p.get("chat_advanced", {}).get("remaining") == 0 and p.get("chat", {}).get("used") == before["chat/month"] + 1,
@@ -257,7 +257,7 @@ async def run(t):
             before = counts(uid)
             r, fr, calls = chat(h, "advanced")
             check(r.status_code == 200 and answered(fr) and is_meta(fr[0], "standard", False)
-                  and calls == [("gemini", "gemini-2.5-flash")] and plus_one(before, counts(uid), "chat/week", "chat/month"),
+                  and calls == [("gemini", "gemini-3.5-flash-lite")] and plus_one(before, counts(uid), "chat/week", "chat/month"),
                   f"advanced_from_plus_is_standard: a {label} user's Advanced request is answered as Standard (chat +1 only)",
                   (r.status_code, fr[:1], calls, before, counts(uid)))
         r = c.post("/api/chat/stream", headers=plh, json={"message": "hi", "mode": "turbo"})

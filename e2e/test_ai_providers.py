@@ -356,20 +356,20 @@ def _resolution_checks():
           "catalogue: chat_advanced is 'Advanced chat', all providers, built-in claude-sonnet-5-5", adv)
     check(features.KNOWN_MODELS == {
         "openai": ["gpt-4o-mini", "gpt-4o"],
-        "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
+        "gemini": ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
         "claude": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"]}, "catalogue: known models",
         features.KNOWN_MODELS)
-    # the built-in defaults stay on the 2.5 models (switching is the owner's choice on the panel)
-    check(features._MODEL_FALLBACK["gemini"] == "gemini-2.5-flash"
-          and features.FEATURES["chat"].default == T("gemini", "gemini-2.5-flash")
-          and features.FEATURES["insight_translation"].default == T("gemini", "gemini-2.5-pro"),
-          "catalogue: built-in gemini defaults unchanged (2.5 flash / 2.5 pro)")
+    # the built-in defaults name the models Google serves for 2.5 flash / 2.5 pro from 2026-12-01 (owner, 2026-11-24)
+    check(features._MODEL_FALLBACK["gemini"] == "gemini-3.5-flash-lite"
+          and features.FEATURES["chat"].default == T("gemini", "gemini-3.5-flash-lite")
+          and features.FEATURES["insight_translation"].default == T("gemini", "gemini-3.8-flash"),
+          "catalogue: built-in gemini defaults are 3.5 flash-lite / 3.8 flash")
     # F1: known models per feature: voice input on OpenAI offers only the speech-to-text models, nothing else does
     km = {k: features.known_models(k) for k in features.FEATURES}
     audio_models = ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"]
     check(km["transaction_audio"] == {"openai": audio_models,
-                                      "gemini": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite",
-                                                 "gemini-3.8-flash"]},
+                                      "gemini": ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash",
+                                                 "gemini-2.5-pro"]},
           "known_models_per_feature: audio offers the speech-to-text models on openai, the gemini models on gemini",
           km["transaction_audio"])
     check(all(m == {p: features.KNOWN_MODELS[p] for p in features.FEATURES[k].allowed}
@@ -397,9 +397,9 @@ def _resolution_checks():
     dm = lambda f, p, env=None: features.default_model(f, p, {} if env is None else env)  # noqa: E731
     check(dm("transaction_image", "openai") == "gpt-4o"
           and dm("transaction_audio", "openai") == "whisper-1"
-          and dm("transaction_audio", "gemini") == "gemini-2.5-flash"
+          and dm("transaction_audio", "gemini") == "gemini-3.5-flash-lite"
           and dm("chat", "openai") == "gpt-4o-mini"
-          and dm("chat", "gemini") == "gemini-2.5-flash"
+          and dm("chat", "gemini") == "gemini-3.5-flash-lite"
           and dm("chat", "claude") == "claude-sonnet-5-5",
           "catalogue: default_model per provider and exceptions")
     env = {"OPENAI_MODEL": "gpt-4o", "GEMINI_MODEL": "gemini-2.5-pro", "CLAUDE_MODEL": "claude-haiku-5-5"}
@@ -451,7 +451,7 @@ def _resolution_checks():
         check(s is None and warned, f"env_backups_empty_list_ignored: AI_CHAT_BACKUPS={raw!r} is invalid and logged",
               f"{s} {[r.getMessage() for r in warned]}")
     s = settings.parse_env("chat", {"AI_CHAT_PROVIDER": "openai", "AI_CHAT_BACKUPS": "gemini,"})
-    check(s is not None and s.backups == (T("gemini", "gemini-2.5-flash"),),
+    check(s is not None and s.backups == (T("gemini", "gemini-3.5-flash-lite"),),
           "env_backups: a trailing comma after a real entry is still fine", s)
     check(settings.parse_env("chat", {"AI_CHAT_PROVIDER": "bogus"}) is None, "env: unknown provider skipped")
     check(settings.parse_env("chat", {}) is None, "env: nothing set gives None")
@@ -459,9 +459,9 @@ def _resolution_checks():
     # built-in defaults through resolve (empty environment snapshot, no panel rows)
     settings.reload_env({})
     expected = {
-        "chat": ("gemini", "gemini-2.5-flash"), "chat_advanced": ("claude", "claude-sonnet-5-5"),
-        "insight_weekly": ("gemini", "gemini-2.5-flash"),
-        "insight_monthly": ("gemini", "gemini-2.5-flash"), "insight_translation": ("gemini", "gemini-2.5-pro"),
+        "chat": ("gemini", "gemini-3.5-flash-lite"), "chat_advanced": ("claude", "claude-sonnet-5-5"),
+        "insight_weekly": ("gemini", "gemini-3.5-flash-lite"),
+        "insight_monthly": ("gemini", "gemini-3.5-flash-lite"), "insight_translation": ("gemini", "gemini-3.8-flash"),
         "budget_suggestion": ("openai", "gpt-4o-mini"), "budget_auto_create": ("openai", "gpt-4o-mini"),
         "transaction_text": ("openai", "gpt-4o-mini"), "transaction_image": ("openai", "gpt-4o"),
         "transaction_audio": ("openai", "whisper-1")}
@@ -489,20 +489,20 @@ def _resolution_checks():
           and settings.resolve("transaction_text").main == T("openai", "gpt-4o-mini")
           and settings.resolve("transaction_image").main == T("openai", "gpt-4o")
           and settings.resolve("transaction_audio").main == T("openai", "whisper-1")
-          and settings.resolve("insight_translation").main == T("gemini", "gemini-2.5-pro"),
+          and settings.resolve("insight_translation").main == T("gemini", "gemini-3.8-flash"),
           "builtin: other features keep literal models even with OPENAI_MODEL set")
     settings.reload_env({"CLAUDE_MODEL": "claude-haiku-5-5"})
     check(settings.resolve("chat_advanced").main == T("claude", "claude-sonnet-5-5")
           and settings.chain("chat_advanced", lambda p: True) == [
-              T("claude", "claude-sonnet-5-5"), T("openai", "gpt-4o-mini"), T("gemini", "gemini-2.5-flash")],
+              T("claude", "claude-sonnet-5-5"), T("openai", "gpt-4o-mini"), T("gemini", "gemini-3.5-flash-lite")],
           "builtin: chat_advanced stays claude-sonnet-5-5 with CLAUDE_MODEL set; default backups are the other providers",
           settings.chain("chat_advanced", lambda p: True))
     settings.reload_env({"OPENAI_MODEL": "gpt-4o"})
     check(settings.resolve("budget_suggestion").main.model == "gpt-4o-mini"
-          and settings.resolve("chat").main == T("gemini", "gemini-2.5-flash"),
+          and settings.resolve("chat").main == T("gemini", "gemini-3.5-flash-lite"),
           "builtin: OPENAI_MODEL does not change budget_suggestion; chat stays on the gemini default")
     c = settings.chain("chat", lambda p: p == "openai")
-    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o")], "chain: default backup picks up OPENAI_MODEL", c)
+    check(c == [T("gemini", "gemini-3.5-flash-lite"), T("openai", "gpt-4o")], "chain: default backup picks up OPENAI_MODEL", c)
 
     # the environment is read lazily, after import: no snapshot yet, then AI_CHAT_PROVIDER appears in os.environ
     old = {k: os.environ.get(k) for k in ("AI_CHAT_PROVIDER", "OPENAI_API_KEY")}
@@ -552,15 +552,15 @@ def _resolution_checks():
     # chains
     d = settings.resolve("chat")
     c = settings.chain("chat", lambda p: p != "claude")
-    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o-mini")], "chain_default_backups", c)
+    check(c == [T("gemini", "gemini-3.5-flash-lite"), T("openai", "gpt-4o-mini")], "chain_default_backups", c)
     c = settings.chain("chat", lambda p: True)
-    check(c == [T("gemini", "gemini-2.5-flash"), T("openai", "gpt-4o-mini"), T("claude", "claude-sonnet-5-5")],
+    check(c == [T("gemini", "gemini-3.5-flash-lite"), T("openai", "gpt-4o-mini"), T("claude", "claude-sonnet-5-5")],
           "chain: every provider configured appends claude", c)
     c = settings.chain("transaction_audio", lambda p: True)
-    check(c == [T("openai", "whisper-1"), T("gemini", "gemini-2.5-flash")], "chain: audio never gets claude", c)
+    check(c == [T("openai", "whisper-1"), T("gemini", "gemini-3.5-flash-lite")], "chain: audio never gets claude", c)
     settings.set_panel_cache({"chat": FeatureSetting(d.main, (), "panel")})
     c = settings.chain("chat", lambda p: True)
-    check(c == [T("gemini", "gemini-2.5-flash")], "chain_no_backups", c)
+    check(c == [T("gemini", "gemini-3.5-flash-lite")], "chain_no_backups", c)
     settings.set_panel_cache({"chat": FeatureSetting(d.main, (T("claude", "claude-haiku-5-5"),), "panel")})
     c = settings.chain("chat", lambda p: False)
     check(c == [d.main, T("claude", "claude-haiku-5-5")], "chain: explicit backups kept even if unconfigured", c)
@@ -2924,7 +2924,7 @@ async def admin_api_checks():
               "settings_get_moderator_ok", f"{r.status_code} {r.text[:300]}")
         check(set(provs) == set(ADMIN_PROVIDERS) and all(set(p) == {"id", "label", "configured"} for p in provs.values()),
               "settings_get: provider shape (known models are per feature)", provs)
-        check(chat.get("effective") == {"main": {"provider": "gemini", "model": "gemini-2.5-flash"},
+        check(chat.get("effective") == {"main": {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
                                         "backups": None, "source": "default"}
               and chat.get("panel") is None and chat.get("allowed") == ["openai", "gemini", "claude"]
               and chat.get("label")
@@ -2932,7 +2932,7 @@ async def admin_api_checks():
               "settings_get: feature shape", chat)
         # F1: each feature row lists the models its picker offers, per allowed provider
         audio = feats["transaction_audio"]
-        gemini_models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+        gemini_models = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
         check(audio.get("known_models") == {"openai": ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"],
                                             "gemini": gemini_models},
               "settings_get_known_models_per_feature: audio offers only the speech-to-text models on openai",
@@ -2952,7 +2952,7 @@ async def admin_api_checks():
               and adv.get("effective") == {"main": {"provider": "claude", "model": "claude-sonnet-5-5"},
                                            "backups": None, "source": "default"}
               and adv.get("default_chain") == [{"provider": "openai", "model": "gpt-4o-mini"},
-                                               {"provider": "gemini", "model": "gemini-2.5-flash"}]
+                                               {"provider": "gemini", "model": "gemini-3.5-flash-lite"}]
               and adv.get("known_models") == chat.get("known_models"),
               "settings_get: the 'Advanced chat' row (built-in claude-sonnet-5-5, the other providers as backups)", adv)
         check(feats["transaction_audio"]["allowed"] == ["openai", "gemini"]
@@ -3401,7 +3401,7 @@ async def _chat_inprocess_checks(uid):
         text = "".join(t for t, u in items if t)
         final = items[-1]
         check(final[0] == "" and final[1] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
-                                               "model_name": "gemini-2.5-flash", "provider": "gemini",
+                                               "model_name": "gemini-3.5-flash-lite", "provider": "gemini",
                                                "fallback_from": None}
               and all(u is None for _, u in items[:-1]) and "Fake answer" in text,
               "chat stream_chat: chunks with None, then one final usage dict", items[-2:])
@@ -3738,12 +3738,12 @@ async def _insight_inprocess_checks(uid):
                   and "AI optimization" not in v and "AI " not in v for (k, lang), v in got.items()),
               "notifications: the insights-ready and AI auto-created budget messages name Ko Toe Pwar (EN / MY)", got)
 
-        # translation: per-provider limits, temperature 0.3 as before, the default model is gemini-2.5-pro
+        # translation: per-provider limits, temperature 0.3 as before, the default model is gemini-3.8-flash
         settings.set_panel_cache({})
         await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
         cfg = stubenv.LAST_KWARGS["gemini"]["config"]
-        check(stubenv.LAST_KWARGS["gemini"]["model"] == "gemini-2.5-pro" and cfg.max_output_tokens == 32768
-              and cfg.temperature == 0.3, "translation: built-in gemini-2.5-pro, 32768 tokens, temperature 0.3",
+        check(stubenv.LAST_KWARGS["gemini"]["model"] == "gemini-3.8-flash" and cfg.max_output_tokens == 32768
+              and cfg.temperature == 0.3, "translation: built-in gemini-3.8-flash, 32768 tokens, temperature 0.3",
               (stubenv.LAST_KWARGS["gemini"]["model"], cfg.max_output_tokens, cfg.temperature))
         use("insight_translation", "openai", "gpt-4o-mini")
         await ins.translate_insight_to_myanmar("## Hi\nYou spent $5.", user_id=uid, is_placeholder=False)
@@ -4392,7 +4392,7 @@ async def transaction_checks():
               and r.json().get("voice_token") and calls(before) == ["openai", "gemini"],
               "audio_falls_back_to_gemini: 200 transcript from gemini", f"{r.status_code} {r.text[:200]} {calls(before)}")
         check(len(rows) == 1 and rows[0]["provider"] == "gemini" and rows[0]["fallback_from"] == "openai"
-              and rows[0]["model_name"] == "gemini-2.5-flash",
+              and rows[0]["model_name"] == "gemini-3.5-flash-lite",
               "audio_falls_back_to_gemini: one usage row from gemini with fallback_from openai",
               [(x["provider"], x["fallback_from"], x["model_name"]) for x in rows])
         admin_reset(c, AD)
