@@ -118,8 +118,24 @@ def _extraction_date(value, today: date) -> datetime:
         return as_wall_clock(today)
 
 
+# Ways the model may name a supported currency besides its code.
+_CURRENCY_ALIASES = {"k": "mmk", "ks": "mmk", "kyat": "mmk", "kyats": "mmk", "ကျပ်": "mmk",
+                     "$": "usd", "us$": "usd", "dollar": "usd", "dollars": "usd",
+                     "฿": "thb", "baht": "thb", "บาท": "thb"}
+
+
+def _named_currency(value) -> Optional[str]:
+    """The supported currency code `value` names ("MMK", "Ks", "$"...), "" when it names none (missing or blank),
+    None when it names a currency the app doesn't record (e.g. "SGD")."""
+    text = str(value).strip().lower() if value is not None else ""
+    if not text:
+        return ""
+    text = _CURRENCY_ALIASES.get(text, text)
+    return text if text in {c.value for c in Currency} else None
+
+
 def _extraction_currency(value, default: str) -> Currency:
-    for candidate in (value, default, Currency.USD.value):
+    for candidate in (_named_currency(value) or None, default, Currency.USD.value):
         try:
             return Currency(str(candidate).strip().lower())
         except (ValueError, AttributeError):
@@ -160,6 +176,16 @@ async def _build_extraction(
         notes.append("Amount could not be determined; please enter it.")
     elif flipped:
         notes.append("Amount was negative; using its absolute value.")
+
+    # A currency the app doesn't record (e.g. a 25 SGD receipt): its number must not be saved as the book's currency
+    # (25 SGD as K25). Like a missing amount: dropped from a list, or left for the person to enter.
+    if amount and _named_currency(data.get("currency")) is None:
+        if not keep_invalid_amount:
+            logger.info(f"AI extraction: dropping item in an unsupported currency: {data.get('currency')!r}")
+            return None
+        notes.append(f"This is in {str(data.get('currency')).strip().upper()}, which the app doesn't record; "
+                     f"please enter the amount in {(default_currency or 'your currency').upper()}.")
+        amount, confidence = 0.0, 0.0
 
     reasoning = data.get("reasoning")
     if notes:

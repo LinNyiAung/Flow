@@ -33,6 +33,7 @@ import 'package:frontend/screens/transactions/transfer_detail_view.dart';
 import 'package:frontend/services/api_service.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/utils/family_entries.dart';
 import 'package:frontend/utils/money.dart';
 import 'package:frontend/widgets/app_bar_save_button.dart';
@@ -626,6 +627,52 @@ void main() {
       final reloads = _requests.where((r) => r.method == 'GET').toList();
       expect(reloads, isNotEmpty);
       expect(reloads.every((r) => !r.headers.containsKey('X-Book')), isTrue);
+    });
+
+    testWidgets('voice: each item shows its date, with the AI\'s note under it', (tester) async {
+      final noted = ExtractedTransactionData(
+        type: TransactionType.outflow,
+        mainCategory: 'Food & Daily Living',
+        subCategory: 'Restaurants',
+        date: DateTime(2026, 11, 10, 12),
+        amount: 12,
+        currency: Currency.usd,
+        confidence: 0.9,
+        reasoning: 'Heard "lunch 12 dollars yesterday"',
+      );
+      await openUnsettled(
+          tester,
+          (_) => VoiceInputScreen(
+              book: BookMode.personal,
+              initialExtraction:
+                  MultipleExtractedTransactions(transactions: [noted], totalCount: 1, overallConfidence: 0.9)),
+          books: BookModeProvider());
+      expect(find.text(AppDates.fullIn(DateTime(2026, 11, 10))), findsOneWidget);
+      expect(find.textContaining('lunch 12 dollars yesterday'), findsOneWidget);
+    });
+
+    testWidgets('voice: an item the AI is unsure of (under 50%) starts unticked; Save sends only the sure one',
+        (tester) async {
+      final unsure = ExtractedTransactionData(
+        type: TransactionType.outflow,
+        mainCategory: 'Transportation',
+        subCategory: 'Taxi',
+        date: DateTime(2026, 11, 10, 12),
+        amount: 99,
+        currency: Currency.usd,
+        confidence: 0.3,
+      );
+      await openUnsettled(
+          tester,
+          (_) => VoiceInputScreen(
+              book: BookMode.personal,
+              initialExtraction:
+                  MultipleExtractedTransactions(transactions: [lunch, unsure], totalCount: 2, overallConfidence: 0.6)),
+          books: BookModeProvider());
+      await tapSave(tester);
+      final body = jsonDecode(_sent('POST', '/api/transactions/batch-create').single.body);
+      final sent = (body is List ? body : (body as Map)['transactions']) as List;
+      expect(sent.map((t) => (t as Map)['amount']), [12]);
     });
 
     testWidgets('voice for the personal book from Family mode: no X-Book', (tester) async {

@@ -45,6 +45,9 @@ String voiceSelectedTotal(List<ExtractedTransactionData> selected) {
 
 final _mixedTotalFormat = NumberFormat('#,##0.00', 'en_US');
 
+/// The AI's confidence an item needs to start ticked; below it the person ticks it after checking it.
+const double minPreselectedConfidence = 0.5;
+
 class VoiceInputScreen extends StatefulWidget {
   const VoiceInputScreen({super.key, this.book, this.initialExtraction});
 
@@ -99,7 +102,7 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
     final initial = widget.initialExtraction;
     if (initial != null) {
       _extractedData = initial;
-      _selected = List<bool>.filled(initial.transactions.length, true);
+      _selected = [for (final t in initial.transactions) t.confidence >= minPreselectedConfidence];
       return;
     }
     _requestPermissions();
@@ -257,7 +260,8 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
 
       setState(() {
         _extractedData = extractedData;
-        _selected = List<bool>.filled(extractedData.transactions.length, true);
+        // An item the AI is unsure of starts unticked: the person ticks it after checking it.
+        _selected = [for (final t in extractedData.transactions) t.confidence >= minPreselectedConfidence];
         _isProcessing = false;
         _extraction = null;
       });
@@ -783,13 +787,22 @@ class _VoiceInputScreenState extends State<VoiceInputScreen>
                             ),
                           ),
                         ),
+                      // The date always (the AI may have resolved "yesterday" to the wrong day), its note under it.
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
-                          t.reasoning ?? AppDates.full(context, t.date),
-                          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
+                          AppDates.full(context, t.date),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: scheme.onSurfaceVariant),
                         ),
                       ),
+                      if ((t.reasoning ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            t.reasoning!,
+                            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, height: 1.4),
+                          ),
+                        ),
                     ],
                   ],
                 ),

@@ -1,4 +1,4 @@
-"""AI correctness e2e (docs/ai-audit-2026-11-24.md, group 1: our code gave the model wrong or missing figures). One
+﻿"""AI correctness e2e (docs/ai-audit-2026-11-24.md, group 1: our code gave the model wrong or missing figures). One
 function per section, called from main() (or only the sections named on the command line). No real AI call: the
 checks read what the backend hands the model, in-process against the test database (people are made over HTTP, so
 the stub server on 127.0.0.1:8765 must run).
@@ -7,6 +7,17 @@ Sections:
   chat -- a book whose only rows in a currency are transfers still builds its chat data (the summary's period line
     was None[:10]); the chat prompt has this week / this month / last month income and spending computed by code,
     with the top spending categories, and the all-time and recent-window totals say which they are.
+  insights -- the weekly and monthly reports (their model call replaced, the context kept) judge the budgets that ran
+    during the report's period, with their days, not the new one running when the report is made; a change from
+    nothing reads "none the week before" / "none the month before", not "+0.0%"; a "so far" report made during the
+    last period doesn't count as that period's full report (_has_period_insight).
+  budgets -- spending averages cover the days the entries actually cover (3 weeks of entries aren't divided by 3
+    months); an auto-created budget (the AI's answer through the real parse) keeps exactly the previous budget's
+    lines, each within 0.5-2x what it had or spent, never 0, a main at least its subs, MMK in whole kyat, and its
+    prompt names the currency instead of "$".
+  extraction -- an extracted item in a currency the app doesn't record (25 SGD) is never saved as the book's
+    currency (K25): a single extraction asks for the amount, a list drops it; "Ks", "kyat", "$", "THB" are read as
+    their currencies.
 """
 import asyncio
 import os
@@ -153,7 +164,267 @@ def section_chat():
         _cleanup(made)
 
 
-SECTIONS = {"chat": section_chat}
+# -------------------------------------------------------------------------------------------------------- insights
+def _budget(book, name, start, end, total, spent):
+    """A stored budget of the book over [start, end] (its stored spend, as the report reads it); its id."""
+    bid = f"aic-{name}-{uuid.uuid4().hex[:6]}"
+    now = datetime.now()
+    db.budgets.insert_one({
+        "_id": bid, "book_id": book, "name": name, "period": "custom", "currency": "mmk",
+        "start_date": start, "end_date": end,
+        "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": total, "spent_amount": spent,
+                              "percentage_used": spent / total * 100, "is_exceeded": spent > total}],
+        "total_budget": total, "total_spent": spent, "remaining_budget": total - spent,
+        "percentage_used": spent / total * 100, "status": "exceeded" if spent > total else "active",
+        "is_active": False, "auto_create_enabled": False, "auto_create_with_ai": False,
+        "created_at": now, "updated_at": now})
+    return bid
+
+
+def _captured_context(book, kind):
+    """generate_<kind>_insight for the book in-process, its model call replaced by one that keeps the context it would
+    have been given: that context ("" if the model wasn't called, or an error's repr)."""
+    seen = []
+
+    async def go():
+        import insights_service as ins
+        from tz_utils import default_zone
+
+        async def fake_model(feature, system_prompt, context, label, **_):
+            seen.append(context)
+            return "## Summary\nA report.", "gemini", 1, 1, 2
+        real, ins._call_insight_model = ins._call_insight_model, fake_model
+        try:
+            gen = ins.generate_weekly_insight if kind == "weekly" else ins.generate_monthly_insight
+            await gen(book, tz=default_zone())
+        except Exception as e:  # noqa: BLE001
+            return repr(e)
+        finally:
+            ins._call_insight_model = real
+        return seen[0] if seen else ""
+    return _backend_async(go)
+
+
+def _has_period_insight(book, kind, rows):
+    """Insert insight rows (dicts: start, to_date) newest last, then insights_service._has_period_insight."""
+    async def go():
+        import insights_service as ins
+        from sql import insights as insights_db
+        from tz_utils import default_zone
+        key = "week" if kind == "weekly" else "month"
+        for i, r in enumerate(rows):
+            await insights_db.insert_insight({
+                "_id": str(uuid.uuid4()), "book_id": book, "content": "## Summary\nx", "content_mm": None,
+                "generated_at": datetime.now() + timedelta(seconds=10 + i), f"{key}_start": r["start"],
+                f"{key}_end": r["start"] + timedelta(days=6 if kind == "weekly" else 27), "insight_type": kind,
+                "ai_provider": "gemini", "expires_at": None, "is_placeholder": False,
+                "is_period_to_date": r["to_date"]})
+        return await ins._has_period_insight(book, kind, default_zone())
+    return _backend_async(go)
+
+
+def section_insights():
+    from tz_utils import (current_month_to_date_range, current_week_to_date_range, default_zone,
+                          month_before_previous_range, previous_month_range, previous_week_range,
+                          week_before_previous_range)
+    tz = default_zone()
+    c, made = _client(), []
+    try:
+        # ---- weekly: last week overspent its own budget; this week's new budget has nothing spent yet
+        p = _person(c, made, "Weekly")
+        (lw, lw_end), (wb, _) = previous_week_range(tz), week_before_previous_range(tz)
+        this_monday = current_week_to_date_range(tz)[0].date()
+        lw, lw_end, wb = lw.date(), lw_end.date(), wb.date()
+        _entry(c, p, lw + timedelta(days=1), 150000)
+        _entry(c, p, lw + timedelta(days=2), 500000, type_="inflow", main="Employment Income", sub="Salary")
+        _entry(c, p, wb + timedelta(days=1), 20000)  # the week before: spending, no income
+        _budget(p["book"], "LastWeekFood", lw, lw_end, 100000, 150000)
+        _budget(p["book"], "ThisWeekFood", this_monday, this_monday + timedelta(days=6), 100000, 0)
+        ctx = _captured_context(p["book"], "weekly")
+        check("LastWeekFood" in ctx and "K150,000" in ctx and "ThisWeekFood" not in ctx,
+              "insights: the weekly report judges the budget that ran last week (K150,000 of K100,000), not this "
+              "week's new one", ctx[-1500:])
+        check(f"{lw:%b %d}" in ctx[ctx.find("LastWeekFood"):][:200],
+              "insights: ... and says which days that budget ran", ctx[ctx.find("LastWeekFood"):][:200])
+        income = next((ln for ln in ctx.splitlines() if ln.strip().startswith("Income:") and "→" in ln), "")
+        check(income and "+0.0%" not in income and "none the week before" in income,
+              "insights: income from nothing the week before is 'none the week before', not '+0.0%'", income)
+
+        # a "week so far" report made during last week doesn't stand in for last week's full report
+        check(_has_period_insight(p["book"], "weekly", []) is True,
+              "insights: the full report just made counts as last week's")
+        check(_has_period_insight(p["book"], "weekly", [{"start": lw, "to_date": True}]) is False,
+              "insights: a newer 'week so far' report from last week doesn't count as last week's full report")
+        check(_has_period_insight(p["book"], "weekly", [{"start": this_monday, "to_date": True}]) is True,
+              "insights: a 'week so far' report for this week counts for this week")
+
+        # ---- monthly: the same, a month at a time
+        q = _person(c, made, "Monthly")
+        (lm, lm_end), (mb, _) = previous_month_range(tz), month_before_previous_range(tz)
+        first = current_month_to_date_range(tz)[0].date()
+        lm, lm_end, mb = lm.date(), lm_end.date(), mb.date()
+        _entry(c, q, lm + timedelta(days=3), 150000)
+        _entry(c, q, lm + timedelta(days=4), 500000, type_="inflow", main="Employment Income", sub="Salary")
+        _entry(c, q, mb + timedelta(days=3), 20000)
+        _budget(q["book"], "LastMonthFood", lm, lm_end, 100000, 150000)
+        _budget(q["book"], "ThisMonthFood", first, first + timedelta(days=27), 100000, 0)
+        ctx = _captured_context(q["book"], "monthly")
+        check("LastMonthFood" in ctx and "K150,000" in ctx and "ThisMonthFood" not in ctx,
+              "insights: the monthly report judges last month's budget, not this month's new one", ctx[-1500:])
+        income = next((ln for ln in ctx.splitlines() if ln.strip().startswith("Income:") and "→" in ln), "")
+        check(income and "+0.0%" not in income and "none the month before" in income,
+              "insights: income from nothing the month before is 'none the month before', not '+0.0%'", income)
+        check(_has_period_insight(q["book"], "monthly", [{"start": lm, "to_date": True}]) is False,
+              "insights: a newer 'month so far' report from last month doesn't count as last month's full report")
+    finally:
+        _cleanup(made)
+
+
+# --------------------------------------------------------------------------------------------------------- budgets
+def _spending_analysis(book):
+    async def go():
+        import budget_service as bs
+        return await bs.BudgetAnalyzer(book).analyze_spending_patterns(3, "mmk")
+    return _backend_async(go)
+
+
+FOOD, GROCERIES, TRANSPORT, FUN = "Food & Daily Living", "Groceries", "Transportation", "Entertainment & Leisure"
+
+
+def _auto_create(parent, answer):
+    """budget_service._ai_category_budgets for `parent` in-process, the AI answering `answer` (the JSON it returns,
+    through the real parse): ([(main, sub, amount)], used_ai, the system prompt it was given) or an error's repr."""
+    import json as _json
+    from types import SimpleNamespace
+    captured = {}
+
+    async def go():
+        import budget_service as bs
+        from budget_models import BudgetPeriod
+        stubenv.patch_loaded_modules()
+
+        async def some_transactions(*a, **k):
+            return [{"amount": 1}]
+
+        async def owner_ok(*a, **k):
+            return True
+
+        async def book_row(*a, **k):
+            return {}
+
+        def capture_call(feature, system, user):
+            captured["system"] = system
+            return None
+
+        async def answer_run(feature, *, call=None, parse=None, **k):
+            value = parse(SimpleNamespace(text=_json.dumps(answer)))
+            return SimpleNamespace(value=value, completion=SimpleNamespace(input_tokens=1, output_tokens=1),
+                                   target=SimpleNamespace(provider="fake", model="fake"), fallback_from=None)
+        saved = (bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets, bs.books_db.get_book_row,
+                 bs.books_db.spend_owner, bs._budget_call, bs._runner.run)
+        bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets = some_transactions, owner_ok
+        bs.books_db.get_book_row, bs.books_db.spend_owner = book_row, lambda row: {}
+        bs._budget_call, bs._runner.run = capture_call, answer_run
+        try:
+            lines, used_ai = await bs._ai_category_budgets(
+                "aic-no-book", BudgetPeriod.MONTHLY, date(2026, 11, 1), date(2026, 11, 30), parent)
+            return [(x.main_category, x.sub_category, x.allocated_amount) for x in lines], used_ai, captured.get("system", "")
+        except Exception as e:  # noqa: BLE001
+            return repr(e)
+        finally:
+            (bs.transactions_db.find_transactions, bs._owner_gets_ai_budgets, bs.books_db.get_book_row,
+             bs.books_db.spend_owner, bs._budget_call, bs._runner.run) = saved
+    return _backend_async(go)
+
+
+def section_budgets():
+    c, made = _client(), []
+    try:
+        # ---- averages over the days the entries actually cover
+        today = _today()
+        p = _person(c, made, "Newish")  # started 3 weeks ago: 12 x K10,000 over the last 21 days
+        for i in range(12):
+            _entry(c, p, today - timedelta(days=20 if i == 0 else i), 10000)
+        a = _spending_analysis(p["book"])
+        food = (a.get("categories") or {}).get(FOOD, {}) if isinstance(a, dict) else {}
+        check(abs(food.get("monthly_average", 0) - 120000 / (21 / 30)) < 1,
+              "budgets: 3 weeks of entries (K120,000) average K171,429 a month, not K40,000 (a 3-month divide)",
+              food.get("monthly_average"))
+        q = _person(c, made, "Longtime")  # entries before the 90-day window: the full 3 months count
+        _entry(c, q, today - timedelta(days=120), 10000)
+        for i in range(10):
+            _entry(c, q, today - timedelta(days=i * 8), 10000)
+        a = _spending_analysis(q["book"])
+        food = (a.get("categories") or {}).get(FOOD, {}) if isinstance(a, dict) else {}
+        check(abs(food.get("monthly_average", 0) - 100000 / 3) < 1,
+              "budgets: with history older than the 90 days, the average is the 90 days' total over 3 months",
+              food.get("monthly_average"))
+    finally:
+        _cleanup(made)
+
+    # ---- auto-create (no one reviews it): the AI's answer is kept to the parent's lines, in bounds, MMK whole
+    parent = {
+        "start_date": date(2026, 10, 1), "end_date": date(2026, 10, 31), "currency": "mmk",
+        "total_budget": 400000.0, "total_spent": 380000.0, "percentage_used": 95.0,
+        "category_budgets": [
+            {"main_category": FOOD, "sub_category": None, "allocated_amount": 300000.0, "spent_amount": 290000.0},
+            {"main_category": FOOD, "sub_category": GROCERIES, "allocated_amount": 100000.0, "spent_amount": 90000.0},
+            {"main_category": TRANSPORT, "sub_category": None, "allocated_amount": 100000.0, "spent_amount": 90000.0}]}
+    answer = {"categories": [
+        {"main_category": FOOD, "allocated_amount": 150000.4, "spent_amount": 0, "percentage_used": 0, "is_exceeded": False},
+        {"main_category": f"{FOOD} - {GROCERIES}", "allocated_amount": 250000, "spent_amount": 0, "percentage_used": 0,
+         "is_exceeded": False},
+        {"main_category": TRANSPORT, "allocated_amount": 0, "spent_amount": 0, "percentage_used": 0, "is_exceeded": False},
+        {"main_category": FUN, "allocated_amount": 50000, "spent_amount": 0, "percentage_used": 0, "is_exceeded": False}],
+        "reasoning": "x"}
+    got = _auto_create(parent, answer)
+    lines, used_ai, system = got if isinstance(got, tuple) else (got, None, "")
+    check(used_ai is True, "auto-create: the AI's answer is used", got)
+    check(isinstance(lines, list) and [(m, s) for m, s, _ in lines] == [(FOOD, None), (FOOD, GROCERIES), (TRANSPORT, None)],
+          "auto-create: only the previous budget's lines, in its order (a new Entertainment line dropped)", lines)
+    amounts = {(m, s): v for m, s, v in lines} if isinstance(lines, list) else {}
+    check(amounts.get((FOOD, GROCERIES)) == 200000,
+          "auto-create: Groceries K250,000 is held to 2x what it had (K100,000): K200,000", amounts)
+    check(amounts.get((TRANSPORT, None)) == 100000,
+          "auto-create: Transport K0 is replaced by the app's own adjustment (90% used: kept at K100,000)", amounts)
+    check(amounts.get((FOOD, None)) == 200000,
+          "auto-create: Food (K150,000) is raised to its sub-categories' total (K200,000)", amounts)
+    check(all(float(v).is_integer() for v in amounts.values()), "auto-create: MMK amounts are whole kyat", amounts)
+    check("MMK" in system and "$" not in system.split("AVAILABLE CATEGORIES")[0],
+          "auto-create: the prompt gives the previous budget in MMK, not as dollars",
+          system.split("AVAILABLE CATEGORIES")[0])
+
+
+# ------------------------------------------------------------------------------------------------------ extraction
+def section_extraction():
+    """transaction_routes._build_extraction on one model-produced item (in-process: it reads the category catalogue)."""
+    def build(currency, keep_invalid):
+        async def go():
+            import transaction_routes as tr
+            item = {"type": "outflow", "main_category": "Food & Daily Living", "sub_category": "Restaurants",
+                    "date": "2026-11-20", "description": "lunch", "amount": 25, "currency": currency,
+                    "confidence": 0.9, "reasoning": "a receipt"}
+            x = await tr._build_extraction(item, "mmk", keep_invalid, today=date(2026, 11, 24))
+            return None if x is None else (x.amount, x.currency.value, x.confidence, x.reasoning or "")
+        try:
+            return _backend_async(go)
+        except Exception as e:  # noqa: BLE001
+            return repr(e)
+
+    got = build("SGD", True)
+    check(isinstance(got, tuple) and got[0] == 0 and got[2] == 0 and "SGD" in got[3] and "MMK" in got[3],
+          "extraction: a 25 SGD receipt is not saved as K25: no amount, confidence 0, a note asking for the amount in "
+          "MMK", got)
+    got = build("SGD", False)
+    check(got is None, "extraction: a 25 SGD item in a voice list is dropped (like an item with no amount)", got)
+    for name, code in (("Ks", "mmk"), ("kyat", "mmk"), ("$", "usd"), ("THB", "thb"), ("", "mmk"), (None, "mmk")):
+        got = build(name, False)
+        check(isinstance(got, tuple) and got[0] == 25 and got[1] == code,
+              f"extraction: currency {name!r} is {code.upper()} and keeps its amount", got)
+
+
+SECTIONS = {"chat": section_chat, "insights": section_insights, "budgets": section_budgets,
+            "extraction": section_extraction}
 
 
 def main():
