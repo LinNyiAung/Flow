@@ -3409,7 +3409,8 @@ async def _chat_inprocess_checks(uid):
         await collect(chat_history=[{"role": "user", "content": "earlier question"},
                                     {"role": "assistant", "content": "earlier answer"}])
         user_msg = stubenv.LAST_KWARGS["gemini"]["contents"]
-        check("You: earlier question" in user_msg and "Assistant: earlier answer" in user_msg,
+        # (AI audit: the speakers are "User" and "Ko Toe Pwar", under a note that the data above is current)
+        check("User: earlier question" in user_msg and "Ko Toe Pwar: earlier answer" in user_msg,
               "chat prompt: the recent history is in the user prompt")
 
         # The runner is replaced to drive the outcomes the fakes can't reach directly.
