@@ -35,7 +35,8 @@ from chat_models import (
 from notification_models import FcmTokenRemove, FcmTokenUpdate, NotificationResponse, NotificationType, parse_notification_type
 from notification_service import (
     analyze_unusual_spending,
-    notify_budget_started
+    notify_budget_started,
+    translate,
 )
 
 from database import initialize_admin, initialize_categories
@@ -708,10 +709,19 @@ async def _translate_if_possible(insight: dict, user: dict, **options):
     itself (the hidden cost cap, a used-up counted allowance) must not hide the English insight, which exists and costs
     nothing to show: it returns (insight, the limit error's detail) and the insight keeps its content_mm empty.
     `options`: see _ensure_myanmar_translation (_translation_kwargs)."""
+    from insights_service import InsightAIError
+
     try:
         return await _ensure_myanmar_translation(insight, user, **options), None
     except PlanError as e:
         return insight, e.detail()
+    except InsightAIError as e:
+        # No usable translation (every provider failed, or each changed a figure: insights_service
+        # translation_problem). The English insight exists: show it, with a note, rather than failing the page.
+        print(f"⚠️ Myanmar translation unavailable, showing English: {type(e).__name__}")
+        return insight, {"code": "translation_failed", "feature": "insight_translation", "resets_at": None,
+                         "upgrade_available": False,
+                         "message": translate("insight_translation_failed_msg", user_language(user))}
 
 
 def _insight_http_error(e: Exception, action: str) -> HTTPException:

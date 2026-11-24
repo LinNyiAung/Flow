@@ -74,6 +74,9 @@ class StubAsyncOpenAI:
 
 FAKE_AI = os.environ.get("E2E_FAKE_AI") == "1"
 FAKE_REPLY = "## Fake answer\nYou spent money on groceries."
+# The answer to a translation request ("Translate this to Myanmar"): mostly Myanmar script, as the server checks
+# before saving a translation (insights_service.translation_problem), and still carrying "Fake answer".
+FAKE_REPLY_MM = "## Fake answer\nကုန်စုံအတွက် ငွေသုံးခဲ့သည်။"
 FAKE_STREAM_PARTS = ("## Fake answer\n", "You spent ", "money on groceries.")
 FAKE_USAGE = (10, 5, 15)  # prompt, completion, total tokens
 
@@ -288,6 +291,16 @@ def _canned_json(prompt):
     return json.dumps(body)
 
 
+def _fake_translation(prompt):
+    """FAKE_REPLY_MM plus the figures of the text it was asked to translate, as a faithful translator keeps them (the
+    server rejects a translation that lost one: insights_service.translation_problem)."""
+    import re
+    asked = prompt.split("Translate this to Myanmar", 1)[1]
+    asked = re.sub(r"\\u[0-9a-fA-F]{4}", " ", asked)  # escaped characters (the system prompt's Myanmar) aren't figures
+    figures = list(dict.fromkeys(re.findall(r"\d[\d,]*(?:\.\d+)?", asked)))
+    return FAKE_REPLY_MM + (f"\n{' '.join(figures)}" if figures else "")
+
+
 def _answer_text(kind, prompt, wants_json):
     if kind == "empty":
         return ""
@@ -298,7 +311,12 @@ def _answer_text(kind, prompt, wants_json):
     if kind == "no_transactions" and wants_json:
         return json.dumps({"transactions": [], "total_count": 0, "overall_confidence": 0.5,
                            "analysis": "No transactions found in the text"})
-    text = _canned_json(prompt) if wants_json else FAKE_REPLY
+    if wants_json:
+        text = _canned_json(prompt)
+    elif "Translate this to Myanmar" in prompt:
+        text = _fake_translation(prompt)
+    else:
+        text = FAKE_REPLY
     if kind == "length_once":  # cut off at the output limit
         return text[:max(1, len(text) // 2)]
     return text

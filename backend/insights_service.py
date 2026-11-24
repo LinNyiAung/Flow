@@ -1,3 +1,4 @@
+import re
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta, tzinfo, UTC
@@ -277,7 +278,9 @@ INSIGHT_MAX_TOKENS = {
     "insight_monthly": {"openai": 3000, "gemini": 8192, "claude": 12000},
     "insight_custom": {"openai": 2000, "gemini": 8192, "claude": 12000},
 }
-INSIGHT_TEMPERATURE = 0.7  # sent to OpenAI and Gemini as before; the Claude client never sends it
+# Sent to OpenAI and Gemini; the Claude client never sends it. 0.4 (was 0.7): a report of the user's own figures
+# needs them quoted consistently more than it needs variety.
+INSIGHT_TEMPERATURE = 0.4
 
 
 def _feature_prompt_call(feature: str, system: str, user: str, max_tokens: dict, temperature: float):
@@ -544,85 +547,42 @@ async def get_financial_summary(book_id, start_date, end_date):
     }
 
 
+# The rules both period reports share (weekly and monthly): only the given figures, nothing invented.
+REPORT_GROUND_RULES = """NUMBERS (most important):
+- Use only the figures in the data. Never invent a number, a transaction, a cause or a trend, and never recompute
+  totals, percentages or changes: quote them as given. A change shown as "none the week before" means there was
+  nothing to compare with; say that, don't make up a percentage.
+- Keep each currency on its own. Never add up or convert amounts in different currencies.
+- Write a section only when the data has something for it, and skip it otherwise: no section to fill space. With
+  little data, write a short report.
+- When the data can't answer something, say so briefly instead of guessing.
+
+SAFETY:
+- No investment, trading, crypto, gambling or loan advice. No shaming: be encouraging and realistic.
+
+FORMAT:
+- Markdown headings, bullet lists and **bold**; a few emojis are fine. No tables.
+- Money as in the data: K150,000 (MMK) with no decimals for kyat, $12.50 (USD), ฿300.00 (THB)."""
+
+
 def _build_weekly_system_prompt():
     """Build system prompt for weekly insights generation"""
-    return """You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: an expert financial analyst providing weekly financial insights.
+    return f"""You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app. You write a weekly report on
+one user's own money, from the data you are given for the REPORT PERIOD.
 
-Your task is to analyze the user's financial activity from the past week and generate a comprehensive weekly report.
+SECTIONS (each only when the data has something for it):
+1. **📊 Summary**: income, spending, net and number of transactions, per currency.
+2. **📈 Compared with the week before**: the changes as given in the comparison.
+3. **💰 Where the money went**: the top spending categories as given.
+4. **📊 Budgets**: each budget listed under BUDGETS DURING ..., with its own days, spent and allocated as given.
+5. **🎯 Goals**: each goal's saved amount, target and progress as given (the data has no contributions or dates, so
+   don't estimate them).
+6. **✨ Wins** and **⚠️ To watch**: only what the figures above show.
+7. **💡 For this week**: 2-4 specific, practical suggestions based on those figures.
 
-WEEKLY INSIGHTS STRUCTURE:
-Generate insights covering:
-
-1. **📊 Last Week's Summary** - Overview of financial activity last week
-   - Total income and expenses by currency
-   - Net position (surplus/deficit)
-   - Number of transactions
-   - Key highlights
-
-2. **📈 Week-over-Week Comparison** - Compare with the week before
-   - Income changes (increase/decrease %)
-   - Expense changes (increase/decrease %)
-   - Spending pattern shifts
-   - Notable differences
-
-3. **💰 Spending Analysis** - Where the money went last week
-   - Top expense categories by currency
-   - Unusual or high spending areas
-   - Comparison with previous weeks
-   - Budget adherence (if applicable)
-
-4. **📊 Budget Performance** - How budgets are tracking 
-   - Overall budget utilization by currency
-   - Categories over/under budget
-   - Budget adherence trends
-   - Recommendations for staying on track
-
-5. **🎯 Goals Progress** - How goals advanced last week
-   - Contributions made to goals by currency
-   - Progress percentages
-   - On-track vs. behind schedule analysis
-   - Projected completion dates
-
-6. **✨ Wins & Achievements** - Celebrate positive actions
-   - Money saved
-   - Goals reached
-   - Budget adherence successes 
-   - Good financial decisions
-   - Positive habits noticed
-
-7. **⚠️ Areas for Attention** - Concerns to address
-   - Overspending categories
-   - Budget overruns
-   - Goals falling behind
-   - Potential issues
-
-8. **💡 Recommendations for This Week** - Actionable advice
-   - Specific spending adjustments by currency
-   - Budget corrections needed
-   - Savings opportunities
-   - Goal contribution suggestions
-   - Habit changes to implement
-
-9. **🎯 Weekly Challenge** - One specific goal for this week
-   - Clear, measurable target
-   - Motivational message
-
-CRITICAL RULES:
-- Be SPECIFIC with numbers, dates, categories, AND CURRENCIES
-- Always compare with the week before when data is available
-- Pay special attention to budget performance and adherence 
-- Celebrate when users stay within budget 
-- Provide ACTIONABLE recommendations, not generic advice
-- Be encouraging and supportive in tone
-- Format money as $X.XX (USD), X K (MMK), or ฿X.XX (THB)
-- Use markdown formatting for clarity
-- Add emojis for visual appeal
-- Keep it concise but comprehensive (800-1200 words)
-- Focus on LAST WEEK's activity (the complete Monday-Sunday that just ended)
-- Provide recommendations for THIS WEEK (the new week that just started)
-- If this is the first week, acknowledge it and provide baseline insights
-
-Remember: This report is generated on Monday morning, reviewing the complete week (Monday-Sunday) that just ended, and providing actionable recommendations for the week ahead."""
+{REPORT_GROUND_RULES}
+- At most 600 words; shorter when there is little data.
+- The report covers the REPORT PERIOD in the data, whatever day it is written."""
 
 
 def change_text(previous: float, current: float, before: str) -> str:
@@ -632,6 +592,40 @@ def change_text(previous: float, current: float, before: str) -> str:
     if previous > 0:
         return f"{(current - previous) / previous * 100:+.1f}%"
     return f"none {before}" if current > 0 else "none in either"
+
+
+# The heading of a report's suggestions section, in this and earlier versions of the prompts.
+_SUGGESTION_HEADINGS = ("recommendation", "for this week", "for this month", "action plan", "what to do next")
+_SECTION_HEADING = re.compile(r"^\s*(#{1,6}\s|(\d+\.\s*)?\*\*[^*].*\*\*\s*:?\s*$)")
+PREVIOUS_SUGGESTIONS_MAX = 600
+
+
+def previous_suggestions_text(previous_insight, period_start, key: str, unit: str) -> str:
+    """The context block with the suggestions section of the book's report for an EARLIER period (`key`: week_start /
+    month_start, before `period_start`), at most PREVIOUS_SUGGESTIONS_MAX characters; "" when that report is of this
+    period (a regenerate) or later, or has no suggestions section. The rest of the old report (its own figures) is
+    never passed on: the model would mix them with this period's."""
+    if not previous_insight:
+        return ""
+    earlier, start = as_calendar_date(previous_insight.get(key)), as_calendar_date(period_start)
+    if not earlier or not start or earlier >= start:
+        return ""
+    lines = (previous_insight.get("content") or "").splitlines()
+    begin = next((i for i, ln in enumerate(lines)
+                  if _SECTION_HEADING.match(ln) and any(h in ln.lower() for h in _SUGGESTION_HEADINGS)), None)
+    if begin is None:
+        return ""
+    body = []
+    for ln in lines[begin + 1:]:
+        if _SECTION_HEADING.match(ln):
+            break
+        body.append(ln)
+    text = "\n".join(body).strip()[:PREVIOUS_SUGGESTIONS_MAX]
+    if not text:
+        return ""
+    return (f"\n=== WHAT THE LAST {unit.upper()}'S REPORT SUGGESTED ===\n"
+            f"(For context only. Say whether a suggestion was followed only where the figures above show it.)\n"
+            f"{text}\n")
 
 
 async def report_budgets(book_id: str, start, end) -> list:
@@ -754,9 +748,9 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {today.strftime('%A, %B %d, %Y')} (Monday Morning)
+TODAY: {today.strftime('%A, %B %d, %Y')}
 
-LAST WEEK'S PERIOD: {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
+REPORT PERIOD (last week): {week_start.strftime('%B %d, %Y')} (Monday) to {week_end.strftime('%B %d, %Y')} (Sunday)
 
 === LAST WEEK'S FINANCIAL ACTIVITY ===
 
@@ -822,10 +816,7 @@ Total Transactions: {total_tx}
 
     # Previous insight summary
     if previous_insight:
-        context += "\n=== PREVIOUS WEEK'S KEY RECOMMENDATIONS ===\n"
-        context += f"(Review to see if user followed through)\n\n"
-        prev_content = previous_insight.get("content") or ""
-        context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
+        context += previous_suggestions_text(previous_insight, week_start, "week_start", "week")
 
     if period_to_date:
         context += (
@@ -885,7 +876,9 @@ Translate the following financial insights from English to Myanmar (Burmese) lan
 CRITICAL RULES:
 1. Maintain ALL formatting including markdown (##, **, bullets, emojis)
 2. Keep financial terms clear and understandable in Myanmar
-3. Preserve all numbers, percentages, and dollar amounts exactly
+3. Copy every number, percentage, date and amount exactly as written, in the same digits (don't convert them to
+   Myanmar digits), with its currency sign or code unchanged (K, Ks, MMK, $, USD, ฿, THB). Keep names of goals,
+   budgets, categories and people as written.
 4. Use natural, conversational Myanmar that feels native
 5. Keep emojis exactly as they are
 6. Maintain the same structure and sections
@@ -1000,6 +993,51 @@ def _translation_call(english_content: str):
     return call
 
 
+_MYANMAR_DIGITS = str.maketrans("၀၁၂၃၄၅၆၇၈၉", "0123456789")
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+# Share of letters that must be Myanmar script in a translation (English names and terms may stay).
+MIN_MYANMAR_SHARE = 0.5
+
+
+def _figures(text: str) -> set:
+    """The numbers in `text` that matter if lost (3+ digits, or with decimals: amounts, totals, years, percentages
+    like 12.5), as values (1,000 = 1000.00 = ၁,၀၀၀); small whole numbers such as list numbering are left out."""
+    found = set()
+    for raw in _NUMBER.findall((text or "").translate(_MYANMAR_DIGITS)):
+        digits = raw.replace(",", "")
+        try:
+            value = round(float(digits), 2)
+        except ValueError:
+            continue
+        if "." in digits or len(digits.split(".")[0]) >= 3:
+            found.add(value)
+    return found
+
+
+def translation_problem(english: str, myanmar: str) -> Optional[str]:
+    """Why a Myanmar translation of `english` mustn't be saved, or None when it's fine: an amount (or other figure,
+    see _figures) of the English is missing or changed, or the text is mostly not Myanmar."""
+    missing = _figures(english) - _figures(myanmar)
+    if missing:
+        return f"figures changed or missing: {sorted(missing)[:5]}"
+    burmese = sum(1 for ch in myanmar or "" if "က" <= ch <= "႟")
+    latin = sum(1 for ch in myanmar or "" if ch.isascii() and ch.isalpha())
+    if burmese + latin == 0 or burmese / (burmese + latin) < MIN_MYANMAR_SHARE:
+        return "not Myanmar"
+    return None
+
+
+def _checked_translation(english_content: str):
+    """A runner `parse` for the translation: its text, or UnusableAnswer (the next provider tries) when it changed or
+    lost a figure, or isn't Myanmar (translation_problem). A translation is cached for good, so it is checked first."""
+    def parse(c: Completion) -> str:
+        problem = translation_problem(english_content, c.text)
+        if problem:
+            raise UnusableAnswer(f"translation not usable: {problem}")
+        return c.text
+    return parse
+
+
 async def translate_insight_to_myanmar(
     english_content: str,
     user_id: Optional[str] = None,
@@ -1027,10 +1065,11 @@ async def translate_insight_to_myanmar(
         feature = "insight_translation"
         try:
             result = await _runner.run(feature, user_id=user_id, book_id=book_id,
-                                       call=_translation_call(english_content))
+                                       call=_translation_call(english_content),
+                                       parse=_checked_translation(english_content))
         except AllProvidersFailed as e:
             raise _ai_error(e, feature, "Translation") from e
-        return result.completion.text
+        return result.value
 
     except InsightAIError as e:
         logger.error(f"Translation error: {e}")
@@ -1247,97 +1286,22 @@ Start by adding your first transaction or creating a financial goal. The more da
 
 def _build_monthly_system_prompt():
     """Build system prompt for monthly insights generation"""
-    return """You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app: an expert financial analyst providing monthly financial insights.
+    return f"""You are Ko Toe Pwar (ကိုတိုးပွား), the friendly money helper of the Toe Pwar app. You write a monthly report on
+one user's own money, from the data you are given for the REPORT PERIOD.
 
-Your task is to analyze the user's financial activity from the past month and generate a comprehensive monthly report.
+SECTIONS (each only when the data has something for it):
+1. **📊 Summary**: income, spending, net and number of transactions, per currency.
+2. **📈 Compared with the month before**: the changes as given in the comparison.
+3. **💰 Where the money went**: the top spending categories as given.
+4. **📊 Budgets**: each budget listed under BUDGETS DURING ..., with its own days, spent and allocated as given.
+5. **🎯 Goals**: each goal's saved amount, target and progress as given (the data has no contributions or dates, so
+   don't estimate them).
+6. **✨ Wins** and **⚠️ To watch**: only what the figures above show.
+7. **💡 For this month**: 3-5 specific, practical suggestions based on those figures.
 
-MONTHLY INSIGHTS STRUCTURE:
-Generate insights covering:
-
-1. **📊 Last Month's Summary** - Complete overview of the month
-   - Total income and expenses by currency
-   - Net position (surplus/deficit)
-   - Number of transactions
-   - Key highlights and milestones
-
-2. **📈 Month-over-Month Comparison** - Compare with the previous month
-   - Income changes (increase/decrease %)
-   - Expense changes (increase/decrease %)
-   - Spending pattern shifts
-   - Notable differences and trends
-
-3. **💰 Spending Deep Dive** - Detailed expense analysis
-   - Top expense categories by currency
-   - Category breakdowns and percentages
-   - Unusual or high spending areas
-   - Month-to-month category changes
-   - Budget adherence (if applicable)
-
-4. **📊 Budget Performance Review** - Comprehensive budget analysis 
-   - Overall budget utilization by currency
-   - Category-level performance
-   - Over/under spending trends
-   - Month-over-month budget adherence
-   - Budget efficiency recommendations
-
-5. **🎯 Goals Progress** - Monthly goal achievements
-   - Contributions made to goals by currency
-   - Progress percentages and amounts
-   - Goals completed or reached
-   - On-track vs. behind schedule analysis
-   - Projected completion timeline
-
-6. **✨ Monthly Wins & Achievements** - Celebrate success
-   - Money saved last month
-   - Budget adherence successes 
-   - Goals reached or significant progress
-   - Good financial decisions
-   - Positive habits established
-
-7. **⚠️ Areas Needing Attention** - Financial concerns
-   - Overspending categories
-   - Budget overruns 
-   - Goals falling behind
-   - Concerning trends
-   - Potential issues to address
-
-8. **📊 Financial Health Score** - Overall assessment
-   - Income stability
-   - Expense control
-   - Budget adherence 
-   - Savings rate
-   - Goal progress
-   - Overall financial trajectory
-
-9. **💡 Action Plan for This Month** - Specific recommendations
-   - Spending adjustments by currency
-   - Budget reallocations needed 
-   - Savings targets
-   - Goal contribution plans
-   - Budget recommendations
-   - Habit changes to implement
-
-10. **🎯 Monthly Challenge** - One major goal for this month
-    - Clear, measurable target
-    - Actionable steps
-    - Motivational message
-
-CRITICAL RULES:
-- Be VERY SPECIFIC with numbers, dates, categories, AND CURRENCIES
-- Always compare with the previous month when data is available
-- Analyze budget performance in detail 
-- Provide specific budget adjustment recommendations 
-- Provide DETAILED and ACTIONABLE recommendations
-- Be encouraging yet realistic in tone
-- Format money as $X.XX (USD), X K (MMK), or ฿X.XX (THB)
-- Use markdown formatting for clarity
-- Add emojis for visual appeal
-- Keep it comprehensive but readable (1000-1500 words)
-- Focus on LAST MONTH's complete activity (1st to last day of month)
-- Provide detailed action plan for THIS MONTH (the new month starting)
-- If this is the first month, acknowledge it and provide baseline insights
-
-Remember: This report is generated on the 1st of the month, reviewing the complete previous month, and providing a detailed action plan for the month ahead."""
+{REPORT_GROUND_RULES}
+- At most 900 words; shorter when there is little data.
+- The report covers the REPORT PERIOD in the data, whatever day it is written."""
 
 
 def _build_monthly_context(
@@ -1387,9 +1351,9 @@ Total Transactions: {total_tx}
         context = f"""USER: {user.get('name', 'User')}
 DEFAULT CURRENCY: {user.get('default_currency', 'usd').upper()}
 
-TODAY: {today.strftime('%A, %B %d, %Y')} (1st of the Month)
+TODAY: {today.strftime('%A, %B %d, %Y')}
 
-LAST MONTH'S PERIOD: {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
+REPORT PERIOD (last month): {month_start.strftime('%B %d, %Y')} to {month_end.strftime('%B %d, %Y')}
 
 === LAST MONTH'S FINANCIAL ACTIVITY ===
 
@@ -1496,10 +1460,7 @@ Total Transactions: {total_tx}
 
     # Previous insight
     if previous_insight:
-        context += "\n=== PREVIOUS MONTH'S KEY RECOMMENDATIONS ===\n"
-        context += f"(Review to see if user followed through)\n\n"
-        prev_content = previous_insight.get("content") or ""
-        context += (prev_content[:500] + "...\n") if len(prev_content) > 500 else (prev_content + "\n")
+        context += previous_suggestions_text(previous_insight, month_start, "month_start", "month")
 
     if period_to_date:
         context += (

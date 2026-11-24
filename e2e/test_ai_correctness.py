@@ -246,6 +246,8 @@ def section_insights():
               "week's new one", ctx[-1500:])
         check(f"{lw:%b %d}" in ctx[ctx.find("LastWeekFood"):][:200],
               "insights: ... and says which days that budget ran", ctx[ctx.find("LastWeekFood"):][:200])
+        check("REPORT PERIOD (last week)" in ctx and "Monday Morning" not in ctx,
+              "insights: the weekly context names the REPORT PERIOD, with no hard-coded 'Monday Morning'", ctx[:400])
         income = next((ln for ln in ctx.splitlines() if ln.strip().startswith("Income:") and "→" in ln), "")
         check(income and "+0.0%" not in income and "none the week before" in income,
               "insights: income from nothing the week before is 'none the week before', not '+0.0%'", income)
@@ -529,9 +531,52 @@ def section_budget_prompts():
         _cleanup(made)
 
 
+# ---------------------------------------------------------------------- insight prompts, translation (audit group 2)
+def section_insight_prompts():
+    import insights_service as ins
+    for kind, p in (("weekly", ins._build_weekly_system_prompt()), ("monthly", ins._build_monthly_system_prompt())):
+        check("Never invent a number" in p and "never recompute" in p and "quote them as given" in p,
+              f"insight prompts ({kind}): only the given figures, quoted, never invented or recomputed")
+        check("Never add up or convert amounts in different currencies" in p and "No investment" in p,
+              f"insight prompts ({kind}): currencies kept apart; no investment advice")
+        check("skip it otherwise" in p and "short report" in p,
+              f"insight prompts ({kind}): sections only when the data has something; short when little data")
+        check(not any(x in p for x in ("Financial Health Score", "Projected completion", "Contributions made",
+                                       "800-1200", "1000-1500", "Monday morning", "1st of the month",
+                                       "Comparison with previous weeks")),
+              f"insight prompts ({kind}): no asks for data the model never gets, no fixed length, no fixed day")
+    check(ins.INSIGHT_TEMPERATURE == 0.4, "insight prompts: temperature 0.4 (was 0.7)", ins.INSIGHT_TEMPERATURE)
+
+    old = {"week_start": date(2026, 11, 9), "content":
+           "## 📊 Summary\nYou spent K150,000.\n## 💡 For this week\n- Cook at home twice.\n- Set a taxi limit.\n"
+           "## 🎯 Goals\nTrip 40%."}
+    text = ins.previous_suggestions_text(old, date(2026, 11, 16), "week_start", "week")
+    check("Cook at home twice" in text and "Set a taxi limit" in text and "K150,000" not in text
+          and "Trip 40%" not in text and "only where the figures above show it" in text,
+          "insight prompts: only the earlier report's suggestions are passed on, not its own figures", text)
+    check(ins.previous_suggestions_text(old, date(2026, 11, 9), "week_start", "week") == "",
+          "insight prompts: a report of the same week (a regenerate) passes nothing on")
+    check(ins.previous_suggestions_text({"week_start": date(2026, 11, 9), "content": "## Summary\nx"},
+                                        date(2026, 11, 16), "week_start", "week") == "",
+          "insight prompts: an earlier report without a suggestions section passes nothing on")
+
+    english = "## Summary\nYou spent K150,000.00 (MMK) on food, 25.0% more than the week before. 2 goals."
+    good = "## အနှစ်ချုပ်\nအစားအသောက်အတွက် K၁၅၀,၀၀၀ (MMK) သုံးခဲ့သည်၊ ယခင်အပတ်ထက် ၂၅.၀% ပိုများသည်။ ရည်မှန်းချက် ၂ ခု။"
+    check(ins.translation_problem(english, good) is None,
+          "translation check: the same figures (here in Myanmar digits) in Myanmar text pass", ins.translation_problem(english, good))
+    changed = good.replace("၁၅၀,၀၀၀", "၁၀၀,၀၀၀")
+    check("figures" in (ins.translation_problem(english, changed) or ""),
+          "translation check: a changed amount (K150,000 -> K100,000) is rejected", ins.translation_problem(english, changed))
+    check(ins.translation_problem(english, english) == "not Myanmar",
+          "translation check: the English text echoed back is rejected", ins.translation_problem(english, english))
+    prompt = ins._TRANSLATION_SYSTEM_PROMPT
+    check("don't convert them to\n   Myanmar digits" in prompt or "don't convert them to Myanmar digits" in prompt.replace("\n   ", " "),
+          "translation prompt: figures and currency signs are copied as written")
+
+
 SECTIONS = {"chat": section_chat, "insights": section_insights, "budgets": section_budgets,
             "extraction": section_extraction, "extraction_prompts": section_extraction_prompts,
-            "budget_prompts": section_budget_prompts}
+            "budget_prompts": section_budget_prompts, "insight_prompts": section_insight_prompts}
 
 
 def main():

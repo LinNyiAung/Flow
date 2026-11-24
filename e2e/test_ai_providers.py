@@ -3699,7 +3699,8 @@ async def _insight_inprocess_checks(uid):
                   runs)
         runner.run = orig_run
 
-        # prompts and token limits per answering provider (temperature 0.7 as before; never sent to Claude)
+        # prompts and token limits per answering provider (temperature 0.4, lowered from 0.7 by the AI audit: a report
+        # of the user's figures needs consistency; never sent to Claude)
         for feature, gen, limits in (("insight_weekly", ins.generate_weekly_insight, {"openai": 2500, "gemini": 8192, "claude": 12000}),
                                      ("insight_monthly", ins.generate_monthly_insight, {"openai": 3000, "gemini": 8192, "claude": 12000})):
             for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
@@ -3712,7 +3713,7 @@ async def _insight_inprocess_checks(uid):
                     got = (kw["config"].max_output_tokens, kw["config"].temperature, (kw["config"].system_instruction or "")[:40])
                 else:
                     got = (kw.get("max_tokens"), kw.get("temperature", "absent"), (kw.get("system") or "")[:40])
-                want_temp = "absent" if provider == "claude" else 0.7
+                want_temp = "absent" if provider == "claude" else 0.4
                 persona = "You are Ko Toe Pwar"  # F9: weekly too (was "Flow Finance AI", then "Toe Pwar AI")
                 check(row and row["ai_provider"] == provider and got[0] == limits[provider] and got[1] == want_temp
                       and got[2].startswith(persona) and kw.get("model") == model,
@@ -3791,7 +3792,7 @@ async def _insight_inprocess_checks(uid):
         except Exception as e:  # noqa: BLE001
             mm, err = "", e
         called = [x.get("provider") for x in _outbox_ai_calls(before)]
-        check(err is None and called == ["claude", "claude", "openai"] and mm == stubenv.FAKE_REPLY,
+        check(err is None and called == ["claude", "claude", "openai"] and mm.count("Fake answer") == 1,
               "translation: a chunk still cut off moves to the backup, which answers the whole text alone",
               (called, repr(err), mm[:80]))
         rows = await new_usage(seen)

@@ -444,8 +444,14 @@ async def run(t):
                 r, calls = calls_of(lambda: get(th, "weekly", language="mm"))
             finally:
                 reset_ai()
-            check(r.status_code == 503 and calls and used(tid, "insight_translation") == 0,
-                  "translation_counted: a translation that fails gives its use back", f"{r.status_code} {r.text[:120]} used={used(tid, 'insight_translation')}")
+            # A failed translation no longer fails the page (AI audit): the English insight comes back with a
+            # translation_failed note, and the use is given back.
+            body = r.json() if r.status_code == 200 else {}
+            check(r.status_code == 200 and calls and used(tid, "insight_translation") == 0 and not body.get("content_mm")
+                  and (body.get("translation_unavailable") or {}).get("code") == "translation_failed"
+                  and (body.get("translation_unavailable") or {}).get("message"),
+                  "translation_counted: a translation that fails gives its use back, and the English insight is shown "
+                  "with a translation_failed note", f"{r.status_code} {r.text[:160]} used={used(tid, 'insight_translation')}")
             r, calls = calls_of(lambda: get(th, "weekly", language="mm"))
             check(r.status_code == 200 and r.json().get("content_mm") and len(calls) == 1 and used(tid, "insight_translation") == 1,
                   "translation_counted: a successful translation is counted", f"{r.status_code} {r.text[:120]} used={used(tid, 'insight_translation')}")
