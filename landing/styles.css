@@ -76,6 +76,9 @@ a{color:#0B6B54}a:hover{color:#095A47}
 @media (max-width:359px){.tp header .btn-fill,.tp .lang-btn{font-size:13px !important}.tp .lang-btn{padding:0 8px !important}}
 
 /* ---- Ko Toe Pwar, the mascot (SVG <img>s; assets/mascot/) ---- */
+/* each <img> sits in a <picture> (the still pose for "reduce motion"): the picture adds no box, so the rules below
+   style the img exactly as before */
+.tp picture{display:contents}
 /* hero: at the phone's lower left, overlapping it a little */
 .tp .hero-mascot{position:absolute;left:-64px;bottom:16px;z-index:3;width:auto;height:clamp(130px, 3vw + 120px, 164px);pointer-events:none;filter:drop-shadow(0 10px 12px rgba(16,24,21,0.16))}
 /* phones: smaller, in room made under the phone, so he covers neither the buttons nor the phone's screen */
