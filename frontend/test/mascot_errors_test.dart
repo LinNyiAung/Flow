@@ -21,8 +21,9 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _NoBudgets extends BudgetProvider {
-  _NoBudgets({this.suggestionError});
+  _NoBudgets({this.suggestionError, this.suggestion});
   final String? suggestionError;
+  final AIBudgetSuggestion? suggestion;
   @override
   List<Budget> get budgets => const [];
   @override
@@ -43,8 +44,26 @@ class _NoBudgets extends BudgetProvider {
     String? userContext,
     required Currency currency,
   }) async =>
-      null;
+      suggestion;
 }
+
+AIBudgetSuggestion _suggestionResult({required bool usedAi}) => AIBudgetSuggestion.fromJson({
+      'suggested_name': 'Monthly Budget - Nov 2026',
+      'period': 'monthly',
+      'start_date': '2026-11-01',
+      'end_date': '2026-11-30',
+      'category_budgets': [
+        {'main_category': 'Food & Daily Living', 'sub_category': null, 'allocated_amount': 300000.0,
+         'spent_amount': 0.0, 'percentage_used': 0.0, 'is_exceeded': false},
+      ],
+      'total_budget': 300000.0,
+      'reasoning': 'Food is your biggest spending.',
+      'data_confidence': 0.6,
+      'warnings': <String>[],
+      'analysis_summary': <String, dynamic>{},
+      'currency': 'mmk',
+      'used_ai': usedAi,
+    });
 
 class _NoGoals extends GoalProvider {
   @override
@@ -159,6 +178,19 @@ void main() {
       _expectAbove(tester, MascotPose.oopsSad, en.failedToGenerateSuggestion);
       expect(find.text(en.tryAgain), findsOneWidget);
       expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
+    });
+
+    testWidgets('budget suggestion from the rules (no AI): not presented as Ko Toe Pwar\'s analysis', (tester) async {
+      await _pump(tester, _suggestion(), budgets: _NoBudgets(suggestion: _suggestionResult(usedAi: false)));
+      expect(find.text(en.budgetRulesAnalysis), findsOneWidget);
+      expect(find.text(en.aiAnalysis), findsNothing);
+      expect(find.text('Food is your biggest spending.'), findsOneWidget);
+    });
+
+    testWidgets('budget suggestion from the AI: Ko Toe Pwar\'s analysis', (tester) async {
+      await _pump(tester, _suggestion(), budgets: _NoBudgets(suggestion: _suggestionResult(usedAi: true)));
+      expect(find.text(en.aiAnalysis), findsOneWidget);
+      expect(find.text(en.budgetRulesAnalysis), findsNothing);
     });
 
     testWidgets('budget suggestion, no connection: offline_sad', (tester) async {

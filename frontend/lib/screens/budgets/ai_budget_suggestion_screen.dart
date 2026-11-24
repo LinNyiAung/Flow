@@ -463,9 +463,14 @@ class _AIBudgetSuggestionScreenState extends State<AIBudgetSuggestionScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.psychology_rounded, color: scheme.primary),
+                  // Rule-based suggestions (too little data, or no AI could answer) aren't Ko Toe Pwar's analysis.
+                  Icon(_suggestion!.usedAi ? Icons.psychology_rounded : Icons.history_rounded, color: scheme.primary),
                   const SizedBox(width: 8),
-                  Text(localizations.aiAnalysis, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                  // Expanded: a long heading (Myanmar's) wraps on a narrow phone instead of overflowing the row.
+                  Expanded(
+                    child: Text(_suggestion!.usedAi ? localizations.aiAnalysis : localizations.budgetRulesAnalysis,
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                  ),
                 ],
               ),
               const SizedBox(height: 10),

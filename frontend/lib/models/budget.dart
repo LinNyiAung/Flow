@@ -259,6 +259,10 @@ class AIBudgetSuggestion {
   final Map<String, dynamic> analysisSummary;
   final Currency currency;  // NEW
 
+  /// False for the app's rule-based suggestions (too little data, or no AI could answer): they must not be shown as
+  /// Ko Toe Pwar's analysis. An older server that doesn't send it means the AI's.
+  final bool usedAi;
+
   AIBudgetSuggestion({
     required this.suggestedName,
     required this.period,
@@ -271,6 +275,7 @@ class AIBudgetSuggestion {
     required this.warnings,
     required this.analysisSummary,
     required this.currency,  // NEW
+    this.usedAi = true,
   });
 
   factory AIBudgetSuggestion.fromJson(Map<String, dynamic> json) {
@@ -288,6 +293,7 @@ class AIBudgetSuggestion {
       warnings: List<String>.from(json['warnings']),
       analysisSummary: json['analysis_summary'],
       currency: Currency.fromString(json['currency'] ?? 'usd'),  // NEW with fallback
+      usedAi: json['used_ai'] as bool? ?? true,
     );
   }
 }

@@ -147,6 +147,9 @@ class AIBudgetSuggestion(BaseModel):
     warnings: List[str]
     analysis_summary: Dict[str, Any]
     currency: Currency  # NEW
+    # True when the AI answered; False for the rule-based suggestions that replace it (too little data, or no AI
+    # could answer), which the app must not present as the AI's analysis.
+    used_ai: bool = False
     
     
 class CurrencyBudgetSummary(BaseModel):

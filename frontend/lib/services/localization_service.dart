@@ -454,6 +454,7 @@ class AppLocalizations {
       'suggestedBudgetPlan': 'Suggested Budget Plan',
       'name': 'Name',
       'aiAnalysis': 'Ko Toe Pwar\'s analysis',
+      'budgetRulesAnalysis': 'Based on your past spending',
       'useThisBudget': 'Use This Budget',
 
 
@@ -1755,6 +1756,7 @@ class AppLocalizations {
       'suggestedBudgetPlan': 'အကြံပြုထားသော ဘတ်ဂျက် အစီအစဉ်',
       'name': 'အမည်',
       'aiAnalysis': 'ကိုတိုးပွား၏ ခွဲခြမ်းစိတ်ဖြာချက်',
+      'budgetRulesAnalysis': 'သင်၏ ယခင်အသုံးစရိတ်များအပေါ် အခြေခံထားသည်',
       'useThisBudget': 'အသုံးပြုရန်',
 
       //ai chat screen
@@ -3080,6 +3082,7 @@ class AppLocalizations {
   String get suggestedBudgetPlan => translate('suggestedBudgetPlan');
   String get name => translate('name');
   String get aiAnalysis => translate('aiAnalysis');
+  String get budgetRulesAnalysis => translate('budgetRulesAnalysis');
   String get useThisBudget => translate('useThisBudget');
 
 

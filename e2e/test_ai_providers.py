@@ -4061,8 +4061,9 @@ async def _budget_inprocess_checks(uid):
         item = schema["properties"]["categories"]["items"]
         check(schema.get("additionalProperties") is False and item.get("additionalProperties") is False
               and set(schema["required"]) == {"categories", "reasoning"}
-              and set(item["required"]) == {"main_category", "allocated_amount", "spent_amount", "percentage_used", "is_exceeded"},
-              "budget schema: explicit required lists and additionalProperties false", schema)
+              and set(item["required"]) == {"main_category", "allocated_amount"},
+              "budget schema: explicit required lists and additionalProperties false (only what the model decides: "
+              "no spend, percentage or exceeded flag to make up)", schema)
         for feature in ("budget_suggestion", "budget_auto_create"):
             for provider, model in (("openai", "gpt-4o-mini"), ("gemini", "gemini-2.5-flash"), ("claude", "claude-sonnet-5-5")):
                 use(feature, provider, model)
