@@ -41,6 +41,10 @@ _background_tasks: set = set()
 
 _CURRENCY_SYMBOLS = {"usd": "$", "mmk": "K", "thb": "฿"}
 
+# Spending averages cover at least this many days (BudgetAnalyzer.analyze_spending_patterns), so a few days of entries
+# aren't stretched into a month.
+MIN_COVERED_DAYS = 14
+
 # Monthly fallback budgets for users with too little history for analysis. Keys are
 # default outflow main categories (see database.py); amounts are set per currency as
 # rough local starting points the user is expected to adjust.
@@ -187,8 +191,13 @@ class BudgetAnalyzer:
 
     # [FIX] Changed to async def
     async def analyze_spending_patterns(self, months: int = 3, currency: str = "usd") -> Dict:
-        """Analyze user's spending patterns over the last N months for specific currency"""
-        cutoff_date = local_now(await book_zone(self.book_id)) - timedelta(days=months * 30)
+        """Analyze user's spending patterns over the last N months for specific currency.
+
+        Monthly averages are over the days the book's entries actually cover in that window (from its first income or
+        spending entry in `currency`, at least MIN_COVERED_DAYS): a book that started 3 weeks ago is not averaged as if
+        it had 3 months of entries."""
+        now = local_now(await book_zone(self.book_id))
+        cutoff_date = now - timedelta(days=months * 30)
 
         transactions = await transactions_db.find_transactions(
             self.book_id, type_="outflow", currency=currency, date_from=cutoff_date, include_transfers=False
@@ -200,6 +209,15 @@ class BudgetAnalyzer:
                 "transaction_count": len(transactions),
                 "message": f"Only {len(transactions)} transactions found. Need at least 10 for accurate analysis."
             }
+
+        # The days the entries cover: from the first income or spending entry in this currency (transfers aside), within
+        # the window. At least MIN_COVERED_DAYS, so a few days of entries aren't stretched into a month.
+        window_days = months * 30
+        first = next((r["min_date"] for r in await transactions_db.currency_totals(self.book_id, currency=currency)
+                      if r["min_date"] is not None), None)
+        first_day = max(as_calendar_date(first), cutoff_date.date()) if first else cutoff_date.date()
+        covered_days = min(max((now.date() - first_day).days + 1, MIN_COVERED_DAYS), window_days)
+        covered_months = covered_days / 30
 
         # Group by category
         category_data = defaultdict(lambda: {"amounts": [], "total": 0, "count": 0})
@@ -219,7 +237,7 @@ class BudgetAnalyzer:
                 "total_spent": data["total"],
                 "transaction_count": data["count"],
                 "average_per_transaction": data["total"] / data["count"],
-                "monthly_average": data["total"] / months,
+                "monthly_average": data["total"] / covered_months,
                 "min_transaction": min(amounts),
                 "max_transaction": max(amounts),
                 "std_deviation": statistics.stdev(amounts) if len(amounts) > 1 else 0,
@@ -231,7 +249,7 @@ class BudgetAnalyzer:
         )
 
         total_income = sum(t["amount"] for t in income_transactions)
-        monthly_income = total_income / months if income_transactions else 0
+        monthly_income = total_income / covered_months if income_transactions else 0
 
         # [FIX] Async find for goals
         goals = await goals_db.list_goals(self.book_id, status="active", currency=currency)
@@ -242,7 +260,9 @@ class BudgetAnalyzer:
         return {
             "sufficient_data": True,
             "transaction_count": len(transactions),
-            "analysis_period_months": months,
+            "analysis_period_months": round(covered_months, 1),
+            "covered_days": covered_days,
+            "window_days": window_days,
             "categories": category_stats,
             "income": {
                 "total": total_income,
@@ -1330,9 +1350,13 @@ async def _ai_category_budgets(
     # The budget_auto_create provider chain; if it gives no usable answer (none configured, all failing,
     # nothing valid in the answer) or anything else goes wrong, the non-AI adjusted budgets are used.
     try:
-        # [Context and Prompt building logic remains identical]
+        code = (parent_budget.get("currency") or "usd").upper()
+        parent_days = (as_calendar_date(parent_end) - as_calendar_date(parent_start)).days + 1
+        places = 0 if code == "MMK" else 2
         context = {
+            "currency": code,
             "period_type": period.value,
+            "previous_period_days": parent_days,
             "days_in_period": days_in_period,
             # Each line as the one "Main" / "Main - Sub" text the prompt asks the AI to answer in
             "parent_budget_categories": [
@@ -1347,11 +1371,14 @@ async def _ai_category_budgets(
 
         system_prompt = f"""You are a financial budgeting expert. Analyze the previous budget performance and suggest improved budgets for the next period.
 
-PREVIOUS BUDGET PERFORMANCE:
-- Period: {period.value} ({days_in_period} days)
-- Total Allocated: ${parent_budget['total_budget']:.2f}
-- Total Spent: ${parent_budget['total_spent']:.2f}
+PREVIOUS BUDGET PERFORMANCE (every amount in {code}):
+- Previous period: {parent_days} days; the next period: {period.value}, {days_in_period} days
+- Total Allocated: {parent_budget['total_budget']:,.{places}f} {code}
+- Total Spent: {parent_budget['total_spent']:,.{places}f} {code}
 - Utilization: {parent_budget['percentage_used']:.1f}%
+
+Keep every allocated_amount in {code}{" and in whole kyat (no decimals)" if code == "MMK" else ""}. Budget only the
+categories the previous budget had.
 
 AVAILABLE CATEGORIES WITH SUB-CATEGORIES:
 {categories_list}
@@ -1404,11 +1431,59 @@ REMEMBER: Only use categories/sub-categories from the AVAILABLE CATEGORIES list 
             f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
             + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
         )
-        return result.value["categories"], True
+        return _guard_auto_budget(result.value["categories"], parent_budget, days_in_period), True
 
     except Exception as e:
         print(f"Error generating AI budgets: {e}")
         return _generate_adjusted_budgets(parent_budget, days_in_period), False
+
+
+# How far an auto-created line may move from what its line in the previous budget had or spent (whichever is more).
+AUTO_BUDGET_MIN_FACTOR, AUTO_BUDGET_MAX_FACTOR = 0.5, 2.0
+
+
+def _round_amount(amount: float, currency: Optional[str]) -> float:
+    """MMK in whole kyat, other currencies to the cent."""
+    return float(round(amount)) if (currency or "").lower() == "mmk" else round(amount, 2)
+
+
+def _guard_auto_budget(ai_lines: List[CategoryBudget], parent_budget: Dict, days_in_period: int) -> List[CategoryBudget]:
+    """The AI's auto-created lines, made safe to save without anyone reviewing them (the rollover runs unattended):
+
+    - exactly the previous budget's lines, in its order: a line the AI added is dropped, one it left out (or set to 0
+      or less) gets the non-AI adjustment (_generate_adjusted_budgets);
+    - each amount between AUTO_BUDGET_MIN_FACTOR and AUTO_BUDGET_MAX_FACTOR times what its line had or spent,
+      whichever is more (a line that had and spent nothing keeps the AI's amount);
+    - in the budget's currency's precision (MMK in whole kyat);
+    - a main category line at least its sub-category lines combined."""
+    currency = parent_budget.get("currency")
+    fallback = {allocation_key(line.model_dump()): line.allocated_amount
+                for line in _generate_adjusted_budgets(parent_budget, days_in_period)}
+    suggested = {allocation_key(line.model_dump()): line.allocated_amount for line in ai_lines}
+
+    amounts: Dict[Tuple[str, Optional[str]], float] = {}
+    for cat in parent_budget["category_budgets"]:
+        key = allocation_key(cat)
+        if key in amounts:  # a repeated parent line: the first one stands
+            continue
+        bound = max(cat.get("allocated_amount") or 0, cat.get("spent_amount") or 0)
+        amount = suggested.get(key, 0)
+        if amount <= 0:
+            amount = fallback.get(key, cat.get("allocated_amount") or 0)
+        elif bound > 0:
+            amount = min(max(amount, bound * AUTO_BUDGET_MIN_FACTOR), bound * AUTO_BUDGET_MAX_FACTOR)
+        amounts[key] = _round_amount(amount, currency)
+
+    for (main, sub) in list(amounts):
+        if sub is None:
+            subs = sum(v for (m, s), v in amounts.items() if m == main and s is not None)
+            amounts[(main, None)] = max(amounts[(main, None)], subs)
+
+    dropped = [allocation_label({"main_category": m, "sub_category": s}) for (m, s) in suggested if (m, s) not in amounts]
+    if dropped:
+        logger.info(f"Auto-create: dropped AI lines the previous budget didn't have: {dropped}")
+    return [CategoryBudget(main_category=main, sub_category=sub, allocated_amount=amount, spent_amount=0,
+                           percentage_used=0, is_exceeded=False) for (main, sub), amount in amounts.items()]
 
 
 def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List[CategoryBudget]:
@@ -1441,7 +1516,7 @@ def _generate_adjusted_budgets(parent_budget: Dict, days_in_period: int) -> List
         adjusted_budgets.append(CategoryBudget(
             main_category=main,
             sub_category=sub,
-            allocated_amount=round(new_amount, 2),
+            allocated_amount=_round_amount(new_amount, parent_budget.get("currency")),
             spent_amount=0,
             percentage_used=0,
             is_exceeded=False
