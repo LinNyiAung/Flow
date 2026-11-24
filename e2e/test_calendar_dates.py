@@ -1205,6 +1205,22 @@ def section_family_jobs():
         def ending(p):
             return db.sql("SELECT message FROM notifications WHERE user_id = %s AND type = 'budget_ending_soon' "
                           "AND budget_id = %s", p["id"], last_day)
+        # and one that repeats: the owner's 00:30 rollover (01:00 before the member's 09:05) has already made its next
+        # period, which starts on the member's tomorrow
+        rolled = _finished_budget(book, last, "lastday-rolled")
+
+        async def owners_rollover():
+            import budget_service
+            stubenv.patch_loaded_modules()
+            return await budget_service.budget_rollovers_for_book(book, day, YANGON)
+        _backend_async(owners_rollover)
+        child = _one("SELECT id, start_date FROM budgets WHERE parent_budget_id = %s", rolled)
+        check(child.get("start_date") == day,
+              f"family_jobs: the owner's rollover on {day} made the repeating budget's next period, from {day}", child)
+
+        def ending_of(p, budget_id):
+            return db.sql("SELECT message FROM notifications WHERE user_id = %s AND type = 'budget_ending_soon' "
+                          "AND budget_id = %s", p["id"], budget_id)
         at2 = _at(last, 9, 5, honolulu)
         _ticks([at2], people={member["id"]})
         notes = ending(member)
@@ -1213,6 +1229,12 @@ def section_family_jobs():
               f"family_jobs: the Honolulu member gets 'ends today' at their 09:05 on {last}, the budget's last day, "
               f"though on the Yangon owner's clock it is already {day} and the budget is over; the owner gets nothing",
               (notes, ending(owner)))
+        notes = ending_of(member, rolled)
+        check(len(notes) == 1 and "ends today" in notes[0]["message"] and not ending_of(member, child.get("id"))
+              and not ending_of(owner, rolled),
+              f"family_jobs: a repeating budget already rolled over on the owner's clock still gets the Honolulu "
+              f"member's 'ends today' on {last}; its next period (from the member's tomorrow) sends nothing",
+              (notes, ending_of(member, child.get("id"))))
 
         # ---- ownership passes west (Yangon -> Kolkata): the book's 00:30 rollover still runs once per local date
         kolkata = ZoneInfo("Asia/Kolkata")  # UTC+5:30, an hour behind Yangon
