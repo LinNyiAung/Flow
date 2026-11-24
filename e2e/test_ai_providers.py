@@ -1457,8 +1457,10 @@ async def client_checks():
     check(r.text == "fake transcript" and r.input_tokens == r.output_tokens == len("fake transcript") // 4
           and k["language"] == "en" and k["model"] == "whisper-1" and k["file"] == ("a.wav", b"RIFFxxxx"),
           "openai_transcribe: whisper-1 with language, tokens estimated len//4", (r, k))
-    check(r.audio_seconds == stubenv.FAKE_AUDIO_SECONDS and r.estimated is False and "response_format" not in k,
-          "openai_transcribe: the audio length comes from usage (type 'duration', seconds); no verbose_json needed",
+    # (AI audit, group 3: whisper is asked for verbose_json, whose segments' no_speech_prob tell silence from speech)
+    check(r.audio_seconds == stubenv.FAKE_AUDIO_SECONDS and r.estimated is False
+          and k.get("response_format") == "verbose_json",
+          "openai_transcribe: the audio length comes from usage (type 'duration', seconds); whisper asks for verbose_json",
           (r.audio_seconds, r.estimated, k))
     r = await get_client("openai").transcribe("gpt-4o-mini-transcribe", b"x", "a.wav", None)
     check(r.text == "fake transcript" and r.audio_seconds is None and r.estimated is False

@@ -15,8 +15,9 @@ import httpx
 
 BASE = "http://127.0.0.1:8765"
 PROVIDERS = ("openai", "gemini", "claude")
+# (AI audit, group 3: period_start / period_end / is_period_to_date say which days the report covers)
 RESPONSE_KEYS = {"id", "book_id", "content", "content_mm", "generated_at", "expires_at", "translation_locked",
-                 "translation_unavailable", "next_insight_at"}
+                 "translation_unavailable", "next_insight_at", "period_start", "period_end", "is_period_to_date"}
 MYANMAR = re.compile("[က-႟]")
 
 
