@@ -771,6 +771,86 @@ def section_live_fixes():
     s = bs.BudgetAnalyzer("no-book")._generate_basic_suggestions({"sufficient_data": False}, 30, None, "mmk")
     check(all(float(c.allocated_amount).is_integer() for c in s["categories"]),
           "live fixes: ... the defaults for a new user too", [c.allocated_amount for c in s["categories"]])
+    _reasoning_checks()
+
+
+def _reasoning_checks():
+    """Budget ideas: the live test's English explanation said "The total budget is 100,512 MMK" for lines adding up to
+    86,512. An explanation quoting an amount that isn't in the data or the idea is replaced by a plain one."""
+    import budget_service as bs
+    from budget_models import BudgetPeriod, CategoryBudget
+    from notification_service import translate
+    today = date(2026, 11, 25)
+    lines = [CategoryBudget(main_category=FOOD, sub_category=GROCERIES, allocated_amount=49884),
+             CategoryBudget(main_category=FOOD, sub_category="Restaurants", allocated_amount=13605),
+             CategoryBudget(main_category=TRANSPORT, sub_category="Taxi", allocated_amount=8023),
+             CategoryBudget(main_category=FUN, sub_category=None, allocated_amount=12000),
+             CategoryBudget(main_category="Education & Self-Improvement", sub_category="Books", allocated_amount=3000)]
+    context = {"days_in_period": 30, "monthly_income": 558139.53, "monthly_expenses": 92310.4,
+               "spending_analysis": {FOOD: {"monthly_average": 63211.87, "sub_categories": {GROCERIES: {"total_spent": 149652}}}}}
+    plain_en, plain_my = translate("budget_reasoning_plain_msg", "en"), translate("budget_reasoning_plain_msg", "my")
+    check(plain_en != "budget_reasoning_plain_msg" and plain_my != plain_en,
+          "budget explanation: the plain text exists in English and Myanmar", (plain_en, plain_my))
+    live = ("For 'Food & Daily Living', I allocated 49884 MMK for Groceries and 13605 MMK for Restaurants. Taxi is "
+            "budgeted at 8023 MMK. The total budget is 100,512 MMK, which is below 80% of the monthly income of "
+            "558139 MMK, ensuring room for savings.")
+    got = bs.checked_reasoning(live, lines, context, "en", today)
+    check(got == plain_en, "budget explanation: the live test's wrong total (100,512 for lines adding up to 86,512) "
+                           "gets the plain text instead", got)
+    good = ("Groceries gets 49,884 MMK and Restaurants 13,605 MMK, from your average of 63,212 a month in food. The "
+            "total, 86,512 MMK, stays under 80% of your income (558,140 MMK; 80% is 446,512), spent over 30 days in 2026.")
+    got = bs.checked_reasoning(good, lines, context, "en", today)
+    check(got == good, "budget explanation: line amounts, their right total, figures from the data (rounded), 80% of "
+                       "the income and the year are all kept", got)
+    my = "စားသောက်ကုန်အတွက် ၄၉,၈၈၄ ကျပ် ထားပါသည်။ စုစုပေါင်း ၁၀၀,၅၁၂ ကျပ် ဖြစ်ပါသည်။"
+    got = bs.checked_reasoning(my, lines, context, "my", today)
+    check(got == plain_my, "budget explanation: a wrong total in Myanmar digits (၁၀၀,၅၁၂) gets the Myanmar plain text", got)
+    ok_my = "စားသောက်ကုန်အတွက် ၄၉,၈၈၄ ကျပ် ထားပါသည်။"
+    check(bs.checked_reasoning(ok_my, lines, context, "my", today) == ok_my,
+          "budget explanation: ... a right amount in Myanmar digits is kept")
+    noted = "Total 999,999 MMK." + bs.EXCLUDED_CATEGORIES_NOTE
+    got = bs.checked_reasoning(noted, lines, context, "en", today)
+    check(got == plain_en + bs.EXCLUDED_CATEGORIES_NOTE,
+          "budget explanation: the note about excluded categories stays when the text is replaced", got)
+    system = bs.suggestion_system_prompt("- Food & Daily Living: [Groceries]", 30, "mmk", True, "English")
+    check("Don't add amounts up or state a total in the reasoning" in system,
+          "budget prompts: the model is told not to add amounts up or state a total (the app shows it)")
+
+    # Through a whole suggestion: the AI answers with the live test's wrong total (its call replaced in-process).
+    import json as _json
+    from types import SimpleNamespace
+    c, made = _client(), []
+    try:
+        now = _today()
+        p = _person(c, made, "Reasoning")
+        for i in range(16):
+            _entry(c, p, now - timedelta(days=i * 2), 10000)
+        answer = {"categories": [{"main_category": f"{FOOD} - {GROCERIES}", "allocated_amount": 80000}],
+                  "reasoning": "Groceries gets 80,000 MMK. The total budget is 100,512 MMK."}
+
+        async def go():
+            stubenv.patch_loaded_modules()
+
+            async def answer_run(feature, *, call=None, parse=None, **k):
+                value = parse(SimpleNamespace(text=_json.dumps(answer)))
+                return SimpleNamespace(value=value, completion=SimpleNamespace(input_tokens=1, output_tokens=1),
+                                       target=SimpleNamespace(provider="fake", model="fake"), fallback_from=None)
+            saved = bs._runner.run
+            bs._runner.run = answer_run
+            try:
+                s = await bs.BudgetAnalyzer(p["book"], language="my").generate_ai_suggestions(
+                    BudgetPeriod.MONTHLY, now, None, 3, None, None, "mmk")
+                return s.used_ai, s.reasoning, [x.allocated_amount for x in s.category_budgets]
+            except Exception as e:  # noqa: BLE001
+                return repr(e)
+            finally:
+                bs._runner.run = saved
+        got = _backend_async(go)
+        check(isinstance(got, tuple) and got[0] is True and got[1] == plain_my and got[2] == [80000],
+              "budget explanation: a suggestion whose AI explanation states a made-up total keeps the AI's amounts "
+              "and shows the plain text in the user's language", got)
+    finally:
+        _cleanup(made)
 
 
 SECTIONS = {"live_fixes": section_live_fixes, "chat": section_chat, "insights": section_insights, "budgets": section_budgets,

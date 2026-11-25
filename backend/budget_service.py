@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
@@ -169,9 +170,66 @@ def _parse_budget_answer(categories_structure: List[Dict]):
         if not valid:
             raise UnusableAnswer("budget answer has no valid category")
         if len(valid) < len(result["categories"]):
-            reasoning += "\n\nNote: Some suggested categories were not available in your system and were excluded."
+            reasoning += EXCLUDED_CATEGORIES_NOTE
         return {"categories": valid, "reasoning": reasoning}
     return parse
+
+
+EXCLUDED_CATEGORIES_NOTE = "\n\nNote: Some suggested categories were not available in your system and were excluded."
+
+# A figure in the reasoning below this is a percentage, a day count or a small count, not an amount to check.
+_REASONING_FIGURE_MIN = 100
+_MYANMAR_DIGITS = str.maketrans("၀၁၂၃၄၅၆၇၈၉", "0123456789")
+_FIGURE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers_in(value) -> List[float]:
+    """Every number in a JSON-like value (the data handed to the model), nested anywhere."""
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    if isinstance(value, dict):
+        return [n for v in value.values() for n in _numbers_in(v)]
+    if isinstance(value, (list, tuple)):
+        return [n for v in value for n in _numbers_in(v)]
+    return []
+
+
+def _unknown_figures(reasoning: str, lines: List[CategoryBudget], context: Dict, today: date) -> List[float]:
+    """The amounts quoted in a budget suggestion's reasoning that are neither in the data the model was given, nor
+    one of its lines, nor their sum, nor 80% of the income (the prompt's savings rule). Myanmar digits are read too;
+    small numbers (percentages, days) and this year or last year are skipped. A figure matches within 1% (the model
+    rounds). The live test of 2026-11-25 found "The total budget is 100,512 MMK" for lines adding up to 86,512."""
+    amounts = [float(x.allocated_amount) for x in lines]
+    known = _numbers_in(context) + amounts + [sum(amounts)]
+    income = context.get("monthly_income") or 0
+    if income:
+        known.append(0.8 * float(income))
+    years = {today.year, today.year - 1}
+    unknown = []
+    for text in _FIGURE.findall(reasoning.translate(_MYANMAR_DIGITS)):
+        n = float(text.replace(",", ""))
+        if n < _REASONING_FIGURE_MIN or (n.is_integer() and int(n) in years):
+            continue
+        if not any(abs(n - k) <= max(1.0, 0.01 * abs(k)) for k in known):
+            unknown.append(n)
+    return unknown
+
+
+def checked_reasoning(reasoning: str, lines: List[CategoryBudget], context: Dict, language: str,
+                      today: date) -> str:
+    """The model's reasoning, or a plain one (budget_reasoning_plain_msg) when it quotes an amount that isn't in the
+    data or the suggestion (the amounts and the app's total are right; only the model's own sum was wrong). The note
+    about excluded categories is kept."""
+    note = EXCLUDED_CATEGORIES_NOTE if reasoning.endswith(EXCLUDED_CATEGORIES_NOTE) else ""
+    body = reasoning[:len(reasoning) - len(note)]
+    unknown = _unknown_figures(body, lines, context, today)
+    if not unknown:
+        return reasoning
+    logger.warning(f"Budget suggestion: the reasoning quoted amounts not in the data or the suggestion {unknown}; "
+                   f"replaced with the plain text")
+    return translate("budget_reasoning_plain_msg", language) + note
 
 
 # The user's own note on a suggestion request ("I'm saving for a trip"): at most this many characters reach the model.
@@ -205,7 +263,8 @@ RULES:
 5. Base every amount on the spending in the data, scaled to the {days_in_period}-day period; add 10-15% to a
    category whose spending varies a lot ("variability": "high").
 6. Use only numbers from the data. Never make up spending figures, and don't quote a number in the reasoning that
-   isn't in the data or your own suggestion.
+   isn't in the data or your own suggestion. Don't add amounts up or state a total in the reasoning: the app shows
+   the total itself.
 7. Take the user's active goals into account, and put essential spending first.
 {income_rules}
 9. Write "reasoning" in {language}: a short explanation of the main choices, referring to the user's own spending.
@@ -556,7 +615,10 @@ class BudgetAnalyzer:
             f"in={c.input_tokens:,} out={c.output_tokens:,} total={c.input_tokens + c.output_tokens:,} | model={t.model}"
             + (f" | fallback from {result.fallback_from}" if result.fallback_from else "")
         )
-        return {**result.value,
+        # Only the year matters there (a year quoted in the reasoning isn't an amount), so UTC's date will do.
+        reasoning = checked_reasoning(result.value["reasoning"], result.value["categories"], context, self.language,
+                                      datetime.now(timezone.utc).date())
+        return {"reasoning": reasoning,
                 "categories": _subs_with_spending(result.value["categories"], analysis, include_categories)}
 
     def _generate_basic_suggestions(

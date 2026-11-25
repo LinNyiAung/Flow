@@ -118,6 +118,8 @@ NOTIFICATION_TRANSLATIONS = {
         "chat_unavailable_msg": "Ko Toe Pwar can't answer right now. Please try again in a moment.",
         "budget_ai_unavailable_msg": "Ko Toe Pwar can't suggest a budget right now. Please try again in a moment.",
         "budget_ai_rules_fallback_msg": "Ko Toe Pwar can't answer right now, so these suggestions use simple rules instead.",
+        # The budget idea's explanation quoted an amount that isn't in the data or the idea: this replaces it.
+        "budget_reasoning_plain_msg": "These amounts follow your own spending in each category, scaled to this budget's period.",
         "insight_translation_failed_msg": "The Myanmar translation isn't available right now, so this report is in English. Try again later.",
         "chat_no_data_msg": "I don't have any of your financial data yet. Add some transactions, goals or budgets first, and I can help!",
         "chat_cut_off_note": "(This answer was cut short. Ask me to continue, or ask a narrower question.)",
@@ -241,6 +243,7 @@ NOTIFICATION_TRANSLATIONS = {
         "chat_unavailable_msg": "ကိုတိုးပွား ယခု မဖြေနိုင်သေးပါ။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။",
         "budget_ai_unavailable_msg": "ကိုတိုးပွား ယခု ဘတ်ဂျက် အကြံပြု၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်ကြိုးစားပါ။",
         "budget_ai_rules_fallback_msg": "ကိုတိုးပွား ယခု မဖြေနိုင်သေးသဖြင့် ဤအကြံပြုချက်များကို ရိုးရှင်းသော စည်းမျဉ်းများဖြင့် တွက်ထားပါသည်။",
+        "budget_reasoning_plain_msg": "ဤပမာဏများသည် အမျိုးအစားတစ်ခုချင်းစီတွင် သင်၏ သုံးစွဲမှုကို အခြေခံပြီး ဤဘတ်ဂျက်ကာလအတွက် တွက်ထားခြင်း ဖြစ်ပါသည်။",
         "insight_translation_failed_msg": "မြန်မာဘာသာပြန်ကို ယခု မရနိုင်သေးသဖြင့် ဤအစီရင်ခံစာကို အင်္ဂလိပ်ဘာသာဖြင့် ပြထားပါသည်။ နောက်မှ ထပ်ကြိုးစားပါ။",
         "chat_no_data_msg": "သင့်ငွေကြေးအချက်အလက် မရှိသေးပါ။ ငွေဝင်ငွေထွက်၊ ရည်မှန်းချက် သို့မဟုတ် ဘတ်ဂျက် အရင်ထည့်ပါ၊ ပြီးရင် ကူညီပေးနိုင်ပါတယ်။",
         "chat_cut_off_note": "(ဤအဖြေ တိုသွားပါသည်။ ဆက်ပြောရန် တောင်းဆိုပါ သို့မဟုတ် ပိုတိကျသော မေးခွန်း မေးပါ။)",
