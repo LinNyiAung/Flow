@@ -5,11 +5,12 @@ import {
   AlertCircle, Crown, Zap, Eye, Trash2, RefreshCw, Calendar,
   DollarSign, Target, Send, Menu, X, Settings, Lock, User, MessageSquare,
   Smartphone, Plus, Edit2, ToggleLeft, ToggleRight, Download, CheckCircle,
-  AlertTriangle, Globe, Apple, ExternalLink, Bot, Layers, ArrowUpCircle
+  AlertTriangle, Globe, Apple, ExternalLink, Bot, Layers, ArrowUpCircle, SlidersHorizontal
 } from 'lucide-react';
 import AIUsageStats from './AIUsageStats';
 import AISettings from './AISettings';
 import PlansSettings from './PlansSettings';
+import AppControl from './AppControl';
 import UpgradeRequests from './UpgradeRequests';
 import FeedbackManagement from './FeedbackManagement';
 import ErrorBoundary from './ErrorBoundary';
@@ -1289,6 +1290,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     { id: 'ai-usage', icon: Zap, label: 'AI Usage & Costs' },
     { id: 'ai', icon: Bot, label: 'AI Providers' },
     { id: 'plans', icon: Layers, label: 'Plans' },
+    { id: 'app-control', icon: SlidersHorizontal, label: 'App control' },
     { id: 'upgrade-requests', icon: ArrowUpCircle, label: 'Upgrade Requests', badge: pendingRequests },
     { id: 'feedback', icon: MessageSquare, label: 'Feedback' },
     { id: 'settings', icon: Settings, label: 'Settings' },
@@ -1458,6 +1460,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
         {/* Plans Tab */}
         {activeTab === 'plans' && <PlansSettings token={token} adminRole={admin.role} />}
+        {activeTab === 'app-control' && <AppControl token={token} adminRole={admin.role} ConfirmDialog={ConfirmDialog} />}
 
         {/* Upgrade Requests Tab */}
         {activeTab === 'upgrade-requests' && (
