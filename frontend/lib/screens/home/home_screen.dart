@@ -25,7 +25,9 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/services/notification_event_bus.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/category_icons.dart';
+import 'package:frontend/widgets/announcement_banner.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/app_logo.dart';
 import 'package:frontend/widgets/blocking_progress.dart';
 import 'package:frontend/widgets/book_switch.dart';
@@ -302,6 +304,14 @@ class _HomeScreenState extends State<HomeScreen> {
           child: CustomScrollView(
             // Use CustomScrollView for flexible layouts with slivers
             slivers: [
+              // The owner's announcement (admin panel), when there is one.
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: responsive.padding(left: 16, right: 16, top: 8),
+                  child: const AnnouncementBanner(),
+                ),
+              ),
+
               // Family members only: the Personal / Family switch, and under
               // it the read-only notice (Family mode, owner's plan lapsed).
               // Nobody else gets this sliver, so their Home is unchanged.
@@ -1714,8 +1724,10 @@ class _HomeScreenState extends State<HomeScreen> {
               title: localizations.voiceInput,
               subtitle: localizations.speakYourTransaction,
               feature: PlanFeature.entry,
+              pausedKey: 'voice',
               onTap: () async {
                 Navigator.pop(context);
+                if (showIfPaused(this.context, 'voice')) return;
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => VoiceInputScreen()),
@@ -1732,8 +1744,10 @@ class _HomeScreenState extends State<HomeScreen> {
               title: localizations.scanReceipt,
               subtitle: localizations.takeUploadPhoto,
               feature: PlanFeature.entry,
+              pausedKey: 'receipts',
               onTap: () async {
                 Navigator.pop(context);
+                if (showIfPaused(this.context, 'receipts')) return;
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => ImageInputScreen()),
@@ -1776,6 +1790,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String subtitle,
     required VoidCallback onTap,
     String? feature,
+    String? pausedKey,
   }) {
     // An AI option shows a padlock when the owner left it out of the user's
     // plan (its screen then offers Upgrade); otherwise it is open and its
@@ -1784,7 +1799,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Provider.of<PlanProvider>(context, listen: false).isLocked(feature);
     final scheme = Theme.of(context).colorScheme;
 
-    return Card(
+    final card = Card(
       child: AppListRow(
         icon: icon,
         title: title,
@@ -1796,6 +1811,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    // Paused by the owner: greyed, still tappable (the tap shows the message).
+    return pausedKey == null ? card : PausedLook(featureKey: pausedKey, child: card);
   }
 
   // Uniform dark "snack" toast (mockup lines 2106-2111) — background, text

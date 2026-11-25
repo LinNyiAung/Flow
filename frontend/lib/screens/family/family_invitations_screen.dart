@@ -7,6 +7,7 @@ import 'package:frontend/screens/family/family_ui.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:provider/provider.dart';
 
 /// The family invitations the signed-in person received, each with Join and
@@ -38,6 +39,7 @@ class _FamilyInvitationsScreenState extends State<FamilyInvitationsScreen> {
   }
 
   Future<void> _join(FamilyInvite invite) async {
+    if (showIfPaused(context, 'family_new')) return;
     final l = AppLocalizations.of(context);
     final family = Provider.of<FamilyProvider>(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
@@ -186,12 +188,15 @@ class _InvitationCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: FilledButton(
-                    key: FamilyInvitationsScreen.joinKey(invite.id),
-                    onPressed: enabled ? onJoin : null,
-                    child: busy
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(l.familyJoin, textAlign: TextAlign.center),
+                  child: PausedLook(
+                    featureKey: 'family_new',
+                    child: FilledButton(
+                      key: FamilyInvitationsScreen.joinKey(invite.id),
+                      onPressed: enabled ? onJoin : null,
+                      child: busy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Text(l.familyJoin, textAlign: TextAlign.center),
+                    ),
                   ),
                 ),
               ],

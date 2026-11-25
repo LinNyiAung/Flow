@@ -4,6 +4,7 @@ import 'package:frontend/screens/family/family_ui.dart';
 import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/widgets/app_bar_save_button.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:provider/provider.dart';
 
 /// Admins invite someone by the email they signed up with. The invite can
@@ -37,6 +38,7 @@ class _FamilyInviteScreenState extends State<FamilyInviteScreen> {
   }
 
   Future<void> _send() async {
+    if (showIfPaused(context, 'family_new')) return;
     final l = AppLocalizations.of(context);
     final email = _email.text.trim();
     if (!_emailShape.hasMatch(email)) {

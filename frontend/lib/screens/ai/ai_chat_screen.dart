@@ -15,6 +15,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/safe_markdown.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/book_chip.dart';
 import 'package:frontend/widgets/book_switch.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
@@ -115,6 +116,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _sendMessage() {
+    if (showIfPaused(context, 'chat')) return;
     final message = _messageController.text.trim();
     if (message.isNotEmpty) {
       _messageController.clear();
@@ -560,7 +562,10 @@ class _AiChatScreenState extends State<AiChatScreen>
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () => chatProvider.addQuickMessage(suggestion),
+          onTap: () {
+            if (showIfPaused(context, 'chat')) return;
+            chatProvider.addQuickMessage(suggestion);
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
@@ -722,7 +727,10 @@ class _AiChatScreenState extends State<AiChatScreen>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Container(
+      // Paused by the owner: greyed, still tappable (sending shows the message).
+      child: PausedLook(
+        featureKey: 'chat',
+        child: Container(
         padding: const EdgeInsets.fromLTRB(18, 6, 6, 6),
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color ?? scheme.surface,
@@ -771,6 +779,7 @@ class _AiChatScreenState extends State<AiChatScreen>
             ),
           ],
         ),
+      ),
       ),
     );
   }

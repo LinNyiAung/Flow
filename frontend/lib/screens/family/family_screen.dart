@@ -15,6 +15,7 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/app_list_row.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:provider/provider.dart';
 
 /// The family (`/family`, from Settings): create one, or see and manage the
@@ -149,12 +150,15 @@ class _FamilyScreenState extends State<FamilyScreen> {
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 16),
-                FilledButton(
-                  key: FamilyScreen.createKey,
-                  onPressed: canCreate ? _create : null,
-                  child: _creating
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Text(l.familyCreateButton),
+                PausedLook(
+                  featureKey: 'family_new',
+                  child: FilledButton(
+                    key: FamilyScreen.createKey,
+                    onPressed: canCreate ? _create : null,
+                    child: _creating
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(l.familyCreateButton),
+                  ),
                 ),
                 if (!paid) ...[
                   const SizedBox(height: 16),
@@ -217,6 +221,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
   }
 
   Future<void> _create() async {
+    if (showIfPaused(context, 'family_new')) return;
     final family = Provider.of<FamilyProvider>(context, listen: false);
     setState(() => _creating = true);
     final error = await family.createFamily(_name.text.trim());
@@ -397,13 +402,19 @@ class _FamilyScreenState extends State<FamilyScreen> {
           child: Column(
             children: divided([
               if (admin && writable)
-                AppListRow(
-                  key: FamilyScreen.inviteKey,
-                  icon: Icons.person_add_rounded,
-                  title: l.familyInviteAction,
-                  trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
-                  onTap: () => Navigator.of(context)
-                      .push(MaterialPageRoute<void>(builder: (_) => const FamilyInviteScreen())),
+                PausedLook(
+                  featureKey: 'family_new',
+                  child: AppListRow(
+                    key: FamilyScreen.inviteKey,
+                    icon: Icons.person_add_rounded,
+                    title: l.familyInviteAction,
+                    trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.hintFor(context)),
+                    onTap: () {
+                      if (showIfPaused(context, 'family_new')) return;
+                      Navigator.of(context)
+                          .push(MaterialPageRoute<void>(builder: (_) => const FamilyInviteScreen()));
+                    },
+                  ),
                 ),
               if (owner)
                 AppListRow(

@@ -2,6 +2,7 @@ import 'package:frontend/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
 import 'package:frontend/widgets/book_chip.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/notification_provider.dart';
@@ -280,8 +281,10 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
               icon: Icons.mic_rounded,
               title: localizations.voiceInput,
               subtitle: localizations.speakYourTransaction,
+              pausedKey: 'voice',
               onTap: () async {
                 Navigator.pop(sheetContext);
+                if (showIfPaused(context, 'voice')) return;
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => VoiceInputScreen()),
@@ -296,8 +299,10 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
               icon: Icons.document_scanner_rounded,
               title: localizations.scanReceipt,
               subtitle: localizations.takeUploadPhoto,
+              pausedKey: 'receipts',
               onTap: () async {
                 Navigator.pop(sheetContext);
+                if (showIfPaused(context, 'receipts')) return;
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => ImageInputScreen()),
@@ -328,12 +333,13 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    String? pausedKey,
   }) {
     final isLocked = Provider.of<PlanProvider>(context, listen: false)
         .isLocked(PlanFeature.entry);
     final scheme = Theme.of(context).colorScheme;
 
-    return AppListRow(
+    final row = AppListRow(
       icon: icon,
       iconBg: scheme.secondaryContainer,
       title: title,
@@ -346,6 +352,8 @@ class _TransactionsListScreenState extends State<TransactionsListScreen> {
             )
           : null,
     );
+    // Paused by the owner: greyed, still tappable (the tap shows the message).
+    return pausedKey == null ? row : PausedLook(featureKey: pausedKey, child: row);
   }
 
   @override

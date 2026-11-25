@@ -13,6 +13,7 @@ import 'package:frontend/utils/family_permissions.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
 import 'package:frontend/widgets/hero_card.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 import 'package:provider/provider.dart';
@@ -335,6 +336,8 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
   void _navigateToAISuggestion() async {
     final localizations = AppLocalizations.of(context);
 
+    if (showIfPaused(context, 'budget_ideas')) return;
+
     // Not in this plan (the owner left it out): the Upgrade screen. A used-up
     // allowance is explained by the limit sheet once the server says so.
     if (Provider.of<PlanProvider>(context, listen: false)
@@ -535,16 +538,19 @@ class _CreateBudgetScreenState extends State<CreateBudgetScreen> {
                     maxLength: 200,
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _navigateToAISuggestion,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: scheme.tertiary,
-                        foregroundColor: scheme.onTertiary,
+                  PausedLook(
+                    featureKey: 'budget_ideas',
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _navigateToAISuggestion,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: scheme.tertiary,
+                          foregroundColor: scheme.onTertiary,
+                        ),
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                        label: Text(localizations.generateAiBudget),
                       ),
-                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                      label: Text(localizations.generateAiBudget),
                     ),
                   ),
                 ],

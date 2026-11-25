@@ -12,6 +12,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/utils/date_picker_bounds.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/recurrence_settings.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
@@ -262,6 +263,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _goVoice() async {
+    if (showIfPaused(context, 'voice')) return;
     // The entries go to the book the chip shows (R20).
     final book = _targetBook(listen: false);
     final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => VoiceInputScreen(book: book)));
@@ -269,6 +271,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _goScan() async {
+    if (showIfPaused(context, 'receipts')) return;
     final book = _targetBook(listen: false);
     final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => ImageInputScreen(book: book)));
     if (result == true && mounted) Navigator.pop(context, true);
@@ -582,9 +585,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         actions: [
           // A draft already is Ko Toe Pwar's read: no second one from here.
           if (!_isDraft) ...[
-            _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice),
+            _appBarTonalIcon(icon: Icons.mic_rounded, tooltip: localizations.speakItTooltip, onTap: _goVoice, pausedKey: 'voice'),
             const SizedBox(width: 6),
-            _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan),
+            _appBarTonalIcon(icon: Icons.document_scanner_rounded, tooltip: localizations.scanReceipt, onTap: _goScan, pausedKey: 'receipts'),
           ],
           AppBarSaveButton(label: localizations.save, saving: _isSaving, onPressed: _addTransaction),
         ],
@@ -1065,9 +1068,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
   }
 
-  Widget _appBarTonalIcon({required IconData icon, required String tooltip, required VoidCallback onTap}) {
+  Widget _appBarTonalIcon({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    String? pausedKey,
+  }) {
     final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
+    final button = Tooltip(
       message: tooltip,
       child: InkWell(
         onTap: onTap,
@@ -1080,6 +1088,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         ),
       ),
     );
+    // Paused by the owner: greyed, still tappable (the tap shows the message).
+    return pausedKey == null ? button : PausedLook(featureKey: pausedKey, child: button);
   }
 
   Widget _typeSegment(String label, TransactionType type) {

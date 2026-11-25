@@ -8,6 +8,7 @@ import 'package:frontend/services/api_service.dart';
 import 'package:frontend/utils/contact_details.dart';
 import 'package:frontend/widgets/accepted_payments.dart';
 import 'package:frontend/widgets/owner_contact_block.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/plan_badge.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -91,6 +92,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Future<void> _claimFreeTrial(BuildContext context) async {
+    if (showIfPaused(context, 'free_trial')) return;
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final planProvider = Provider.of<PlanProvider>(context, listen: false);
     final localizations = AppLocalizations.of(context);
@@ -333,18 +335,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: scheme.onPrimaryContainer, height: 1.4),
           ),
           const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _isClaiming ? null : () => _claimFreeTrial(context),
-              icon: _isClaiming
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
-                    )
-                  : const Icon(Icons.card_giftcard_rounded, size: 20),
-              label: Text(_isClaiming ? localizations.claiming : localizations.claimOneMonthFree),
+          PausedLook(
+            featureKey: 'free_trial',
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isClaiming ? null : () => _claimFreeTrial(context),
+                icon: _isClaiming
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                      )
+                    : const Icon(Icons.card_giftcard_rounded, size: 20),
+                label: Text(_isClaiming ? localizations.claiming : localizations.claimOneMonthFree),
+              ),
             ),
           ),
           const SizedBox(height: 10),

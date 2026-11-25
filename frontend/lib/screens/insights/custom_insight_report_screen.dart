@@ -14,6 +14,7 @@ import 'package:frontend/widgets/app_bar_title.dart';
 import 'package:frontend/widgets/custom_insight_figures.dart';
 import 'package:frontend/widgets/insight_markdown.dart';
 import 'package:frontend/widgets/mascot.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 
 /// One saved custom insight: what was asked, the figures of the range and the
@@ -80,6 +81,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
       setState(() => _language = language);
       return;
     }
+    if (showIfPaused(context, 'translation')) return;
     if (_translationLocked()) {
       await Navigator.pushNamed(context, '/subscription');
       return;
@@ -318,7 +320,7 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
 
     Widget seg(String language, String label, {bool lock = false, bool busy = false}) {
       final selected = _language == language;
-      return InkWell(
+      final chip = InkWell(
         key: Key('custom-lang-$language'),
         borderRadius: BorderRadius.circular(14),
         onTap: selected ? null : () => _selectLanguage(report, language),
@@ -351,6 +353,10 @@ class _CustomInsightReportScreenState extends State<CustomInsightReportScreen> {
           ),
         ),
       );
+      // Reading a stored translation always works; only asking for a new one
+      // is paused (greyed, the tap shows the message).
+      final needsTranslation = language == 'mm' && report.contentMm == null;
+      return needsTranslation ? PausedLook(featureKey: 'translation', child: chip) : chip;
     }
 
     return Container(

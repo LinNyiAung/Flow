@@ -10,6 +10,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_ranges.dart';
 import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
 
@@ -133,6 +134,7 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
 
   Future<void> _submit() async {
     if (_submitting || _problem != null) return;
+    if (showIfPaused(context, 'custom_reports')) return;
     final provider = context.read<CustomInsightProvider>();
     final text = _instruction.text.trim();
     final request = CustomInsightRequest(
@@ -267,12 +269,15 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.error),
               ),
             ),
-          FilledButton(
-            key: const Key('custom-insight-create'),
-            onPressed: problem != null || _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5))
-                : Text(l.customInsightCreate),
+          PausedLook(
+            featureKey: 'custom_reports',
+            child: FilledButton(
+              key: const Key('custom-insight-create'),
+              onPressed: problem != null || _submitting ? null : _submit,
+              child: _submitting
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5))
+                  : Text(l.customInsightCreate),
+            ),
           ),
         ],
       ),
