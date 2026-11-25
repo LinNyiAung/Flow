@@ -157,6 +157,38 @@ void main() {
       expect(find.text('Read more'), findsOneWidget);
     });
 
+    testWidgets('an https link opens through the launcher', (tester) async {
+      final opened = <Uri>[];
+      final saved = announcementLinkLauncher;
+      announcementLinkLauncher = (uri) async {
+        opened.add(uri);
+        return true;
+      };
+      addTearDown(() => announcementLinkLauncher = saved);
+      await _pumpBanner(
+          tester, _provider(_config(announcement: _announcementJson(link: 'https://example.com/a'))));
+      await tester.tap(find.text('Read more'));
+      await tester.pump();
+      expect(opened, [Uri.parse('https://example.com/a')]);
+    });
+
+    for (final bad in ['javascript:alert(1)', 'tel:+959000000', 'intent://x#Intent;end', 'not a url', '//example.com']) {
+      testWidgets('a "$bad" link is not shown and never launches', (tester) async {
+        final opened = <Uri>[];
+        final saved = announcementLinkLauncher;
+        announcementLinkLauncher = (uri) async {
+          opened.add(uri);
+          return true;
+        };
+        addTearDown(() => announcementLinkLauncher = saved);
+        await _pumpBanner(tester, _provider(_config(announcement: _announcementJson(link: bad))));
+        expect(find.text('Sale this weekend'), findsOneWidget);
+        expect(find.text('Read more'), findsNothing);
+        expect(find.byType(TextButton), findsNothing);
+        expect(opened, isEmpty);
+      });
+    }
+
     testWidgets('shows nothing when there is no announcement', (tester) async {
       await _pumpBanner(tester, _provider(_config()));
       expect(find.byType(Text), findsNothing);

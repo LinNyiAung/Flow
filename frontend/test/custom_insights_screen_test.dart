@@ -11,6 +11,8 @@ import 'package:frontend/models/insight.dart';
 import 'package:frontend/models/notification.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/models/app_config.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/custom_insight_provider.dart';
 import 'package:frontend/providers/insight_provider.dart';
@@ -202,6 +204,7 @@ Future<void> _pump(
   bool settle = true,
   FamilyProvider? family,
   BookModeProvider? books,
+  AppControlProvider? control,
 }) async {
   await _bigScreen(tester);
   final planProvider = PlanProvider(loader: () async => plan ?? _plan());
@@ -226,6 +229,7 @@ Future<void> _pump(
         ChangeNotifierProvider<NotificationProvider>(create: (_) => NotificationProvider()),
         if (family != null) ChangeNotifierProvider<FamilyProvider>.value(value: family),
         if (books != null) ChangeNotifierProvider<BookModeProvider>.value(value: books),
+        if (control != null) ChangeNotifierProvider<AppControlProvider>.value(value: control),
       ],
       child: MaterialApp(
         locale: locale,
@@ -615,6 +619,28 @@ void main() {
   });
 
   group('Create form', () {
+    testWidgets('paused: Create stays tappable and the message shows inside the open sheet, nothing is created',
+        (tester) async {
+      final control = AppControlProvider(
+          fetcher: () async => AppConfig.fromJson({
+                'maintenance': {'on': false},
+                'paused': {'custom_reports': 'Custom reports are paused for now.'},
+              }));
+      final fake = FakeCustomInsightClient();
+      await _pump(tester, _FormHost(today: DateTime(2026, 11, 18)), fake: fake, control: control);
+      await tester.tap(find.byKey(const Key('open-form')));
+      await tester.pumpAndSettle();
+
+      final create = find.byKey(const Key('custom-insight-create'));
+      expect(tester.widget<FilledButton>(create).onPressed, isNotNull);
+      await tester.tap(create);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('custom-insight-create')), findsOneWidget); // sheet still open
+      expect(find.text('Custom reports are paused for now.'), findsOneWidget);
+      expect(fake.createCalls, 0);
+    });
+
     testWidgets('form_disables_create_for_short_range_and_thisYear_in_early_january', (tester) async {
       // Early January: "this year so far" is 3 days, under the 7-day minimum.
       await _pump(tester, _FormHost(today: DateTime(2027, 1, 3)), fake: FakeCustomInsightClient());

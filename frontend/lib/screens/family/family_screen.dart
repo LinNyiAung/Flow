@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:frontend/models/family.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/screens/family/family_invitations_screen.dart';
@@ -154,7 +155,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
                   featureKey: 'family_new',
                   child: FilledButton(
                     key: FamilyScreen.createKey,
-                    onPressed: canCreate ? _create : null,
+                    // While paused the button stays tappable so the tap can
+                    // show the message (_create asks first).
+                    onPressed: canCreate || _createPaused(context) ? _create : null,
                     child: _creating
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                         : Text(l.familyCreateButton),
@@ -219,6 +222,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
       ],
     );
   }
+
+  bool _createPaused(BuildContext context) =>
+      AppControlProvider.maybeOf(context)?.isPaused('family_new') ?? false;
 
   Future<void> _create() async {
     if (showIfPaused(context, 'family_new')) return;

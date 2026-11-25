@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/app_navigator.dart';
+import 'package:frontend/models/app_config.dart';
 import 'package:frontend/models/budget.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/models/family.dart';
 import 'package:frontend/models/goal.dart';
 import 'package:frontend/models/notification.dart';
@@ -239,6 +241,7 @@ Future<void> _pump(
   ThemeMode themeMode = ThemeMode.light,
   double width = 360,
   double height = 1600,
+  AppControlProvider? control,
 }) async {
   tester.view.physicalSize = Size(width * 3, height * 3);
   tester.view.devicePixelRatio = 3;
@@ -252,6 +255,7 @@ Future<void> _pump(
       ChangeNotifierProvider<NotificationProvider>.value(value: notifications ?? _FakeNotifications()),
       ChangeNotifierProvider<BudgetProvider>.value(value: budgets ?? _Budgets()),
       ChangeNotifierProvider<GoalProvider>.value(value: goals ?? _Goals()),
+      if (control != null) ChangeNotifierProvider<AppControlProvider>.value(value: control),
     ],
     child: MaterialApp(
       navigatorKey: navigatorKey,
@@ -327,6 +331,23 @@ void main() {
   });
 
   group('no family yet', () {
+    for (final paid in [true, false]) {
+      testWidgets('paused (paid: $paid): Create with an empty name still shows the message', (tester) async {
+        final control = AppControlProvider(
+            fetcher: () async => AppConfig.fromJson({
+                  'maintenance': {'on': false},
+                  'paused': {'family_new': 'New families are paused for now.'},
+                }));
+        final family = _FakeFamily();
+        await _pump(tester, const FamilyScreen(), family: family, paid: paid, control: control);
+
+        expect(_enabled(tester, find.byKey(FamilyScreen.createKey)), isTrue);
+        await _tapAndSettle(tester, find.byKey(FamilyScreen.createKey));
+        expect(find.text('New families are paused for now.'), findsOneWidget);
+        expect(family.calls, isEmpty);
+      });
+    }
+
     testWidgets('Free: the Upgrade path; Create stays disabled; no mascot', (tester) async {
       final family = _FakeFamily();
       await _pump(tester, const FamilyScreen(), family: family, paid: false);

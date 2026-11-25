@@ -10,6 +10,7 @@ import 'package:frontend/services/localization_service.dart';
 import 'package:frontend/utils/custom_insight_ranges.dart';
 import 'package:frontend/utils/custom_insight_text.dart';
 import 'package:frontend/widgets/app_bottom_sheet.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/widgets/paused_feature.dart';
 import 'package:frontend/widgets/plan_limit_sheet.dart';
 import 'package:frontend/widgets/plan_usage_line.dart';
@@ -133,8 +134,15 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
   }
 
   Future<void> _submit() async {
-    if (_submitting || _problem != null) return;
-    if (showIfPaused(context, 'custom_reports')) return;
+    if (_submitting) return;
+    // The form is a modal sheet, so a SnackBar would sit behind its barrier:
+    // the paused message goes in the form's own error line instead.
+    final control = AppControlProvider.maybeOf(context, listen: false);
+    if (control != null && control.isPaused('custom_reports')) {
+      setState(() => _error = control.pausedMessage('custom_reports'));
+      return;
+    }
+    if (_problem != null) return;
     final provider = context.read<CustomInsightProvider>();
     final text = _instruction.text.trim();
     final request = CustomInsightRequest(
@@ -170,6 +178,7 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
     final l = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final problem = _problem;
+    final paused = AppControlProvider.maybeOf(context)?.isPaused('custom_reports') ?? false;
 
     Widget rangeChip(String key, String label, CustomQuickRange quick) {
       final choice = quickRange(quick, _today);
@@ -273,7 +282,7 @@ class _CustomInsightFormState extends State<_CustomInsightForm> {
             featureKey: 'custom_reports',
             child: FilledButton(
               key: const Key('custom-insight-create'),
-              onPressed: problem != null || _submitting ? null : _submit,
+              onPressed: _submitting || (problem != null && !paused) ? null : _submit,
               child: _submitting
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5))
                   : Text(l.customInsightCreate),

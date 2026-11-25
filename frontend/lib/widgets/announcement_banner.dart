@@ -11,6 +11,19 @@ const String dismissedAnnouncementKey = 'dismissed_announcement';
 
 String _stamp(Announcement a) => '${a.id}@${a.updatedAt}';
 
+/// Opens the banner's link outside the app. A seam for tests.
+Future<bool> Function(Uri uri) announcementLinkLauncher =
+    (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
+
+/// Only `http(s)` links are opened (the server checks too, this is the second
+/// lock: never a `javascript:`, `tel:` or `intent:` link).
+Uri? _safeLink(String? url) {
+  if (url == null) return null;
+  final uri = Uri.tryParse(url);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) return null;
+  return uri;
+}
+
 /// The owner's announcement (`AppConfig.announcement`) at the top of the
 /// dashboard, with a close button and an optional link that opens outside the
 /// app. Shows nothing when there is none or the person closed this version.
@@ -59,11 +72,9 @@ class _AnnouncementBannerState extends State<AnnouncementBanner> {
     }
   }
 
-  Future<void> _open(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
+  Future<void> _open(Uri uri) async {
     try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      await announcementLinkLauncher(uri);
     } catch (_) {
       // Nothing can open it: the banner stays as it is.
     }
@@ -79,8 +90,8 @@ class _AnnouncementBannerState extends State<AnnouncementBanner> {
     final warning = announcement.style == 'warning';
     final background = warning ? scheme.errorContainer : scheme.secondaryContainer;
     final foreground = warning ? scheme.onErrorContainer : scheme.onSecondaryContainer;
-    final linkUrl = announcement.linkUrl;
-    final hasLink = linkUrl != null && announcement.linkLabel.isNotEmpty;
+    final linkUri = _safeLink(announcement.linkUrl);
+    final hasLink = linkUri != null && announcement.linkLabel.isNotEmpty;
 
     return Material(
       color: background,
@@ -119,7 +130,7 @@ class _AnnouncementBannerState extends State<AnnouncementBanner> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         alignment: Alignment.centerLeft,
                       ),
-                      onPressed: () => _open(linkUrl),
+                      onPressed: () => _open(linkUri),
                       child: Text(
                         announcement.linkLabel,
                         style: const TextStyle(
