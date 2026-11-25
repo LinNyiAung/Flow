@@ -40,7 +40,8 @@ from models import (
     VerifyOTPRequest,
 )
 from config import settings
-from plans.access import effective_plan, is_trial
+import app_control
+from plans.access import effective_plan, is_trial, user_language
 from plans.catalog import PAID_PLANS
 from sql import books as books_db
 from sql import devices as devices_db
@@ -158,6 +159,9 @@ async def register(user_data: UserCreate, background_tasks: BackgroundTasks):
     Register new user. The returned token is NOT usable for authenticated endpoints
     until the e-mail address is verified (they return 403 "Email not verified").
     """
+    if app_control.is_paused("signups"):  # first, before anything is looked up or written; no language yet: both
+        raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "feature_paused", "feature": "signups",
+                                                        "message": app_control.both_languages("signups")})
     email = _normalize_email(user_data.email)
     if await find_user_by_email(email):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
@@ -583,6 +587,7 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
     Grants the authenticated user 30 days of the Plus plan, marked as a trial (trial_ends_at).
     Can only be claimed once per account.
     """
+    app_control.require_on("free_trial", user_language(current_user))
     # Prevent double-claiming
     if current_user.get("has_claimed_free_trial", False):
         raise HTTPException(

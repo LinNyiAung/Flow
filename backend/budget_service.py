@@ -10,6 +10,7 @@ import uuid
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
 from tz_utils import as_calendar_date, day_bounds, local_now, local_today
 from user_zones import book_zone
+import app_control
 from plans import quota
 from plans.access import effective_plan
 from plans.catalog import PAID_PLANS
@@ -1359,7 +1360,9 @@ async def _owner_gets_ai_budgets(book_id: str) -> bool:
     """True when the book's owner (a personal book's person; a family book's owner, whose plan and cost cap the family
     follows, R16) is on Plus or Pro right now (an expired plan counts as Free) and is not over their monthly cost cap
     (for a family book: quota.family_over_cost_cap). A failed lookup means no AI: the budget is still created, from
-    the adjusted amounts."""
+    the adjusted amounts. Always False while the budget ideas switch is paused (no AI spend in the background)."""
+    if app_control.is_paused("budget_ideas"):
+        return False
     try:
         book = await books_db.get_book_row(book_id)
         owner = await books_db.book_profile(book_id) if book else None

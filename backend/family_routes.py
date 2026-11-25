@@ -6,12 +6,14 @@ from typing import Literal, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+import app_control
 from families import breakdown as family_breakdown
 from families import service
 from families import spending as family_spending
 from families import transfers
 from families.book import Book, get_book, refuse
 from models import Currency, PositiveAmount
+from plans.access import user_language
 from plans.contact import normalize_email
 from report_models import ReportPeriod
 from report_routes import calculate_report_dates
@@ -110,6 +112,7 @@ async def get_family(current_user: dict = Depends(get_current_user)):
 
 @router.post("")
 async def create_family(body: FamilyName, current_user: dict = Depends(get_current_user)):
+    app_control.require_on("family_new", user_language(current_user))
     return await service.create_family(current_user, body.name)
 
 
@@ -197,6 +200,7 @@ async def transfer_ownership(body: Ownership, current_user: dict = Depends(get_c
 
 @router.post("/invites")
 async def create_invite(body: InviteBody, current_user: dict = Depends(get_current_user)):
+    app_control.require_on("family_new", user_language(current_user))
     return await service.create_invite(current_user, body.email, body.link_member_id)
 
 
@@ -212,6 +216,7 @@ async def cancel_invite(invite_id: str, current_user: dict = Depends(get_current
 
 @router.post("/invites/{invite_id}/accept")
 async def accept_invite(invite_id: str, current_user: dict = Depends(get_current_user)):
+    app_control.require_on("family_new", user_language(current_user))
     return await service.accept_invite(current_user, invite_id)
 
 

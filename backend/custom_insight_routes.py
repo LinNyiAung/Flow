@@ -22,6 +22,7 @@ from typing import Any, Dict, Literal, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
+import app_control
 import custom_insights_service as cis
 from insights_service import InsightAIError, is_rate_limit_error, translate_insight_to_myanmar
 from notification_service import translate as translate_text
@@ -128,6 +129,7 @@ async def create_custom_insight(data: CustomInsightCreate, response: Response,
     The report is about, and stored under, the request's book (a family shares its list); the plan check and the use
     are the person's (counter_keys then name the person, see custom_insights_service._reservation). A family's new
     report needs a writable family (R10)."""
+    app_control.require_on("custom_reports", user_language(book.person))
     require_writable(book)
     current_user = book.person
     book_id = book.id
@@ -235,6 +237,7 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
     Otherwise one use of insight_translation is reserved (PlanError when the plan locks it, at the cost cap or used up)
     and given back if the translation fails. The report is the book's; the use (and the AI cost) the person's."""
     current_user = book.person
+    app_control.require_on("translation", user_language(current_user))
     book_id = book.id
     row = await ci.get(report_id, book_id)
     if row is None:

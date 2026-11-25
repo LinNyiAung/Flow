@@ -22,7 +22,9 @@ from ai_providers.errors import AllProvidersFailed, UnusableAnswer, redact
 from ai_providers.types import Completion, Prompt
 from utils import get_current_user, get_book_balance, get_book_money_lock
 from families.book import Book, book_currency, clean_for_whom, get_book, refuse, require_change_entry, require_writable
+import app_control
 from plans import quota, voice_token
+from plans.access import user_language
 from goal_routes import to_cents
 from recurring_transaction_service import (
     disable_recurrence_for_parent, disable_recurrence_for_transaction, get_recurring_transaction_preview,
@@ -1063,6 +1065,7 @@ async def transcribe_audio(
     A kept use returns a `voice_token` beside the transcription: send it as `voice_token` with the text extraction
     of that transcript and the voice entry stays one use (plans.voice_token).
     """
+    app_control.require_on("voice", user_language(current_user))  # before the allowance and before the upload is read
     reservation = await quota.reserve(current_user, "entry")  # outside the handlers below: a PlanError passes through
     try:
         out = await _transcribe_audio(audio, language, current_user)
@@ -1132,6 +1135,7 @@ async def extract_transaction_from_text(
 ):
     """Extract transaction details from text with the transaction_text provider chain (one "entry" use). An entry
     that names no currency gets the book's (a family book's is its owner's)."""
+    app_control.require_on("voice", user_language(current_user))
     async with _entry_use(current_user, request.text, request.voice_token):
         return await _extract_transaction_from_text(request, current_user, await book_currency(book))
 
@@ -1177,6 +1181,7 @@ async def extract_multiple_transactions_from_text(
 ):
     """Extract multiple transaction details from text with the transaction_text provider chain (one "entry" use;
     an answer that finds no transactions still counts). Entries naming no currency get the book's."""
+    app_control.require_on("voice", user_language(current_user))
     async with _entry_use(current_user, request.text, request.voice_token):
         return await _extract_multiple_transactions_from_text(request, current_user, await book_currency(book))
 
@@ -1349,6 +1354,7 @@ async def extract_transaction_from_image(
     Extract transaction details from a receipt image with the transaction_image provider chain (one "entry" use).
     (Memory Optimized: Resizes images before processing)
     """
+    app_control.require_on("receipts", user_language(current_user))
     async with _entry_use(current_user):
         return await _extract_transaction_from_image(image, current_user, await book_currency(book))
 

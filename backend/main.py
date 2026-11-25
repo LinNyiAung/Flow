@@ -380,6 +380,7 @@ async def stream_chat_with_ai(
     validated and ignored.
     """
     current_user = book.person
+    app_control.require_on("chat", user_language(current_user))  # before the stream, so the client gets a JSON 403
     user_id = current_user["_id"]  # the person: allowance and chat history
     book_id = book.id  # the book the answer is about
 
@@ -489,6 +490,7 @@ async def chat_with_ai(
     current_user: dict = Depends(get_current_user)
 ):
     """Chat with AI about financial data (deprecated - use /stream). Makes no AI call, so it uses no allowance."""
+    app_control.require_on("chat", user_language(current_user))
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail="This endpoint is deprecated. Please use /api/chat/stream instead."
@@ -605,7 +607,8 @@ async def _generate_for(book: Book, plan_user: dict, insight_type: str):
     """One on-demand insight of `book`. A personal book: _generate_counted on the person. A family book: never counted
     (R10); refused with family_read_only when the owner's plan isn't paid, plan_feature_locked when the owner's plan
     locks the insight type, and plan_cost_cap while the owner is over their monthly AI cost cap. The AI cost is
-    recorded under the book."""
+    recorded under the book. Refused first (FeaturePaused) while the reports switch is paused."""
+    app_control.require_on("reports", user_language(book.person))
     if not book.is_family:
         return await _generate_counted(plan_user, insight_type, book.id)
     require_writable(book)
@@ -723,6 +726,8 @@ async def _translate_if_possible(insight: dict, user: dict, **options):
     `options`: see _ensure_myanmar_translation (_translation_kwargs)."""
     from insights_service import InsightAIError
 
+    if app_control.is_paused("translation") and _needs_translation_call(insight):
+        return insight, app_control.paused_detail("translation", user_language(user))
     try:
         return await _ensure_myanmar_translation(insight, user, **options), None
     except PlanError as e:
@@ -844,6 +849,14 @@ async def _free_monthly_insight(user: dict, latest: Optional[dict], book_id: str
         return real
     if latest and latest.get("is_placeholder") and not await book_has_insight_data(book_id, "monthly", tz):
         return real or latest
+
+    if app_control.is_paused("reports"):
+        # Nothing new is made while reports are paused: an older stored insight is still shown; with none, the
+        # FeaturePaused reaches the client.
+        fallback = real or latest
+        if _insight_has_content(fallback):
+            return fallback
+        app_control.require_on("reports", user_language(user))
 
     error: Optional[Exception] = None
     generated = None
@@ -1011,6 +1024,7 @@ async def regenerate_insights(
     are shared, so only its owner and admins regenerate them (403 not_allowed for a member).
     """
     # Outside the handlers below: an HTTPException / PlanError passes through
+    app_control.require_on("reports", user_language(book.person))
     require_writable(book)  # a read-only family never generates
     require_admin(book)
     ensure_paid(book.person)  # feature None: the refusal reads "only on Plus and Pro" (Free does include a monthly insight)
@@ -1061,6 +1075,7 @@ async def translate_insights_to_myanmar(
     translation is included, and nothing is counted against anyone.
     """
     # Outside the handlers below: an HTTPException / PlanError passes through
+    app_control.require_on("translation", user_language(book.person))
     require_writable(book)
     plan_user = await _insight_plan_user(book)  # the person, or (family) the person with the owner's plan
     ensure_paid(plan_user, "insight_translation")
@@ -1099,7 +1114,9 @@ async def manually_generate_weekly_insights(
 
     Locked for Free (403; the person's own plan); Plus and Pro are refused at the hidden cost cap. A family book (R10):
     family_read_only while the owner's plan isn't paid; the owner's plan gates the type; nothing is counted."""
-    # Outside the handlers below: an HTTPException / PlanError passes through
+    # Outside the handlers below: an HTTPException / PlanError passes through (and the handlers below would turn a
+    # FeaturePaused from _generate_for into an "error" outcome, so the switch is checked here first)
+    app_control.require_on("reports", user_language(book.person))
     require_writable(book)
     ensure_paid(book.person, "insight_weekly")
     plan_user = await _insight_plan_user(book)

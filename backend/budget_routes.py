@@ -10,6 +10,7 @@ from ai_providers.errors import AllProvidersFailed
 from models import Currency
 from finite_utils import finite_or
 from families.book import Book, book_currency, get_book, require_admin, require_writable
+import app_control
 from plans import quota
 
 from budget_categories import allocation_key
@@ -115,8 +116,9 @@ async def get_ai_budget_suggestions(
     the simple rule-based suggestions that replace an AI that could not answer (or that had too little data to be
     asked), give it back.
     """
-    require_admin(book)
     current_user = book.person
+    app_control.require_on("budget_ideas", user_language(current_user))
+    require_admin(book)
     analyzer = BudgetAnalyzer(book.id, user_language(current_user), ai_user_id=current_user["_id"])
     reservation = await quota.reserve(current_user, "budget_suggestion")
     try:

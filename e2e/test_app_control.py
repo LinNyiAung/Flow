@@ -227,7 +227,232 @@ def section_admin_api():
     check(_stored() == original, "admin_api: the stored document is back as it was")
 
 
-SECTIONS = {"store": section_store, "admin_api": section_admin_api}
+# ------------------------------------------------------------------------------------------------------- switches
+def _person(c, made, label, plan="plus", language=None):
+    """A verified account on `plan` (id, email, book, h: the auth header), optionally with the language set."""
+    tag = uuid.uuid4().hex[:8]
+    email = f"acs-{label.lower()}-{tag}@example.com"
+    c.post("/api/auth/register", json={"name": label, "email": email, "password": "secret123"})
+    db.sql("UPDATE users SET is_verified = true WHERE lower(email) = %s", email)
+    rows = db.sql("SELECT id FROM users WHERE lower(email) = %s", email)
+    uid = rows[0]["id"] if rows else None
+    made.append(uid)
+    if plan != "free":
+        db.sql("UPDATE users SET subscription_type = %s, subscription_expires_at = now() + interval '30 days', "
+               "trial_ends_at = NULL WHERE id = %s", plan, uid)
+    if language:
+        db.sql("UPDATE users SET language = %s WHERE id = %s", language, uid)
+    r = c.post("/api/auth/login", json={"email": email, "password": "secret123"})
+    book = db.sql("SELECT id FROM books WHERE person_id = %s", uid)
+    return {"id": uid, "email": email, "book": book[0]["id"] if book else None,
+            "h": {"Authorization": f"Bearer {r.json().get('access_token')}"}}
+
+
+def _entry_used(uid):
+    rows = db.sql("SELECT coalesce(sum(used), 0) AS n FROM usage_counters WHERE user_id = %s AND feature = 'entry'", uid)
+    return int(rows[0]["n"]) if rows else 0
+
+
+def _store_insight(book, kind, content_mm=None):
+    """A stored real insight of the book, English (and optionally Myanmar)."""
+    from datetime import date, timedelta
+
+    async def go():
+        from sql import insights as insights_db
+        key = "week" if kind == "weekly" else "month"
+        start = date.today() - timedelta(days=14)
+        await insights_db.insert_insight({
+            "_id": str(uuid.uuid4()), "book_id": book, "content": "## Summary\nA stored report.", "content_mm": content_mm,
+            "generated_at": datetime.now(), f"{key}_start": start, f"{key}_end": start + timedelta(days=6),
+            "insight_type": kind, "ai_provider": "gemini", "expires_at": None, "is_placeholder": False,
+            "is_period_to_date": False})
+    _backend_async(go)
+
+
+def section_switches():
+    import httpx
+    from notification_service import translate
+    c = httpx.Client(base_url=BASE, timeout=60)
+    original = _stored()
+    made, admins = [], []
+    start = ah = None
+    try:
+        ah_, _, aid = _admin(c, "admin")
+        ah = ah_
+        admins.append(aid)
+        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+
+        def pause(*keys):
+            sw = {k: {"paused": k in keys, "message_en": "", "message_my": ""} for k in start["switches"]}
+            r = c.put("/api/admin/app-control", headers=ah, json={"switches": sw, "maintenance": start["maintenance"]})
+            check(r.status_code == 200, f"switches: pause {list(keys)}", f"{r.status_code} {r.text[:200]}")
+
+        plus = _person(c, made, "Plus")
+        free = _person(c, made, "Free", plan="free")
+        mm = _person(c, made, "Burmese", language="my")
+        stored = _person(c, made, "Stored")  # made before the sign-ups pause below
+        empty = _person(c, made, "Empty")
+        free_monthly = _person(c, made, "FreeMonthly", plan="free")
+        withmm = _person(c, made, "WithMm")
+        today = datetime.now(UTC).date().isoformat()
+        audio = {"audio": ("voice.m4a", b"\x00\x01\x02\x03", "audio/mp4")}
+        image = {"image": ("r.jpg", b"\xff\xd8\xff\xe0", "image/jpeg")}
+        routes = [
+            ("chat", "/api/chat", {"json": {"message": "hi"}}),
+            ("chat", "/api/chat/stream", {"json": {"message": "hi"}}),
+            ("voice", "/api/transactions/transcribe-audio", {"files": audio}),
+            ("voice", "/api/transactions/extract-from-text", {"json": {"text": "coffee 3000 kyat"}}),
+            ("voice", "/api/transactions/extract-multiple-from-text", {"json": {"text": "coffee 3000 kyat"}}),
+            ("receipts", "/api/transactions/extract-from-image", {"files": image}),
+            ("budget_ideas", "/api/budgets/ai-suggest",
+             {"json": {"period": "monthly", "start_date": today, "currency": "mmk"}}),
+            ("reports", "/api/insights/regenerate", {}),
+            ("reports", "/api/insights/generate-weekly", {}),
+            ("custom_reports", "/api/custom-insights", {"json": {"start_date": today, "end_date": today}}),
+            ("translation", "/api/insights/translate-myanmar", {}),
+            ("free_trial", "/api/auth/claim-free-trial", {}),
+            ("family_new", "/api/family", {"json": {"name": "Acme"}}),
+            ("family_new", "/api/family/invites", {"json": {"email": "someone@example.com"}}),
+            ("family_new", "/api/family/invites/none/accept", {}),
+        ]
+        for key, path, kw in routes:
+            pause(key)
+            who = free if key == "free_trial" else plus
+            r = c.post(path, headers=who["h"], **kw)
+            try:
+                d = r.json().get("detail", {})
+            except Exception:  # noqa: BLE001
+                d = {}
+            d = d if isinstance(d, dict) else {}
+            check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == key
+                  and (r.headers.get("content-type") or "").startswith("application/json"),
+                  f"switches: {key} paused refuses {path}", f"{r.status_code} {r.text[:200]}")
+            check(set(d) == {"code", "feature", "message"} and "paused" in (d.get("message") or ""),
+                  f"switches: {path} detail is code, feature and the English message", d)
+
+        # the user's language
+        pause("chat")
+        r = c.post("/api/chat/stream", headers=mm["h"], json={"message": "hi"})
+        want = translate("feature_paused_msg", "my", feature=translate("app_switch_chat", "my"))
+        check(r.status_code == 403 and r.json()["detail"]["message"] == want,
+              "switches: a Myanmar-language user gets the Myanmar message", r.text[:200])
+        # reading what exists still works
+        r = c.get("/api/chat/history", headers=plus["h"])
+        check(r.status_code == 200, "switches: chat history is readable while chat is paused", r.status_code)
+        pause("family_new")
+        r = c.get("/api/family", headers=plus["h"])
+        check(r.status_code == 200, "switches: GET /api/family works while family_new is paused", r.status_code)
+
+        # a paused voice entry uses no entry allowance and reads no upload
+        pause("voice")
+        before = _entry_used(plus["id"])
+        r = c.post("/api/transactions/transcribe-audio", headers=plus["h"], files=audio)
+        check(r.status_code == 403 and _entry_used(plus["id"]) == before,
+              "switches: a paused voice entry uses no entry allowance", f"{r.status_code} {before} {_entry_used(plus['id'])}")
+
+        # sign-ups: both languages, no user row
+        pause("signups")
+        email = f"acs-new-{uuid.uuid4().hex[:8]}@example.com"
+        r = c.post("/api/auth/register", json={"name": "New", "email": email, "password": "secret123"})
+        d = r.json().get("detail", {}) if r.status_code == 403 else {}
+        both = (translate("feature_paused_msg", "en", feature=translate("app_switch_signups", "en")) + "\n\n"
+                + translate("feature_paused_msg", "my", feature=translate("app_switch_signups", "my")))
+        check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == "signups"
+              and d.get("message") == both, "switches: register while signups paused: 403 with both languages",
+              f"{r.status_code} {r.text[:300]}")
+        check(not db.sql("SELECT id FROM users WHERE lower(email) = %s", email), "switches: no user row is created")
+
+        # reports paused: the stored report is shown, nothing new is made; with none stored it is a 403
+        _store_insight(stored["book"], "weekly")
+        pause("reports")
+        r = c.get("/api/insights", headers=stored["h"])
+        check(r.status_code == 200 and "A stored report." in r.json().get("content", ""),
+              "switches: GET /api/insights shows the stored report while reports are paused", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/insights", headers=empty["h"])
+        d = r.json().get("detail", {}) if r.status_code == 403 else {}
+        check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == "reports",
+              "switches: GET /api/insights with nothing stored is a 403 while reports are paused", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/insights?insight_type=monthly", headers=free_monthly["h"])
+        check(r.status_code == 403 and r.json().get("detail", {}).get("feature") == "reports",
+              "switches: a Free user's monthly report with none stored is a 403 while reports are paused",
+              f"{r.status_code} {r.text[:200]}")
+
+        # translation paused: English with the note, a stored Myanmar text is still returned
+        pause("translation")
+        r = c.get("/api/insights?language=mm", headers=stored["h"])
+        b = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and "A stored report." in b.get("content", "") and not b.get("content_mm")
+              and (b.get("translation_unavailable") or {}).get("code") == "feature_paused",
+              "switches: language=mm with translation paused is English with translation_unavailable", f"{r.status_code} {r.text[:300]}")
+        _store_insight(withmm["book"], "weekly", content_mm="မြန်မာ အစီရင်ခံစာ")
+        r = c.get("/api/insights?language=mm", headers=withmm["h"])
+        b = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and b.get("content_mm") == "မြန်မာ အစီရင်ခံစာ"
+              and not b.get("translation_unavailable"),
+              "switches: a stored Myanmar text is still returned while translation is paused", f"{r.status_code} {r.text[:300]}")
+
+        # in-process: the scheduled report and the budget renewal
+        from tz_utils import default_zone
+
+        async def scheduled(paused):
+            import app_control as ac
+            import insights_service as ins
+            doc = ac.snapshot()
+            doc["switches"]["reports"]["paused"] = paused
+            doc["switches"]["budget_ideas"]["paused"] = paused
+            await ac.save(doc, "test-admin")
+            calls = []
+
+            async def generate(book_id, **kw):
+                calls.append(book_id)
+                return {"ai_provider": "stub", "is_placeholder": True}
+
+            async def notify(book_id):
+                calls.append("notify")
+
+            err = None
+            try:
+                await ins._scheduled_insight(empty["book"], default_zone(), "insight_weekly", generate, notify)
+            except Exception as e:  # noqa: BLE001
+                err = repr(e)
+            import budget_service
+            return calls, err, await budget_service._owner_gets_ai_budgets(empty["book"])
+
+        try:
+            calls, err, gets_ai = _backend_async(lambda: scheduled(True))
+            check(calls == [] and err is None, "switches: _scheduled_insight with reports paused makes nothing, no error",
+                  (calls, err))
+            check(gets_ai is False, "switches: _owner_gets_ai_budgets is False for a Plus owner while budget_ideas is paused")
+            calls, err, gets_ai = _backend_async(lambda: scheduled(False))
+            check(calls and err is None, "switches: _scheduled_insight makes the report again once unpaused", (calls, err))
+            check(gets_ai is True, "switches: _owner_gets_ai_budgets is True for a Plus owner when not paused")
+        finally:
+            _restore(original)
+
+        # everything back on: chat works again
+        pause()
+        r = c.post("/api/chat", headers=plus["h"], json={"message": "hi"})
+        check(r.status_code == 410, "switches: POST /api/chat is its old 410 again once unpaused", r.status_code)
+        r = c.post("/api/chat/stream", headers=plus["h"], json={"message": "hi"})
+        check(r.status_code == 200, "switches: POST /api/chat/stream works again once unpaused", f"{r.status_code} {r.text[:200]}")
+    finally:
+        try:
+            if start is not None and ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=start)
+        except Exception:  # noqa: BLE001
+            pass
+        _restore(original)
+        made = [m for m in made if m]
+        if made:
+            db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+        if admins:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", admins)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", admins)
+    check(_stored() == original, "switches: the stored document is back as it was")
+
+
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "switches": section_switches}
 
 
 def main():

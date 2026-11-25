@@ -3,6 +3,7 @@ import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta, tzinfo, UTC
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
+import app_control
 from plans import quota
 from plans import store as plan_store
 from plans.access import effective_plan
@@ -110,6 +111,10 @@ async def _scheduled_insight(book_id: str, tz: tzinfo, feature: str, generate, n
     if plan_user is None or plan_user.get("subscription_type") not in PAID_PLANS:
         return
     label = feature.removeprefix("insight_")
+    if app_control.is_paused("reports"):
+        # Skipped, not made up later: the run counts as done for this period.
+        logger.info(f"⏭️ Skipping book {book_id} - reports are paused, its {label} insight is not made")
+        return
     if await _has_period_insight(book_id, label, tz):
         logger.info(f"⏭️ Skipping book {book_id} - it already has its {label} insight for this period")
         return
