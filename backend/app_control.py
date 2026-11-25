@@ -215,7 +215,8 @@ def paused_detail(key: str, lang: str) -> dict:
 
 class FeaturePaused(HTTPException):
     def __init__(self, key: str, lang: str):
-        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail=paused_detail(key, lang))
+        detail = {k: v for k, v in paused_detail(key, lang).items() if k not in ("resets_at", "upgrade_available")}
+        super().__init__(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
 def is_paused(key: str) -> bool:

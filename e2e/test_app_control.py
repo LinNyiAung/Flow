@@ -140,6 +140,9 @@ def section_store():
     check(res["raised"] is not None and res["raised"][0] == 403 and res["raised"][1]["code"] == "feature_paused"
           and res["raised"][1]["feature"] == "voice" and res["raised"][1]["message"] == res["my"],
           "store: FeaturePaused is 403 feature_paused with the message in the language asked", res["raised"])
+    check(res["raised"] is not None and res["raised"][1] == {"code": "feature_paused", "feature": "voice",
+                                                             "message": res["my"]},
+          "store: FeaturePaused detail is exactly code, feature, message", res["raised"])
     check(res["tester"] == (True, False, False), "store: tester match ignores case")
     check(res["maint"][0] and res["maint"][1] == translate("maintenance_msg", "en")
           and res["maint"][2] == translate("maintenance_msg", "my")
