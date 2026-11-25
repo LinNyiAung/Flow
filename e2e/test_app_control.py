@@ -391,6 +391,26 @@ def section_switches():
               and not b.get("translation_unavailable"),
               "switches: a stored Myanmar text is still returned while translation is paused", f"{r.status_code} {r.text[:300]}")
 
+        # custom report translate while translation is paused: a stored Myanmar text is read, a new one is refused
+        ids = {}
+        for tag, mm_text in (("with_mm", "မြန်မာ စိတ်ကြိုက်အစီရင်ခံစာ"), ("no_mm", None)):
+            ids[tag] = str(uuid.uuid4())
+            db.sql("INSERT INTO custom_insights (id, book_id, start_date, end_date, status, content, content_mm, "
+                   "completed_at) VALUES (%s, %s, current_date - 3, current_date - 2, 'ready', 'A custom report.', %s, now())",
+                   ids[tag], plus["book"], mm_text)
+        used = lambda: db.sql("SELECT coalesce(sum(used), 0) AS n FROM usage_counters WHERE user_id = %s "
+                              "AND feature = 'insight_translation'", plus["id"])[0]["n"]
+        n0 = used()
+        r = c.post(f"/api/custom-insights/{ids['with_mm']}/translate", headers=plus["h"])
+        check(r.status_code == 200 and r.json().get("content_mm") == "မြန်မာ စိတ်ကြိုက်အစီရင်ခံစာ",
+              "switches: a stored custom report translation is returned while translation is paused",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.post(f"/api/custom-insights/{ids['no_mm']}/translate", headers=plus["h"])
+        d = r.json().get("detail", {}) if r.status_code == 403 else {}
+        check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == "translation"
+              and used() == n0, "switches: a custom report with no translation is refused (403 translation), nothing counted",
+              f"{r.status_code} {r.text[:200]} {n0} {used()}")
+
         # in-process: the scheduled report and the budget renewal
         from tz_utils import default_zone
 

@@ -237,7 +237,6 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
     Otherwise one use of insight_translation is reserved (PlanError when the plan locks it, at the cost cap or used up)
     and given back if the translation fails. The report is the book's; the use (and the AI cost) the person's."""
     current_user = book.person
-    app_control.require_on("translation", user_language(current_user))
     book_id = book.id
     row = await ci.get(report_id, book_id)
     if row is None:
@@ -245,8 +244,9 @@ async def translate_custom_insight(report_id: str, book: Book = Depends(get_book
     if row["status"] != "ready":
         raise _error(current_user, status.HTTP_409_CONFLICT, "custom_insight_not_ready")
     if row.get("content_mm"):
-        return _detail(row)
+        return _detail(row)  # reading a stored translation works while translation is paused
 
+    app_control.require_on("translation", user_language(current_user))  # only when a translation would be made
     reservation = await quota.reserve(current_user, "insight_translation")
     try:
         content_mm = await translate_insight_to_myanmar(row["content"], user_id=current_user["_id"],
