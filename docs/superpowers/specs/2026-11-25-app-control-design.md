@@ -193,3 +193,7 @@ standard message wording (both languages), and how the greyed state looks, withi
 
 One migration; ship the server and the app together. Old app versions are protected by the server and show the
 messages as errors; the banner and the maintenance screen need the new app version.
+
+Migration `b7d2e9c4a1f3` (the announcements table) must be applied with `alembic upgrade head` before or together
+with the new server; the announcement routes fail without the table. Ship the server first or together with the app:
+an app without the new server fails open (it reads no config and shows nothing paused).

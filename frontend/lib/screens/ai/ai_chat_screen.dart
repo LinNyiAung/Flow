@@ -731,55 +731,55 @@ class _AiChatScreenState extends State<AiChatScreen>
       child: PausedLook(
         featureKey: 'chat',
         child: Container(
-        padding: const EdgeInsets.fromLTRB(18, 6, 6, 6),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardTheme.color ?? scheme.surface,
-          border: Border.all(color: scheme.outline),
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                enabled: !chatProvider.isStreaming,
-                decoration: InputDecoration(
-                  hintText: chatProvider.isStreaming
-                      ? localizations.aiIsResponding
-                      : localizations.askAboutFinances,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.fromLTRB(18, 6, 6, 6),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardTheme.color ?? scheme.surface,
+            border: Border.all(color: scheme.outline),
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  enabled: !chatProvider.isStreaming,
+                  decoration: InputDecoration(
+                    hintText: chatProvider.isStreaming
+                        ? localizations.aiIsResponding
+                        : localizations.askAboutFinances,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  maxLines: null,
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: (_) => busy ? null : _sendMessage(),
                 ),
-                maxLines: null,
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => busy ? null : _sendMessage(),
               ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: busy ? null : _sendMessage,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(color: _accentColor(context), shape: BoxShape.circle),
-                child: busy
-                    ? Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
-                        ),
-                      )
-                    : Icon(Icons.send_rounded, size: 20, color: scheme.onPrimary),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: busy ? null : _sendMessage,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(color: _accentColor(context), shape: BoxShape.circle),
+                  child: busy
+                      ? Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                          ),
+                        )
+                      : Icon(Icons.send_rounded, size: 20, color: scheme.onPrimary),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

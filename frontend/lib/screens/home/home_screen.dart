@@ -306,9 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
             slivers: [
               // The owner's announcement (admin panel), when there is one.
               SliverToBoxAdapter(
-                child: Padding(
+                child: AnnouncementBanner(
                   padding: responsive.padding(left: 16, right: 16, top: 8),
-                  child: const AnnouncementBanner(),
                 ),
               ),
 

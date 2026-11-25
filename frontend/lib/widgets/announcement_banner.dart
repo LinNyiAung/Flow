@@ -28,7 +28,11 @@ Uri? _safeLink(String? url) {
 /// dashboard, with a close button and an optional link that opens outside the
 /// app. Shows nothing when there is none or the person closed this version.
 class AnnouncementBanner extends StatefulWidget {
-  const AnnouncementBanner({super.key});
+  const AnnouncementBanner({super.key, this.padding = EdgeInsets.zero});
+
+  /// Space around the banner; only taken when a banner shows (nothing when
+  /// there is none).
+  final EdgeInsetsGeometry padding;
 
   @override
   State<AnnouncementBanner> createState() => _AnnouncementBannerState();
@@ -93,61 +97,64 @@ class _AnnouncementBannerState extends State<AnnouncementBanner> {
     final linkUri = _safeLink(announcement.linkUrl);
     final hasLink = linkUri != null && announcement.linkLabel.isNotEmpty;
 
-    return Material(
-      color: background,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Icon(
-                warning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
-                size: 20,
-                color: foreground,
+    return Padding(
+      padding: widget.padding,
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  warning ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  size: 20,
+                  color: foreground,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    announcement.text,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: foreground),
-                  ),
-                  if (hasLink)
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: foreground,
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 32),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        alignment: Alignment.centerLeft,
-                      ),
-                      onPressed: () => _open(linkUri),
-                      child: Text(
-                        announcement.linkLabel,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      announcement.text,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: foreground),
+                    ),
+                    if (hasLink)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: foreground,
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          alignment: Alignment.centerLeft,
+                        ),
+                        onPressed: () => _open(linkUri),
+                        child: Text(
+                          announcement.linkLabel,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            IconButton(
-              icon: Icon(Icons.close_rounded, size: 20, color: foreground),
-              tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-              onPressed: () => _close(announcement),
-            ),
-          ],
+              IconButton(
+                icon: Icon(Icons.close_rounded, size: 20, color: foreground),
+                tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                onPressed: () => _close(announcement),
+              ),
+            ],
+          ),
         ),
       ),
     );

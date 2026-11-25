@@ -157,7 +157,7 @@ const Announcements = ({ token, writable, ...props }) => {
         )}
       </div>
       <p className="text-slate-400 text-sm mb-4">
-        A banner signed-in users see in the app during its time window. If several are live, the newest one shows. Changes apply within about a minute.
+        A banner signed-in users see in the app during its time window. If several are live, the newest one shows. Changes show in the app the next time it starts or comes back to the front.
       </p>
 
       <ErrorBox lines={message?.errors} />

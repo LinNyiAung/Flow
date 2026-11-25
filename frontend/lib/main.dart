@@ -151,6 +151,9 @@ class _MyAppState extends State<MyApp> {
   /// User the plan was last loaded for (see [_onAuthChanged]).
   String? _planUserId;
 
+  /// Whether maintenance was keeping this user out at the last change.
+  bool _wasBlocked = false;
+
   @override
   void initState() {
     super.initState();
@@ -169,6 +172,7 @@ class _MyAppState extends State<MyApp> {
     ApiService.onAppControlSignal = _appControlProvider.refresh;
     _bookSession.attach();
     _authProvider.addListener(_onAuthChanged);
+    _appControlProvider.addListener(_onAppControlChanged);
     _planProvider.addListener(_onPlanChanged);
     // A push about a book waits for the family to be known.
     _familyProvider.addListener(_retryPushOpen);
@@ -223,6 +227,15 @@ class _MyAppState extends State<MyApp> {
       _planProvider.refresh();
       _bookSession.signedIn(userId);
     }
+  }
+
+  /// When Retry (or a refresh) ends maintenance, the per-user data that was
+  /// skipped meanwhile (plan, unread count) is read now, not at the next resume.
+  void _onAppControlChanged() {
+    final blocked = _appControlProvider.blocked;
+    final wasBlocked = _wasBlocked;
+    _wasBlocked = blocked;
+    if (wasBlocked && !blocked) _refreshOnResume();
   }
 
   void _onPlanChanged() {
@@ -300,6 +313,7 @@ class _MyAppState extends State<MyApp> {
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
     ApiService.onAppControlSignal = null;
+    _appControlProvider.removeListener(_onAppControlChanged);
     _appControlProvider.dispose();
     _bookSession.detach();
     _familyProvider.removeListener(_retryPushOpen);

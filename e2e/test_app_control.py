@@ -44,22 +44,39 @@ def _backend_async(coro_fn):
     return asyncio.run(go())
 
 
-def _stored():
-    rows = db.sql("SELECT value FROM app_settings WHERE key = 'app_control'")
+REAL_KEY = "app_control"
+E2E_KEY = "app_control_e2e"  # the in-process tests save here, never into the row the stub server reads
+
+
+def _stored(key=REAL_KEY):
+    rows = db.sql("SELECT value FROM app_settings WHERE key = %s", key)
     return rows[0]["value"] if rows else None
 
 
-def _restore(original):
+def _restore(original, key=REAL_KEY):
     if original is None:
-        db.sql("DELETE FROM app_settings WHERE key = 'app_control'")
+        db.sql("DELETE FROM app_settings WHERE key = %s", key)
     else:
-        db.sql("INSERT INTO app_settings (key, value) VALUES ('app_control', %s) "
-               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", original)
+        db.sql("INSERT INTO app_settings (key, value) VALUES (%s, %s) "
+               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", key, original)
 
 
-def _set_raw(value):
-    db.sql("INSERT INTO app_settings (key, value) VALUES ('app_control', %s) "
-           "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", value)
+def _set_raw(value, key=REAL_KEY):
+    _restore(value, key)
+
+
+def _clean_doc(original):
+    """The document to put back through the API: the stored original, or the all-defaults document."""
+    import app_control as ac
+    return ac.validate(json.loads(original)) if original is not None else ac.validate({})
+
+
+def _use_key(key):
+    """Point the in-process settings reads and writes at `key` (read at call time); returns the previous key."""
+    from sql import app_control as app_control_db
+    prev = app_control_db.SETTINGS_KEY
+    app_control_db.SETTINGS_KEY = key
+    return prev
 
 
 # ------------------------------------------------------------------------------------------------------------ store
@@ -89,6 +106,7 @@ def section_store():
     check(ok["maintenance"]["back_by"] == "2026-12-01T10:00:00+06:30", "store: an aware back_by is kept")
 
     original = _stored()
+    prev_key = _use_key(E2E_KEY)
 
     async def run():
         await ac.save({"switches": {"voice": {"paused": True, "message_en": "Back at 5", "message_my": ""}},
@@ -115,15 +133,15 @@ def section_store():
         await ac.load()
         res["reloaded"] = ac.is_paused("voice")
         # a stored value that isn't JSON: nothing paused
-        _set_raw("not json")
+        _set_raw("not json", E2E_KEY)
         await ac.load()
         res["bad_json"] = [k for k in ac.SWITCHES if ac.is_paused(k)]
         # an older / hand-edited document: unknown key dropped, voice paused, the rest default
-        _set_raw(json.dumps({"switches": {"nope": {"paused": True}, "voice": {"paused": True}}}))
+        _set_raw(json.dumps({"switches": {"nope": {"paused": True}, "voice": {"paused": True}}}), E2E_KEY)
         await ac.load()
         res["unknown"] = ([k for k in ac.SWITCHES if ac.is_paused(k)], "nope" in ac.snapshot()["switches"])
         # nothing stored at all
-        db.sql("DELETE FROM app_settings WHERE key = 'app_control'")
+        db.sql("DELETE FROM app_settings WHERE key = %s", E2E_KEY)
         await ac.load()
         res["none"] = [k for k in ac.SWITCHES if ac.is_paused(k)]
         return res
@@ -131,7 +149,8 @@ def section_store():
     try:
         res = _backend_async(run)
     finally:
-        _restore(original)
+        _use_key(prev_key)
+        _restore(None, E2E_KEY)
 
     check(res["paused"] == (True, False), "store: save applies at once")
     check(res["en"] == "Back at 5", "store: the owner's English message")
@@ -191,7 +210,8 @@ def section_admin_api():
               and body["switches"][0] == {"key": "chat", "name_en": "Chat with Ko Toe Pwar"}
               and set(body["settings"]["switches"]) == {s["key"] for s in body["switches"]},
               "admin_api: a moderator reads the settings", f"{r.status_code} {r.text[:200]}")
-        start = body.get("settings")
+        check(body["settings"]["maintenance"]["on"] is False, "admin_api: maintenance is off at the start of the section")
+        start = _clean_doc(original)
         r = c.put("/api/admin/app-control", headers=mh, json=start)
         check(r.status_code == 403, "admin_api: a moderator can't change them", r.status_code)
         r = c.put("/api/admin/app-control", headers=ah,
@@ -219,8 +239,8 @@ def section_admin_api():
         # The server caches the document: put it back through the API too (not only in the table), or the pause
         # stays on there until its next refresh.
         try:
-            if start is not None and ah is not None:
-                c.put("/api/admin/app-control", headers=ah, json=start)
+            if ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=_clean_doc(original))
         except Exception:  # noqa: BLE001
             pass
         _restore(original)
@@ -283,7 +303,9 @@ def section_switches():
         ah_, _, aid = _admin(c, "admin")
         ah = ah_
         admins.append(aid)
-        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        seen = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        check(seen["maintenance"]["on"] is False, "switches: maintenance is off at the start of the section")
+        start = _clean_doc(original)
 
         def pause(*keys):
             sw = {k: {"paused": k in keys, "message_en": "", "message_my": ""} for k in start["switches"]}
@@ -346,12 +368,32 @@ def section_switches():
         r = c.get("/api/family", headers=plus["h"])
         check(r.status_code == 200, "switches: GET /api/family works while family_new is paused", r.status_code)
 
-        # a paused voice entry uses no entry allowance and reads no upload
+        # a paused voice entry uses no entry allowance
         pause("voice")
         before = _entry_used(plus["id"])
         r = c.post("/api/transactions/transcribe-audio", headers=plus["h"], files=audio)
         check(r.status_code == 403 and _entry_used(plus["id"]) == before,
               "switches: a paused voice entry uses no entry allowance", f"{r.status_code} {before} {_entry_used(plus['id'])}")
+
+        # a voice entry already paid for finishes while voice is paused; without a valid token it is refused
+        pause()
+        r = c.post("/api/transactions/transcribe-audio", headers=plus["h"], files=audio)
+        tj = r.json() if r.status_code == 200 else {}
+        token, text = tj.get("voice_token"), (tj.get("transcription") or "").strip()
+        check(bool(token and text), "switches: transcribe-audio returns a transcript and a voice token while unpaused",
+              f"{r.status_code} {r.text[:200]}")
+        pause("voice")
+        used_before = _entry_used(plus["id"])
+        for path in ("/api/transactions/extract-from-text", "/api/transactions/extract-multiple-from-text"):
+            r = c.post(path, headers=plus["h"], json={"text": text, "voice_token": token})
+            check(r.status_code == 200, f"switches: {path} with its voice token works while voice is paused",
+                  f"{r.status_code} {r.text[:200]}")
+            r = c.post(path, headers=plus["h"], json={"text": text})
+            d = r.json().get("detail", {}) if r.status_code == 403 else {}
+            check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == "voice",
+                  f"switches: {path} without a token is refused while voice is paused", f"{r.status_code} {r.text[:200]}")
+        check(_entry_used(plus["id"]) == used_before, "switches: the token-paid text steps used no further allowance",
+              f"{used_before} {_entry_used(plus['id'])}")
 
         # sign-ups: both languages, no user row
         pause("signups")
@@ -418,6 +460,13 @@ def section_switches():
         from tz_utils import default_zone
 
         async def scheduled(paused):
+            prev = _use_key(E2E_KEY)  # never the row the stub server reads
+            try:
+                return await scheduled_inner(paused)
+            finally:
+                _use_key(prev)
+
+        async def scheduled_inner(paused):
             import app_control as ac
             import insights_service as ins
             doc = ac.snapshot()
@@ -450,7 +499,7 @@ def section_switches():
             check(calls and err is None, "switches: _scheduled_insight makes the report again once unpaused", (calls, err))
             check(gets_ai is True, "switches: _owner_gets_ai_budgets is True for a Plus owner when not paused")
         finally:
-            _restore(original)
+            _restore(None, E2E_KEY)
 
         # everything back on: chat works again
         pause()
@@ -460,8 +509,8 @@ def section_switches():
         check(r.status_code == 200, "switches: POST /api/chat/stream works again once unpaused", f"{r.status_code} {r.text[:200]}")
     finally:
         try:
-            if start is not None and ah is not None:
-                c.put("/api/admin/app-control", headers=ah, json=start)
+            if ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=_clean_doc(original))
         except Exception:  # noqa: BLE001
             pass
         _restore(original)
@@ -577,7 +626,9 @@ def section_config():
     try:
         ah, _, aid = _admin(c, "admin")
         admins.append(aid)
-        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        seen = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        check(seen["maintenance"]["on"] is False, "config: maintenance is off at the start of the section")
+        start = _clean_doc(original)
         plus = _person(c, made, "CfgPlus")
         free = _person(c, made, "CfgFree", plan="free")
         base = "/api/admin/app-control/announcements"
@@ -665,8 +716,8 @@ def section_config():
         check(c.get("/api/app/latest-android").status_code == 200, "config: /api/app/latest-android is still served")
     finally:
         try:
-            if start is not None and ah is not None:
-                c.put("/api/admin/app-control", headers=ah, json=start)
+            if ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=_clean_doc(original))
         except Exception:  # noqa: BLE001
             pass
         _restore(original)
@@ -691,7 +742,9 @@ def section_maintenance():
     try:
         ah, _, aid = _admin(c, "admin")
         admins.append(aid)
-        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        seen = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        check(seen["maintenance"]["on"] is False, "maintenance: maintenance is off at the start of the section")
+        start = _clean_doc(original)
         tester = _person(c, made, "MtTester")
         user = _person(c, made, "MtUser")
         tester_h, user_h = tester["h"], user["h"]
@@ -720,6 +773,13 @@ def section_maintenance():
                                                      "Access-Control-Request-Method": "GET"})
         check(r.status_code == 200, "maintenance: a CORS preflight still passes", r.status_code)
         check(c.get("/").status_code != 503, "maintenance: the root health check stays open")
+        for name, resp in (
+                ("verify-email", c.get("/api/auth/verify-email", params={"email": user["email"], "token": "bad"})),
+                ("resend-verification", c.post("/api/auth/resend-verification", json={"email": user["email"]})),
+                ("forgot-password/request-otp",
+                 c.post("/api/auth/forgot-password/request-otp", json={"email": user["email"]})),
+                ("check-version", c.post("/api/app/check-version", json={"version": "1.0.0", "platform": "android"}))):
+            check(resp.status_code != 503, f"maintenance: {name} stays open", resp.status_code)
         r = c.get("/api/transactions", headers={"Authorization": "Bearer not.a.token"})
         check(r.status_code == 503, "maintenance: a garbage token is not a tester", r.status_code)
         # a back_by time is in the 503
@@ -730,8 +790,8 @@ def section_maintenance():
               "maintenance: back_by is in the 503", r.text[:200])
     finally:
         try:
-            if start is not None and ah is not None:
-                c.put("/api/admin/app-control", headers=ah, json=start)
+            if ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=_clean_doc(original))
         except Exception:  # noqa: BLE001
             pass
         _restore(original)
