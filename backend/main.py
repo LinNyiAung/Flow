@@ -164,6 +164,10 @@ try:
 except Exception as e:
     print(f"⚠️  Failed to initialize Firebase: {e}")
 
+# Added before CORSMiddleware: the last-added middleware is the outermost, so CORS wraps the gate (CORS headers on its
+# 503, and preflights are answered by CORS before reaching it).
+app.add_middleware(app_control.MaintenanceGate)
+
 app.add_middleware(
     CORSMiddleware,
     # See CORS_ALLOWED_ORIGINS in config.py (default "*"). Auth uses the Authorization

@@ -249,6 +249,62 @@ def is_tester(email: Optional[str]) -> bool:
     return bool(email) and email.strip().lower() in _testers
 
 
+MAINTENANCE_OPEN_PREFIXES = (
+    "/api/admin/", "/api/app/config", "/api/app/check-version", "/api/app/latest-android", "/api/plan/public",
+    "/api/auth/login", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password/",
+)
+
+
+def _bearer_email(scope) -> Optional[str]:
+    """The email in the request's user token, or None for no token or one that doesn't decode. No DB lookup."""
+    for name, value in scope.get("headers") or ():
+        if name == b"authorization":
+            scheme, _, token = value.decode("latin-1").partition(" ")
+            if scheme.lower() != "bearer" or not token.strip():
+                return None
+            try:
+                import utils
+                return utils._decode_user_token(token.strip()).get("sub")
+            except Exception:  # noqa: BLE001 - any failure is "not a tester"
+                return None
+    return None
+
+
+class MaintenanceGate:
+    """
+    ASGI middleware: while maintenance is on, the app API (/api/...) answers 503 with the owner's message in both
+    languages. Left open: the admin API, the config/version/plan endpoints, sign-in and email steps, GET
+    /api/auth/me (older apps reach their home screen and show the message on the next action), CORS preflights,
+    anything outside /api/, and testers (by the email in the bearer token). Register it before CORSMiddleware so
+    CORS wraps it and the 503 carries CORS headers.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    def _open(self, scope) -> bool:
+        path = scope.get("path", "")
+        if not path.startswith("/api/") or scope.get("method") == "OPTIONS":
+            return True
+        if path.startswith(MAINTENANCE_OPEN_PREFIXES):
+            return True
+        if scope.get("method") == "GET" and path.rstrip("/") == "/api/auth/me":
+            return True
+        return is_tester(_bearer_email(scope))
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and maintenance_on() and not self._open(scope):
+            back_by = maintenance_back_by()
+            detail = {"code": "maintenance",
+                      "message": maintenance_message("en") + "\n\n" + maintenance_message("my"),
+                      "back_by": back_by.isoformat() if back_by else None}
+            from fastapi.responses import JSONResponse
+            await JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                               content={"detail": detail})(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 # ---- announcements ----
 
 MAX_ANNOUNCEMENT = 500

@@ -681,8 +681,88 @@ def section_config():
     check(_stored() == original, "config: the stored document is back as it was")
 
 
+# ------------------------------------------------------------------------------------------------------ maintenance
+def section_maintenance():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    original = _stored()
+    admins, made = [], []
+    start = ah = None
+    try:
+        ah, _, aid = _admin(c, "admin")
+        admins.append(aid)
+        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        tester = _person(c, made, "MtTester")
+        user = _person(c, made, "MtUser")
+        tester_h, user_h = tester["h"], user["h"]
+        check(c.get("/api/transactions", headers=user_h).status_code == 200, "maintenance: open while it is off")
+        m = {"on": True, "message_en": "", "message_my": "", "back_by": None,
+             "testers": [f" {tester['email'].capitalize()} "]}
+        r = c.put("/api/admin/app-control", headers=ah, json={**start, "maintenance": m})
+        check(r.status_code == 200, "maintenance: turned on", f"{r.status_code} {r.text[:200]}")
+        r = c.get("/api/transactions", headers=user_h)
+        d = (r.json().get("detail") or {}) if r.status_code == 503 else {}
+        check(r.status_code == 503 and d.get("code") == "maintenance", "maintenance: the app API is closed",
+              f"{r.status_code} {r.text[:200]}")
+        check("\n\n" in d.get("message", ""), "maintenance: the message carries both languages", d)
+        check(d.get("back_by", "x") is None, "maintenance: back_by is null when not set", d)
+        check(c.get("/api/transactions", headers=tester_h).status_code == 200, "maintenance: a tester gets in")
+        check(c.get("/api/admin/app-control", headers=ah).status_code == 200, "maintenance: the admin API stays open")
+        for path in ("/api/app/config", "/api/plan/public", "/api/app/latest-android"):
+            check(c.get(path).status_code != 503, f"maintenance: {path} stays open")
+        check(c.post("/api/auth/login", json={"email": user["email"], "password": "secret123"}).status_code == 200,
+              "maintenance: sign-in stays open")
+        check(c.get("/api/auth/me", headers=user_h).status_code == 200, "maintenance: GET /api/auth/me stays open")
+        r = c.get("/api/transactions", headers={**user_h, "Origin": "https://app.example.com"})
+        check(r.status_code == 503 and "access-control-allow-origin" in r.headers,
+              "maintenance: the 503 carries CORS headers")
+        r = c.options("/api/transactions", headers={"Origin": "https://app.example.com",
+                                                     "Access-Control-Request-Method": "GET"})
+        check(r.status_code == 200, "maintenance: a CORS preflight still passes", r.status_code)
+        check(c.get("/").status_code != 503, "maintenance: the root health check stays open")
+        r = c.get("/api/transactions", headers={"Authorization": "Bearer not.a.token"})
+        check(r.status_code == 503, "maintenance: a garbage token is not a tester", r.status_code)
+        # a back_by time is in the 503
+        m2 = {**m, "back_by": (datetime.now(UTC) + timedelta(hours=1)).isoformat()}
+        c.put("/api/admin/app-control", headers=ah, json={**start, "maintenance": m2})
+        r = c.get("/api/transactions", headers=user_h)
+        check(r.status_code == 503 and (r.json()["detail"].get("back_by") or "").startswith(m2["back_by"][:16]),
+              "maintenance: back_by is in the 503", r.text[:200])
+    finally:
+        try:
+            if start is not None and ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=start)
+        except Exception:  # noqa: BLE001
+            pass
+        _restore(original)
+        made = [m_ for m_ in made if m_]
+        if made:
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+        if admins:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", admins)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", admins)
+    check(_stored() == original, "maintenance: the stored document is back as it was")
+    try:
+        r = httpx.Client(base_url=BASE, timeout=60).get("/api/plan/public")
+        check(r.status_code != 503, "maintenance: the server is open again", r.status_code)
+    except Exception as e:  # noqa: BLE001
+        check(False, "maintenance: the server is open again", e)
+
+
+# ---------------------------------------------------------------------------------------------------------- clean
+def section_clean():
+    check(_stored() == RUN_START, "clean: the stored document equals the one at the start of the run",
+          f"{RUN_START!r} -> {_stored()!r}")
+    now = db.sql("SELECT id FROM announcements")
+    check(sorted(r["id"] for r in now) == RUN_ANNOUNCEMENTS, "clean: no test announcements are left",
+          f"{len(RUN_ANNOUNCEMENTS)} -> {len(now)}")
+
+
 SECTIONS = {"store": section_store, "admin_api": section_admin_api, "switches": section_switches,
-            "announcements": section_announcements, "config": section_config}
+            "announcements": section_announcements, "config": section_config,
+            "maintenance": section_maintenance, "clean": section_clean}
+RUN_START = _stored()  # the document and the announcements as they were before anything ran
+RUN_ANNOUNCEMENTS = sorted(r["id"] for r in db.sql("SELECT id FROM announcements"))
 
 
 def main():
