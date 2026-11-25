@@ -28,7 +28,28 @@ class AppControlProvider extends ChangeNotifier with WidgetsBindingObserver {
       : _fetch = fetcher ??
             (() => ApiService.getAppConfig(lang: ApiService.currentLanguage)) {
     WidgetsBinding.instance.addObserver(this);
+    // A dead server must not hold the app at the start-up spinner: after
+    // [startTimeout] carry on with "nothing paused" (a late read still applies).
+    _startTimer = Timer(startTimeout, _markInitialized);
     unawaited(refresh());
+  }
+
+  /// How long the start-up waits for the first read.
+  static const Duration startTimeout = Duration(seconds: 10);
+
+  Timer? _startTimer;
+  bool _initialized = false;
+
+  /// The first read has finished (or [startTimeout] passed): the app may now
+  /// decide between the maintenance screen and login.
+  bool get initialized => _initialized;
+
+  void _markInitialized() {
+    _startTimer?.cancel();
+    _startTimer = null;
+    if (_initialized) return;
+    _initialized = true;
+    notifyListeners();
   }
 
   /// The provider above [context], or null when there is none (a screen shown
@@ -83,6 +104,7 @@ class AppControlProvider extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _running = null;
       _loading = false;
+      _markInitialized();
       notifyListeners();
     }
   }
@@ -100,6 +122,7 @@ class AppControlProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _startTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

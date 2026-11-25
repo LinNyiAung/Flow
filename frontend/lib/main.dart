@@ -492,12 +492,18 @@ class _AuthWrapperState extends State<AuthWrapper> {
         // with a small "Sign in" for a tester who is signed out. A tester's
         // config says they may enter, so this passes for them. ──
         final appControl = AppControlProvider.maybeOf(context);
+        // The first read of the config comes first (at most 10 s), so a
+        // signed-out person never sees login before the maintenance screen
+        // or the closed sign-ups.
+        if (appControl != null && !appControl.initialized) {
+          return const _StartupSpinner();
+        }
         if (appControl != null && appControl.blocked) {
           if (!authProvider.isAuthenticated && _showTesterSignIn) {
             return _testerSignIn();
           }
           return MaintenanceScreen(
-            onSignIn: authProvider.isAuthenticated
+            onSignIn: authProvider.isAuthenticated || authProvider.isAuthChecking
                 ? null
                 : () => setState(() => _showTesterSignIn = true),
           );

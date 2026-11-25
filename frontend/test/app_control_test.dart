@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -33,10 +34,12 @@ AppConfig _config({
 
 /// Signed out, with no session to restore.
 class _SignedOut extends AuthProvider {
+  _SignedOut({this.checking = false});
+  final bool checking;
   @override
   bool get isAuthenticated => false;
   @override
-  bool get isAuthChecking => false;
+  bool get isAuthChecking => checking;
   @override
   Future<void> checkAuthStatus() async {}
 }
@@ -46,11 +49,12 @@ Future<void> _pumpApp(
   Widget home,
   AppControlProvider control, {
   String lang = 'en',
+  bool authChecking = false,
 }) async {
   SharedPreferences.setMockInitialValues({});
   await tester.pumpWidget(MultiProvider(
     providers: [
-      ChangeNotifierProvider<AuthProvider>(create: (_) => _SignedOut()),
+      ChangeNotifierProvider<AuthProvider>(create: (_) => _SignedOut(checking: authChecking)),
       ChangeNotifierProvider<AppVersionProvider>(create: (_) => AppVersionProvider()),
       ChangeNotifierProvider<AppControlProvider>.value(value: control),
     ],
@@ -305,6 +309,42 @@ void main() {
   });
 
   group('start-up gate', () {
+    testWidgets('waits for the first read: spinner, then maintenance', (tester) async {
+      final gate = Completer<AppConfig>();
+      final control = AppControlProvider(fetcher: () => gate.future);
+      await _pumpApp(tester, const AuthWrapper(), control);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(find.byType(MaintenanceScreen), findsNothing);
+
+      gate.complete(_config(on: true, canEnter: false));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(MaintenanceScreen), findsOneWidget);
+      expect(find.byType(LoginScreen), findsNothing);
+      control.dispose();
+    });
+
+    testWidgets('a read that never returns lets the app carry on after 10 s', (tester) async {
+      final control = AppControlProvider(fetcher: () => Completer<AppConfig>().future);
+      await _pumpApp(tester, const AuthWrapper(), control);
+      await tester.pump(const Duration(seconds: 9));
+      expect(find.byType(LoginScreen), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(control.blocked, isFalse);
+      control.dispose();
+    });
+
+    testWidgets('no Sign in link while the saved session is being restored', (tester) async {
+      final control = AppControlProvider(fetcher: () async => _config(on: true, canEnter: false));
+      await control.refresh();
+      await _pumpApp(tester, const AuthWrapper(), control, authChecking: true);
+      expect(find.byType(MaintenanceScreen), findsOneWidget);
+      expect(find.text('Sign in'), findsNothing);
+      control.dispose();
+    });
+
     testWidgets('maintenance shows before login; Sign in opens login, back returns', (tester) async {
       final control = AppControlProvider(
         fetcher: () async => _config(on: true, canEnter: false, message: 'Back soon.'),
