@@ -15,7 +15,7 @@ from sqlalchemy import (
     Boolean, CheckConstraint, Column, Date, DateTime, Double, ForeignKey, Index, Integer, MetaData,
     Numeric, SmallInteger, Table, Text, UniqueConstraint, func, text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -542,6 +542,25 @@ app_settings = Table(
     Column("key", Text, primary_key=True),
     Column("value", Text, nullable=False),
     Column("updated_at", TS, nullable=False, server_default=func.now()),
+)
+
+# A notice the owner shows inside the app to the users of some plans between two instants (App control).
+announcements = Table(
+    "announcements", metadata,
+    Column("id", Text, primary_key=True),
+    Column("text_en", Text, nullable=False),
+    Column("text_my", Text, nullable=False),
+    Column("style", Text, nullable=False),
+    Column("link_url", Text),
+    Column("link_label_en", Text),
+    Column("link_label_my", Text),
+    Column("plans", ARRAY(Text), nullable=False),
+    Column("starts_at", TS, nullable=False),
+    Column("ends_at", TS),  # null: no end
+    Column("created_by", Text),
+    Column("created_at", TS, nullable=False, server_default=func.now()),
+    Column("updated_at", TS, nullable=False, server_default=func.now()),
+    CheckConstraint("style IN ('info','warning')", name="style"),
 )
 
 usage_counters = Table(

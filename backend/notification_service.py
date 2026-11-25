@@ -158,6 +158,7 @@ NOTIFICATION_TRANSLATIONS = {
         # App control (admin switches and maintenance): the standard texts when the owner wrote none.
         "feature_paused_msg": "{feature} is paused for now. Please try again later.",
         "maintenance_msg": "Toe Pwar is under maintenance. Please try again soon.",
+        "announcement_open": "Open",
         "app_switch_chat": "Chat with Ko Toe Pwar",
         "app_switch_voice": "Voice entry",
         "app_switch_receipts": "Receipt photos",
@@ -294,6 +295,7 @@ NOTIFICATION_TRANSLATIONS = {
         # App control (admin switches and maintenance): the standard texts when the owner wrote none.
         "feature_paused_msg": "{feature} ကို ခေတ္တရပ်ထားပါတယ်။ နောက်မှ ပြန်ကြိုးစားကြည့်ပါ။",
         "maintenance_msg": "တိုးပွား ကို ပြုပြင်ထိန်းသိမ်းနေပါတယ်။ မကြာမီ ပြန်ကြိုးစားကြည့်ပါ။",
+        "announcement_open": "ဖွင့်ကြည့်ရန်",
         "app_switch_chat": "ကိုတိုးပွားနှင့် စကားပြောခြင်း",
         "app_switch_voice": "အသံဖြင့် မှတ်တမ်းတင်ခြင်း",
         "app_switch_receipts": "ဘောက်ချာ ဓာတ်ပုံများ",

@@ -5,6 +5,9 @@ Sections (named on the command line, all by default):
     languages, FeaturePaused, a bad or older stored document, tester matching.
   admin_api -- GET/PUT /api/admin/app-control over HTTP: a moderator reads and can't change, an admin changes, a bad
     document is a readable 422, the change is in the admin log.
+  announcements -- /api/admin/app-control/announcements: create, validation (link, naive times, order, texts), update,
+    delete, the admin log, moderator read-only.
+  config -- GET /api/app/config: signed out, per plan, time windows, newest wins, invalid token, maintenance can_enter.
 Every section that changes the stored settings puts the original document back in `finally`.
 """
 import asyncio
@@ -12,7 +15,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("E2E_FAKE_AI", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -472,7 +475,214 @@ def section_switches():
     check(_stored() == original, "switches: the stored document is back as it was")
 
 
-SECTIONS = {"store": section_store, "admin_api": section_admin_api, "switches": section_switches}
+# ---------------------------------------------------------------------------------------------------- announcements
+def _ann(plans=("plus",), start=-1, end=1, **over):
+    """An announcement body: starts `start` hours from now, ends `end` hours from now (None: no end)."""
+    now = datetime.now(UTC)
+    body = {"text_en": "Hello", "text_my": "မင်္ဂလာပါ", "style": "info", "plans": list(plans),
+            "starts_at": (now + timedelta(hours=start)).isoformat(),
+            "ends_at": None if end is None else (now + timedelta(hours=end)).isoformat()}
+    body.update(over)
+    return body
+
+
+def section_announcements():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    original = _stored()
+    admins, ann_ids = [], []
+    try:
+        mh, _, mid = _admin(c, "moderator")
+        ah, aemail, aid = _admin(c, "admin")
+        admins += [mid, aid]
+        base = "/api/admin/app-control/announcements"
+        r = c.post(base, headers=ah, json=_ann(link_url="https://example.com/x", link_label_en="Read"))
+        made = r.json() if r.status_code == 200 else {}
+        if made.get("id"):
+            ann_ids.append(made["id"])
+        check(r.status_code == 200 and made.get("plans") == ["plus"] and made.get("link_url") == "https://example.com/x"
+              and made.get("created_by") == aemail and made.get("style") == "info",
+              "announcements: an admin creates one", f"{r.status_code} {r.text[:200]}")
+        aid1 = made.get("id")
+        bads = [("an ftp link", _ann(link_url="ftp://x")),
+                ("a link with no host", _ann(link_url="https://")),
+                ("a label with no link", _ann(link_label_en="Read")),
+                ("a label that is too long", _ann(link_url="https://e.com", link_label_my="x" * 41)),
+                ("a link that is too long", _ann(link_url="https://e.com/" + "x" * 500)),
+                ("a naive start", _ann(starts_at="2026-12-01T10:00:00")),
+                ("a naive end", _ann(ends_at="2026-12-01T10:00:00")),
+                ("an end before the start", _ann(start=1, end=-1)),
+                ("an end equal to the start", _ann(starts_at="2026-12-01T10:00:00Z", ends_at="2026-12-01T10:00:00Z")),
+                ("no start", _ann(starts_at=None)),
+                ("a missing Myanmar text", _ann(text_my=None)),
+                ("an empty English text", _ann(text_en="  ")),
+                ("a text over 500", _ann(text_en="x" * 501)),
+                ("a bad style", _ann(style="danger")),
+                ("no plans", _ann(plans=())),
+                ("an unknown plan", _ann(plans=("gold",))),
+                ("an unknown field", {**_ann(), "extra": 1})]
+        for name, body in bads:
+            r = c.post(base, headers=ah, json=body)
+            if r.status_code == 200 and r.json().get("id"):
+                ann_ids.append(r.json()["id"])
+            check(r.status_code == 422, f"announcements: {name} is a 422", f"{r.status_code} {r.text[:200]}")
+        r = c.post(base, headers=ah, json=_ann(plans=("plus",), link_url="https://e.com/" + "x" * 480))
+        if r.status_code == 200:
+            ann_ids.append(r.json()["id"])
+        check(r.status_code == 200, "announcements: a link under 500 characters is fine", r.status_code)
+        r = c.post(base, headers=mh, json=_ann())
+        check(r.status_code == 403, "announcements: a moderator can't create", r.status_code)
+        r = c.get(base, headers=mh)
+        check(r.status_code == 200 and any(a["id"] == aid1 for a in r.json()),
+              "announcements: a moderator lists them", f"{r.status_code} {r.text[:200]}")
+        r = c.get(base)
+        check(r.status_code in (401, 403), "announcements: no token is refused", r.status_code)
+        r = c.put(f"{base}/{aid1}", headers=ah, json=_ann(plans=("plus", "pro"), text_en="Changed", style="warning"))
+        check(r.status_code == 200 and r.json()["text_en"] == "Changed" and r.json()["plans"] == ["plus", "pro"]
+              and r.json()["style"] == "warning" and r.json()["link_url"] is None,
+              "announcements: an admin updates one", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"{base}/{aid1}", headers=ah, json=_ann(link_url="ftp://x"))
+        check(r.status_code == 422, "announcements: an update is validated too", r.status_code)
+        r = c.put(f"{base}/nope", headers=ah, json=_ann())
+        check(r.status_code == 404, "announcements: updating an unknown one is a 404", r.status_code)
+        r = c.put(f"{base}/{aid1}", headers=mh, json=_ann())
+        check(r.status_code == 403, "announcements: a moderator can't update", r.status_code)
+        r = c.delete(f"{base}/{aid1}", headers=mh)
+        check(r.status_code == 403, "announcements: a moderator can't delete", r.status_code)
+        r = c.delete(f"{base}/{aid1}", headers=ah)
+        check(r.status_code == 200, "announcements: an admin deletes one", f"{r.status_code} {r.text[:200]}")
+        r = c.delete(f"{base}/{aid1}", headers=ah)
+        check(r.status_code == 404, "announcements: deleting it again is a 404", r.status_code)
+        actions = {x["action"] for x in db.sql("SELECT action FROM admin_action_logs WHERE admin_id = %s", aid)}
+        check({"announcement_create", "announcement_update", "announcement_delete"} <= actions,
+              "announcements: create, update and delete are in the admin log", actions)
+    finally:
+        if ann_ids:
+            db.sql("DELETE FROM announcements WHERE id = ANY(%s)", ann_ids)
+        _restore(original)
+        if admins:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", admins)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", admins)
+    check(_stored() == original, "announcements: the stored document is back as it was")
+
+
+# ------------------------------------------------------------------------------------------------------------ config
+def section_config():
+    import httpx
+    from notification_service import translate
+    c = httpx.Client(base_url=BASE, timeout=60)
+    original = _stored()
+    admins, made, ann_ids = [], [], []
+    start = ah = None
+    try:
+        ah, _, aid = _admin(c, "admin")
+        admins.append(aid)
+        start = c.get("/api/admin/app-control", headers=ah).json()["settings"]
+        plus = _person(c, made, "CfgPlus")
+        free = _person(c, made, "CfgFree", plan="free")
+        base = "/api/admin/app-control/announcements"
+
+        def add(**kw):
+            r = c.post(base, headers=ah, json=_ann(**kw))
+            if r.status_code == 200:
+                ann_ids.append(r.json()["id"])
+            else:
+                check(False, "config: could not create the announcement", f"{r.status_code} {r.text[:200]}")
+            return r.json()
+
+        def put_settings(paused=(), on=False, testers=()):
+            sw = {k: {"paused": k in paused, "message_en": "", "message_my": ""} for k in start["switches"]}
+            m = {"on": on, "message_en": "", "message_my": "", "back_by": None, "testers": list(testers)}
+            r = c.put("/api/admin/app-control", headers=ah, json={"switches": sw, "maintenance": m})
+            check(r.status_code == 200, "config: settings saved", f"{r.status_code} {r.text[:200]}")
+
+        put_settings(paused=("voice",))
+        live = add(plans=("plus",), text_en="Plus news", text_my="Plus သတင်း", start=-1, end=1)
+        add(plans=("free",), text_en="Free news", text_my="Free သတင်း", start=-1, end=1)
+        add(plans=("plus",), text_en="Soon", text_my="မကြာမီ", start=1, end=2)
+        add(plans=("plus",), text_en="Over", text_my="ပြီးပြီ", start=-3, end=-2)
+        # signed out
+        r = c.get("/api/app/config?lang=my")
+        b = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and b.get("announcement") is None, "config: signed out has no announcement",
+              f"{r.status_code} {r.text[:300]}")
+        want = translate("feature_paused_msg", "my", feature=translate("app_switch_voice", "my"))
+        check(b.get("paused") == {"voice": want}, "config: only paused switches, messages in Myanmar", b.get("paused"))
+        check(b.get("maintenance") == {"on": False, "message": translate("maintenance_msg", "my"), "back_by": None,
+                                       "can_enter": True}, "config: maintenance off, anyone can enter", b.get("maintenance"))
+        r = c.get("/api/app/config")
+        check(r.json()["paused"] == {"voice": translate("feature_paused_msg", "en",
+                                                         feature=translate("app_switch_voice", "en"))},
+              "config: English is the default language")
+        # a Plus user
+        r = c.get("/api/app/config?lang=en", headers=plus["h"])
+        a = (r.json() if r.status_code == 200 else {}).get("announcement") or {}
+        check(a.get("id") == live["id"] and a.get("text") == "Plus news" and a.get("style") == "info"
+              and a.get("link_url") is None and a.get("link_label") is None and a.get("updated_at"),
+              "config: a Plus user gets the live Plus announcement (future and ended ones are not shown)",
+              f"{r.status_code} {r.text[:300]}")
+        r = c.get("/api/app/config?lang=my", headers=plus["h"])
+        check((r.json().get("announcement") or {}).get("text") == "Plus သတင်း", "config: in the user's language (my)")
+        r = c.get("/api/app/config", headers=free["h"])
+        check((r.json().get("announcement") or {}).get("text") == "Free news",
+              "config: a Free user gets the Free one, not the Plus one", r.text[:300])
+        # link label fallbacks
+        db.sql("UPDATE announcements SET link_url = 'https://example.com', link_label_en = NULL, link_label_my = '' "
+               "WHERE id = %s", live["id"])
+        a = c.get("/api/app/config?lang=en", headers=plus["h"]).json().get("announcement") or {}
+        check(a.get("link_url") == "https://example.com" and a.get("link_label") == "Open",
+              "config: an empty link label falls back to Open", a)
+        a = c.get("/api/app/config?lang=my", headers=plus["h"]).json().get("announcement") or {}
+        check(a.get("link_label") == translate("announcement_open", "my") and a["link_label"] != "Open",
+              "config: an empty Myanmar link label falls back to the Myanmar text", a)
+        db.sql("UPDATE announcements SET link_label_en = 'Read it' WHERE id = %s", live["id"])
+        a = c.get("/api/app/config?lang=en", headers=plus["h"]).json().get("announcement") or {}
+        check(a.get("link_label") == "Read it", "config: the link label is used when set", a)
+        # two live ones: the newer start wins
+        newer = add(plans=("plus",), text_en="Newer", text_my="အသစ်", start=-0.5, end=None)
+        a = c.get("/api/app/config", headers=plus["h"]).json().get("announcement") or {}
+        check(a.get("id") == newer["id"], "config: of two live announcements the newer start wins", a)
+        # a plan that expired counts as Free
+        db.sql("UPDATE users SET subscription_expires_at = now() - interval '1 day' WHERE id = %s", plus["id"])
+        a = c.get("/api/app/config", headers=plus["h"]).json().get("announcement") or {}
+        check(a.get("text") == "Free news", "config: an expired Plus plan is chosen as Free", a)
+        # invalid tokens are signed out, never 401
+        for name, h in (("a garbage token", {"Authorization": "Bearer not.a.token"}),
+                        ("a wrong scheme", {"Authorization": "Basic abc"}),
+                        ("an admin token", ah)):
+            r = c.get("/api/app/config", headers=h)
+            check(r.status_code == 200 and r.json()["announcement"] is None,
+                  f"config: {name} is answered as signed out", f"{r.status_code} {r.text[:200]}")
+        # maintenance: testers can enter
+        put_settings(on=True, testers=(plus["email"].upper(),))
+        b = c.get("/api/app/config", headers=plus["h"]).json()
+        check(b["maintenance"]["on"] is True and b["maintenance"]["can_enter"] is True,
+              "config: a tester can enter during maintenance", b["maintenance"])
+        for name, h in (("a non-tester", free["h"]), ("a signed-out caller", {})):
+            b = c.get("/api/app/config", headers=h).json()
+            check(b["maintenance"]["on"] is True and b["maintenance"]["can_enter"] is False,
+                  f"config: {name} cannot enter during maintenance", b["maintenance"])
+        check(c.get("/api/app/latest-android").status_code == 200, "config: /api/app/latest-android is still served")
+    finally:
+        try:
+            if start is not None and ah is not None:
+                c.put("/api/admin/app-control", headers=ah, json=start)
+        except Exception:  # noqa: BLE001
+            pass
+        _restore(original)
+        if ann_ids:
+            db.sql("DELETE FROM announcements WHERE id = ANY(%s)", ann_ids)
+        made = [m for m in made if m]
+        if made:
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+        if admins:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", admins)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", admins)
+    check(_stored() == original, "config: the stored document is back as it was")
+
+
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "switches": section_switches,
+            "announcements": section_announcements, "config": section_config}
 
 
 def main():

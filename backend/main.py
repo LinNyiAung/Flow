@@ -77,7 +77,7 @@ from plans_admin_routes import requests_router as upgrade_requests_admin_router
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
 import app_control
-from app_control_routes import admin_router as app_control_admin_router
+from app_control_routes import admin_router as app_control_admin_router, public_router as app_control_public_router
 from plans import periods, quota
 from plans import store as plan_store
 from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan, user_language
@@ -106,6 +106,7 @@ app.include_router(plans_admin_router)
 app.include_router(upgrade_requests_admin_router)
 app.include_router(plans_router)
 app.include_router(app_control_admin_router)
+app.include_router(app_control_public_router)
 
 
 @app.on_event("startup")

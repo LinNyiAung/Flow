@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional
 from fastapi import HTTPException, status
 
 from notification_service import translate
+from plans.catalog import PLANS
 from sql import app_control as app_control_db
 
 logger = logging.getLogger(__name__)
@@ -246,3 +247,81 @@ def maintenance_back_by() -> Optional[datetime]:
 
 def is_tester(email: Optional[str]) -> bool:
     return bool(email) and email.strip().lower() in _testers
+
+
+# ---- announcements ----
+
+MAX_ANNOUNCEMENT = 500
+MAX_LINK = 500
+MAX_LINK_LABEL = 40
+STYLES = ("info", "warning")
+
+
+def _required_text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} is required")
+    value = value.strip()
+    if len(value) > MAX_ANNOUNCEMENT:
+        raise ValueError(f"{label} is longer than {MAX_ANNOUNCEMENT} characters")
+    return value
+
+
+def _optional_text(value: Any, label: str, limit: int) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text")
+    value = value.strip()
+    if len(value) > limit:
+        raise ValueError(f"{label} is longer than {limit} characters")
+    return value or None
+
+
+def _aware(value: Any, label: str) -> datetime:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.strip())
+        except ValueError:
+            raise ValueError(f"{label} is not a valid date and time")
+    if not isinstance(value, datetime):
+        raise ValueError(f"{label} must be a date and time")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{label} needs a time zone (for example +06:30 or Z)")
+    return value
+
+
+def validate_announcement(body: Mapping) -> dict:
+    """The announcement fields cleaned (datetimes aware); ValueError (one readable message) if invalid."""
+    if not isinstance(body, Mapping):
+        raise ValueError("The announcement must be an object")
+    style = body.get("style")
+    if style not in STYLES:
+        raise ValueError("The style must be info or warning")
+    plans = body.get("plans")
+    if not isinstance(plans, (list, tuple)) or not plans:
+        raise ValueError("Choose at least one plan")
+    clean_plans: List[str] = []
+    for p in plans:
+        if p not in PLANS:
+            raise ValueError(f"Unknown plan: {p}")
+        if p not in clean_plans:
+            clean_plans.append(p)
+    link_url = _optional_text(body.get("link_url"), "The link", MAX_LINK)
+    if link_url is not None and (not re.match(r"^https?://\S+$", link_url, re.IGNORECASE)):
+        raise ValueError("The link must start with http:// or https://")
+    label_en = _optional_text(body.get("link_label_en"), "The English link label", MAX_LINK_LABEL)
+    label_my = _optional_text(body.get("link_label_my"), "The Myanmar link label", MAX_LINK_LABEL)
+    if link_url is None and (label_en or label_my):
+        raise ValueError("A link label needs a link")
+    if body.get("starts_at") in (None, ""):
+        raise ValueError("The start time is required")
+    starts_at = _aware(body.get("starts_at"), "The start time")
+    ends_at = None
+    if body.get("ends_at") not in (None, ""):
+        ends_at = _aware(body.get("ends_at"), "The end time")
+        if ends_at <= starts_at:
+            raise ValueError("The end time must be after the start time")
+    return {"text_en": _required_text(body.get("text_en"), "The English text"),
+            "text_my": _required_text(body.get("text_my"), "The Myanmar text"),
+            "style": style, "link_url": link_url, "link_label_en": label_en, "link_label_my": label_my,
+            "plans": clean_plans, "starts_at": starts_at, "ends_at": ends_at}
