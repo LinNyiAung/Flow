@@ -1402,6 +1402,11 @@ class AppLocalizations {
       'undoTransferConfirm': 'Both sides are removed, and the money goes back to the wallet it came from.',
       'transferUndone': 'Transfer undone.',
       'transferOnlyMakerUndo': 'Only the person who made this transfer can undo it.',
+      'maintenanceTitle': 'Under maintenance',
+      'maintenanceBackBy': 'Back by {time}',
+      'maintenanceRetry': 'Retry',
+      'maintenanceSignIn': 'Sign in',
+      'signupsClosedTitle': 'Sign-ups are closed for now',
     },
     'my': {
       // Home Screen
@@ -2702,6 +2707,11 @@ class AppLocalizations {
       'undoTransferConfirm': 'နှစ်ဘက်လုံး ပျက်သွားပြီး ငွေက မူလပိုက်ဆံအိတ်ထဲ ပြန်ရောက်ပါမယ်။',
       'transferUndone': 'ငွေလွှဲမှုကို ပြန်ရုပ်သိမ်းပြီးပါပြီ။',
       'transferOnlyMakerUndo': 'ဤငွေလွှဲမှုကို ပြုလုပ်သူသာ ပြန်ရုပ်သိမ်းနိုင်ပါတယ်။',
+      'maintenanceTitle': 'ပြုပြင်ထိန်းသိမ်းနေပါသည်',
+      'maintenanceBackBy': '{time} တွင် ပြန်လည်အသုံးပြုနိုင်ပါမည်',
+      'maintenanceRetry': 'ပြန်စစ်ကြည့်ရန်',
+      'maintenanceSignIn': 'အကောင့်ဝင်ရန်',
+      'signupsClosedTitle': 'အကောင့်သစ်ဖွင့်ခြင်းကို ယာယီရပ်ထားပါသည်',
     }
   };
 
@@ -3083,6 +3093,11 @@ class AppLocalizations {
   String get analysisDetails => translate('analysisDetails');
   String get failedToGenerateSuggestion => translate('failedToGenerateSuggestion');
   String get tryAgain => translate('tryAgain');
+  String get maintenanceTitle => translate('maintenanceTitle');
+  String maintenanceBackBy(String time) => translate('maintenanceBackBy').replaceAll('{time}', time);
+  String get maintenanceRetry => translate('maintenanceRetry');
+  String get maintenanceSignIn => translate('maintenanceSignIn');
+  String get signupsClosedTitle => translate('signupsClosedTitle');
   String get dataConfidence => translate('dataConfidence');
   String get highConfidence => translate('highConfidence');
   String get moderateConfidence => translate('moderateConfidence');

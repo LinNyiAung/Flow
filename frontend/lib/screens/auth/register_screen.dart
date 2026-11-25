@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../providers/app_control_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
 import '../../theme/app_theme.dart';
@@ -66,6 +67,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final localizations = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final closedMessage = AppControlProvider.maybeOf(context)?.pausedMessage('signups');
     final headingStyle = theme.textTheme.titleLarge?.copyWith(
       fontSize: 28,
       fontWeight: FontWeight.w800,
@@ -233,6 +235,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 20),
 
+          // Sign-ups switched off by the owner: say so, with their message.
+          if (closedMessage != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: scheme.errorContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded, color: scheme.error, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          localizations.signupsClosedTitle,
+                          style: TextStyle(color: scheme.onErrorContainer, fontSize: 13, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          closedMessage,
+                          style: TextStyle(color: scheme.onErrorContainer, fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Error message
           Consumer<AuthProvider>(
             builder: (context, authProvider, child) {
@@ -269,7 +306,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               return SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: authProvider.isLoading ? null : _register,
+                  onPressed: authProvider.isLoading || closedMessage != null ? null : _register,
                   child: authProvider.isLoading
                       ? const SizedBox(
                           width: 22,

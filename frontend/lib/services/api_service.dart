@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:frontend/services/localization_service.dart';
+import 'package:frontend/models/app_config.dart';
 import 'package:frontend/models/app_version.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/chat.dart';
@@ -316,12 +317,14 @@ class _ApiClient extends http.BaseClient {
       throw ApiException('${ApiService.networkErrorMessage} (${e.message})');
     }
 
-    if (response.statusCode == 401 || response.statusCode == 403) {
-      await ApiService.checkSessionInvalidated(
-        request,
-        response.statusCode,
-        utf8.decode(bytes, allowMalformed: true),
-      );
+    if (response.statusCode == 401 ||
+        response.statusCode == 403 ||
+        response.statusCode == 503) {
+      final body = utf8.decode(bytes, allowMalformed: true);
+      if (response.statusCode != 503) {
+        await ApiService.checkSessionInvalidated(request, response.statusCode, body);
+      }
+      ApiService.checkAppControlSignal(response.statusCode, body);
     }
     return http.StreamedResponse(
       http.ByteStream.fromBytes(bytes),
@@ -432,6 +435,24 @@ class ApiService {
   /// (an AI answer, or a plan error), so the app refreshes `GET /api/plan`
   /// and every counter shows the new numbers. Set by the app root.
   static VoidCallback? onPlanUsageChanged;
+
+  /// Called after any response that says a feature is paused (403
+  /// `feature_paused`) or that the app is under maintenance (503
+  /// `maintenance`), so the app reads the config again. Set by the app root.
+  static void Function()? onAppControlSignal;
+
+  /// Fires [onAppControlSignal] when the response is a paused-feature or
+  /// maintenance refusal.
+  @visibleForTesting
+  static void checkAppControlSignal(int statusCode, String body) {
+    final callback = onAppControlSignal;
+    if (callback == null) return;
+    final code = ApiException.codeOf(body);
+    if ((statusCode == 403 && code == 'feature_paused') ||
+        (statusCode == 503 && code == 'maintenance')) {
+      callback();
+    }
+  }
 
   /// The book every call works on: Family mode sends `X-Book: family`, so
   /// the server answers from the family book. Set only by `BookModeProvider`.
@@ -690,6 +711,26 @@ class ApiService {
     } else {
       throw apiError(response, 'Failed to check app version');
     }
+  }
+
+  /// What the owner has switched in the admin panel: maintenance, paused
+  /// features, the announcement. Works signed in or out (the token is sent
+  /// when there is one). [lang] is the app's language; Myanmar (`my`, or
+  /// `mm` as the insights name it) is asked for as `my`, anything else `en`.
+  static Future<AppConfig> getAppConfig({required String lang}) async {
+    final code = (lang == 'my' || lang == 'mm') ? 'my' : 'en';
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/app/config?lang=$code'),
+      headers: await _getHeaders(),
+    );
+    if (response.statusCode != 200) {
+      throw apiError(response, 'Failed to load app config');
+    }
+    final json = jsonDecode(response.body);
+    if (json is! Map<String, dynamic>) {
+      throw ApiException('Failed to load app config');
+    }
+    return AppConfig.fromJson(json);
   }
 
   /// The newest published Android build, or null when none is published or
@@ -1445,6 +1486,7 @@ class ApiService {
           throw ApiException(timeoutMessage);
         }
         await checkSessionInvalidated(request, response.statusCode, response.body);
+        checkAppControlSignal(response.statusCode, response.body);
         throw apiError(response, 'Failed to start streaming chat');
       }
 

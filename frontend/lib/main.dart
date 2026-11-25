@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:frontend/platform/platform_info.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:frontend/app_navigator.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/app_version_provider.dart';
+import 'package:frontend/screens/maintenance/maintenance_screen.dart';
 import 'package:frontend/providers/book_mode_provider.dart';
 import 'package:frontend/providers/book_session.dart';
 import 'package:frontend/providers/budget_provider.dart';
@@ -112,6 +114,10 @@ class _MyAppState extends State<MyApp> {
   // switching accounts can wipe all of them in one place.
   final AuthProvider _authProvider = AuthProvider();
   final AppVersionProvider _appVersionProvider = AppVersionProvider();
+
+  /// What the owner switched in the admin panel (maintenance, paused
+  /// features, announcement). Not per user: it is read before sign-in.
+  final AppControlProvider _appControlProvider = AppControlProvider();
   final TransactionProvider _transactionProvider = TransactionProvider();
   final ChatProvider _chatProvider = ChatProvider();
   final GoalProvider _goalProvider = GoalProvider();
@@ -159,6 +165,8 @@ class _MyAppState extends State<MyApp> {
     // every AI action, and when an admin changes the plan; what the server
     // reports is what the rest of the app treats as the user's plan.
     ApiService.onPlanUsageChanged = _planProvider.refresh;
+    // A call refused as paused / under maintenance: read the config again.
+    ApiService.onAppControlSignal = _appControlProvider.refresh;
     _bookSession.attach();
     _authProvider.addListener(_onAuthChanged);
     _planProvider.addListener(_onPlanChanged);
@@ -209,6 +217,8 @@ class _MyAppState extends State<MyApp> {
     final userId = _authProvider.user?.id;
     if (userId == _planUserId) return;
     _planUserId = userId;
+    // Signing in or out changes the answer (a tester may enter maintenance).
+    _appControlProvider.refresh();
     if (userId != null) {
       _planProvider.refresh();
       _bookSession.signedIn(userId);
@@ -276,6 +286,8 @@ class _MyAppState extends State<MyApp> {
   void _changeLanguage(Locale locale) {
     ApiService.currentLanguage = locale.languageCode;
     if (!mounted || locale == _locale) return;
+    // The owner's messages come in the person's language.
+    _appControlProvider.refresh();
     setState(() {
       _locale = locale;
     });
@@ -287,6 +299,8 @@ class _MyAppState extends State<MyApp> {
     FCMService().setOpenFromPushHandler(null);
     ApiService.onSessionExpired = null;
     ApiService.onPlanUsageChanged = null;
+    ApiService.onAppControlSignal = null;
+    _appControlProvider.dispose();
     _bookSession.detach();
     _familyProvider.removeListener(_retryPushOpen);
     _authProvider.removeListener(_onAuthChanged);
@@ -327,6 +341,7 @@ class _MyAppState extends State<MyApp> {
       providers: [
         ChangeNotifierProvider.value(value: _authProvider),
         ChangeNotifierProvider.value(value: _appVersionProvider),
+        ChangeNotifierProvider.value(value: _appControlProvider),
         ChangeNotifierProvider.value(value: _transactionProvider),
         ChangeNotifierProvider.value(value: _chatProvider),
         ChangeNotifierProvider.value(value: _goalProvider),
@@ -395,6 +410,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   String? _versionCheckedForUser;
   bool _versionCheckDone = false;
 
+  /// A signed-out person tapped "Sign in" on the maintenance screen (a tester
+  /// can get in while it is on).
+  bool _showTesterSignIn = false;
+
   @override
   void initState() {
     super.initState();
@@ -445,10 +464,46 @@ class _AuthWrapperState extends State<AuthWrapper> {
         ),
       );
 
+  /// The login screen for a tester, with a way back to the maintenance screen.
+  Widget _testerSignIn() => Stack(
+        children: [
+          const LoginScreen(embedded: true),
+          Positioned(
+            top: 0,
+            left: 0,
+            child: SafeArea(
+              child: Material(
+                type: MaterialType.transparency,
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => setState(() => _showTesterSignIn = false),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<AuthProvider, AppVersionProvider>(
       builder: (context, authProvider, versionProvider, child) {
+        // ── Step 0: maintenance. Before login and home: the owner's message,
+        // with a small "Sign in" for a tester who is signed out. A tester's
+        // config says they may enter, so this passes for them. ──
+        final appControl = AppControlProvider.maybeOf(context);
+        if (appControl != null && appControl.blocked) {
+          if (!authProvider.isAuthenticated && _showTesterSignIn) {
+            return _testerSignIn();
+          }
+          return MaintenanceScreen(
+            onSignIn: authProvider.isAuthenticated
+                ? null
+                : () => setState(() => _showTesterSignIn = true),
+          );
+        }
+        _showTesterSignIn = false;
+
         // ── Step 1: restore failed for a transient reason (timeout /
         // offline / 5xx): the token is kept, offer retry instead of login.
         // Stays up while a retry runs (it shows its own progress). ──

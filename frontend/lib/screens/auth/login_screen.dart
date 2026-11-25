@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../providers/app_control_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/localization_service.dart';
 import '../../widgets/android_download_link.dart';
@@ -260,6 +261,12 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Opens registration; when the user comes back from its "verify your
   /// e-mail" step, the registered address is prefilled here.
   Future<void> _openRegister() async {
+    // The owner has closed sign-ups: show their message instead.
+    final closed = AppControlProvider.maybeOf(context, listen: false)?.pausedMessage('signups');
+    if (closed != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(closed)));
+      return;
+    }
     // AuthProvider.error is shared between Login and Register: clear it when
     // leaving for Register and again when coming back, so neither screen
     // shows the other's error.
