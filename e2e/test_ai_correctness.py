@@ -439,7 +439,8 @@ def section_extraction_prompts():
     prompts = {"text": tr._text_prompt(cats, today, "mmk"), "voice": tr._multi_prompt(cats, today, "mmk"),
                "receipt": tr._receipt_prompt(cats, today, "mmk")}
     for name, p in prompts.items():
-        check("Today is Tuesday, 2026-11-24" in p and "Yesterday was Monday, 2026-11-23" in p and "Last <weekday>" in p,
+        check("Today is Tuesday, 2026-11-24" in p and "Yesterday was Monday, 2026-11-23" in p
+              and 'For "last <weekday>"' in p and "Friday 2026-11-20" in p,
               f"extraction prompts ({name}): today and yesterday with their weekdays, and how to read 'last Friday'")
         check("Never make up a date" in p and "never use a date after" in p,
               f"extraction prompts ({name}): no invented or future dates")
@@ -747,7 +748,32 @@ def section_reliability():
         _cleanup(made)
 
 
-SECTIONS = {"chat": section_chat, "insights": section_insights, "budgets": section_budgets,
+# --------------------------------------------------------------------------- fixes from the live test (2026-11-25)
+def section_live_fixes():
+    import budget_service as bs
+    import transaction_routes as tr
+    from ai_providers.clients import openai_client as oc
+    rules = tr._date_rules(date(2026, 11, 25))  # a Wednesday
+    check("Friday 2026-11-20" in rules and "Tuesday 2026-11-24" in rules and "Wednesday 2026-11-18" in rules
+          and "use the date listed for that weekday" in rules,
+          "live fixes: the date rules list the past 7 days with their weekdays ('last Friday' read as a Tuesday)", rules)
+    check(all(oc.strict_compatible(s) for s in (tr._TX_ITEM_SCHEMA, tr._MULTI_JSON_SCHEMA, bs._BUDGET_JSON_SCHEMA)),
+          "live fixes: the app's three answer schemas qualify for OpenAI strict mode (accepted live)")
+    check(not oc.strict_compatible({"type": "object", "properties": {"a": {"type": "string"}}, "required": []})
+          and not oc.strict_compatible({"type": "object"}),
+          "live fixes: a schema strict mode can't take is recognised (it keeps plain JSON mode)")
+    analysis = {"sufficient_data": True, "analysis_period_months": 3, "categories": {
+        "Food & Daily Living": {"monthly_average": 69837.21, "variability": "stable"}}}
+    s = bs.BudgetAnalyzer("no-book")._generate_basic_suggestions(analysis, 30, None, "mmk")
+    amounts = [c.allocated_amount for c in s["categories"]]
+    check(amounts and all(float(a).is_integer() for a in amounts) and ".21" not in s["reasoning"],
+          "live fixes: rule-based budget ideas in MMK are whole kyat (were K76,820.93)", (amounts, s["reasoning"]))
+    s = bs.BudgetAnalyzer("no-book")._generate_basic_suggestions({"sufficient_data": False}, 30, None, "mmk")
+    check(all(float(c.allocated_amount).is_integer() for c in s["categories"]),
+          "live fixes: ... the defaults for a new user too", [c.allocated_amount for c in s["categories"]])
+
+
+SECTIONS = {"live_fixes": section_live_fixes, "chat": section_chat, "insights": section_insights, "budgets": section_budgets,
             "extraction": section_extraction, "extraction_prompts": section_extraction_prompts,
             "budget_prompts": section_budget_prompts, "insight_prompts": section_insight_prompts,
             "chat_prompts": section_chat_prompts, "reliability": section_reliability}

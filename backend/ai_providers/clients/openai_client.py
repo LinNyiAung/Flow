@@ -49,6 +49,21 @@ def _with_usage(text: str, finish: str, usage, served: str | None, prompt: Promp
                       finish, served_model=served, cached_input_tokens=cached if isinstance(cached, int) else 0)
 
 
+def strict_compatible(schema) -> bool:
+    """True when OpenAI's strict structured output can take `schema`: every object lists all its properties as
+    required and sets additionalProperties false, all the way down (arrays' items included)."""
+    if not isinstance(schema, dict):
+        return True
+    if schema.get("type") == "object":
+        props = schema.get("properties") or {}
+        if schema.get("additionalProperties") is not False or set(schema.get("required") or []) != set(props):
+            return False
+        return all(strict_compatible(p) for p in props.values())
+    if schema.get("type") == "array":
+        return strict_compatible(schema.get("items"))
+    return True
+
+
 # A verbose_json segment this likely to hold no speech is silence (OpenAI's own whisper uses 0.6).
 NO_SPEECH_THRESHOLD = 0.6
 
@@ -138,7 +153,12 @@ class OpenAIClient:
         if prompt.temperature is not None:
             kwargs["temperature"] = prompt.temperature
         if prompt.json_schema is not None:
-            kwargs["response_format"] = {"type": "json_object"}
+            # Strict structured output: the answer must match the schema (verified live 2026-11-25 for the app's
+            # entry, entry-list and budget schemas). A schema strict mode can't take is a request error with no
+            # fallback, so one that doesn't qualify keeps the plain JSON mode.
+            kwargs["response_format"] = (
+                {"type": "json_schema", "json_schema": {"name": "answer", "schema": prompt.json_schema, "strict": True}}
+                if strict_compatible(prompt.json_schema) else {"type": "json_object"})
         return kwargs
 
     async def complete(self, model: str, prompt: Prompt, *, effort: str | None = None,

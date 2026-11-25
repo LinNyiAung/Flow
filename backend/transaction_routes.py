@@ -251,10 +251,12 @@ def _type_rule() -> str:
 
 def _date_rules(today: date) -> str:
     yesterday = today - timedelta(days=1)
+    # The past week spelled out: models miscount weekdays ("last Friday" read as a Tuesday in the 2026-11-25 live test).
+    past_week = "; ".join(f"{d:%A} {d.isoformat()}" for d in (today - timedelta(days=n) for n in range(1, 8)))
     return f"""DATES:
    - Today is {today:%A}, {today.isoformat()}. Yesterday was {yesterday:%A}, {yesterday.isoformat()}.
-   - Work out words like "yesterday", "last Friday" or "on the 3rd" from today. "Last <weekday>" is the most recent
-     past one.
+   - The past 7 days: {past_week}. For "last <weekday>" (or "on <weekday>"), use the date listed for that weekday.
+   - Work out words like "yesterday", "last Friday" or "on the 3rd" from today; never count weekdays yourself.
    - When no date is said or shown, use today ({today.isoformat()}). Never make up a date, and never use a date after
      today unless the text says so."""
 

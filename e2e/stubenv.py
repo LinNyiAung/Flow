@@ -341,7 +341,8 @@ class _FakeCompletions:
         # like CompletionUsage: cached tokens are part of prompt_tokens
         usage = _ns(prompt_tokens=FAKE_USAGE[0], completion_tokens=FAKE_USAGE[1], total_tokens=FAKE_USAGE[2],
                     prompt_tokens_details=_ns(cached_tokens=0, audio_tokens=0))
-        wants_json = (k.get("response_format") or {}).get("type") == "json_object"
+        # json_object (plain JSON mode) or json_schema (strict structured output, the app's schemas)
+        wants_json = (k.get("response_format") or {}).get("type") in ("json_object", "json_schema")
         text = _answer_text(kind, json.dumps(k.get("messages", [])), wants_json)
         finish = "length" if kind == "length_once" else "stop"
         served = k.get("model")  # the real API names the model (often a dated snapshot) on the response and every chunk

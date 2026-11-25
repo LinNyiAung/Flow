@@ -594,7 +594,7 @@ class BudgetAnalyzer:
 
                 categories.append(CategoryBudget(
                     main_category=cat,
-                    allocated_amount=round(scaled_amount, 2),
+                    allocated_amount=_round_amount(scaled_amount, currency),
                     spent_amount=0,
                     percentage_used=0,
                     is_exceeded=False
@@ -624,16 +624,18 @@ class BudgetAnalyzer:
                 else:
                     period_budget = monthly_avg * (days_in_period / 30) * buffer
 
+                amount = _round_amount(period_budget, currency)
                 categories.append(CategoryBudget(
                     main_category=cat,
-                    allocated_amount=round(period_budget, 2),
+                    allocated_amount=amount,
                     spent_amount=0,
                     percentage_used=0,
                     is_exceeded=False
                 ))
 
+                places = 0 if currency == "mmk" else 2  # kyat in whole kyat, as the amount itself
                 reasoning_parts.append(
-                    f"{cat}: {symbol}{period_budget:,.2f} (based on {symbol}{monthly_avg:,.2f}/month average, {stats['variability']} variability)"
+                    f"{cat}: {symbol}{amount:,.{places}f} (based on {symbol}{monthly_avg:,.{places}f}/month average, {stats['variability']} variability)"
                 )
 
         reasoning = "Budget suggestions:\n" + "\n".join(reasoning_parts)

@@ -1288,7 +1288,12 @@ async def client_checks():
     await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", json_schema={"type": "object"}, max_tokens=77))
     k = stubenv.LAST_KWARGS["openai"]
     check(k["response_format"] == {"type": "json_object"} and k.get("max_completion_tokens") == 77 and k["model"] == "gpt-4o-mini",
-          "openai: json_schema -> response_format json_object", k)
+          "openai: a schema strict mode can't take (no additionalProperties false) -> response_format json_object", k)
+    strict = {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"], "additionalProperties": False}
+    await get_client("openai").complete("gpt-4o-mini", Prompt("s", "hi", json_schema=strict, max_tokens=77))
+    k = stubenv.LAST_KWARGS["openai"]
+    check(k["response_format"] == {"type": "json_schema", "json_schema": {"name": "answer", "schema": strict, "strict": True}},
+          "openai: a strict-ready schema -> strict structured output (json_schema, strict)", k)
     # F1: chat completions send max_completion_tokens (accepted by gpt-4o and the reasoning models), never max_tokens
     check("max_tokens" not in k, "openai_max_completion_tokens: complete() never sends max_tokens", sorted(k))
     async for _ in get_client("openai").stream("gpt-4o-mini", Prompt("s", "hi", max_tokens=88)):
@@ -4084,7 +4089,7 @@ async def _budget_inprocess_checks(uid):
                 else:
                     fmt = (kw.get("output_config") or {}).get("format") or {}
                     got = (kw.get("max_tokens"), kw.get("temperature", "absent"), fmt.get("type"))
-                want = {"openai": (4096, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+                want = {"openai": (4096, 0.3, "json_schema"), "gemini": (8192, 0.3, "application/json"),
                         "claude": (8000, "absent", "json_schema")}[provider]
                 # The fake AI answers 450: a suggestion shows it as is; an auto-created line is held to 2x what the
                 # parent's line had (100): 200.
@@ -4480,11 +4485,11 @@ async def _transaction_inprocess_checks(uid):
 
         # --- the request each provider gets: today's temperature 0.3 (never to Claude), a json schema, explicit limits
         want = {
-            "transaction_text": {"openai": (4000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+            "transaction_text": {"openai": (4000, 0.3, "json_schema"), "gemini": (8192, 0.3, "application/json"),
                                  "claude": (8000, "absent", "json_schema")},
-            "transaction_text_multi": {"openai": (8000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+            "transaction_text_multi": {"openai": (8000, 0.3, "json_schema"), "gemini": (8192, 0.3, "application/json"),
                                        "claude": (8000, "absent", "json_schema")},
-            "transaction_image": {"openai": (1000, 0.3, "json_object"), "gemini": (8192, 0.3, "application/json"),
+            "transaction_image": {"openai": (1000, 0.3, "json_schema"), "gemini": (8192, 0.3, "application/json"),
                                   "claude": (8000, "absent", "json_schema")},
         }
         from families.book import Book
