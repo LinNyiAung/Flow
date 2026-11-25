@@ -76,6 +76,8 @@ from ai_providers.errors import redact
 from plans_admin_routes import requests_router as upgrade_requests_admin_router
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
+import app_control
+from app_control_routes import admin_router as app_control_admin_router
 from plans import periods, quota
 from plans import store as plan_store
 from plans.access import COST_CAP, LIMIT_REACHED, PlanError, effective_plan, user_language
@@ -103,6 +105,7 @@ app.include_router(ai_admin_router)
 app.include_router(plans_admin_router)
 app.include_router(upgrade_requests_admin_router)
 app.include_router(plans_router)
+app.include_router(app_control_admin_router)
 
 
 @app.on_event("startup")
@@ -125,6 +128,13 @@ async def startup_db_client():
         print(f"⚠️ Could not load the plan limits at startup ({type(e).__name__}); will retry")
     app.state.plans_refresh = plan_store.start_refresh_loop()
 
+    # App control (switches, maintenance): same pattern. Until a load succeeds nothing is paused.
+    try:
+        await app_control.load()
+    except Exception as e:
+        print(f"⚠️ Could not load the app control settings at startup ({type(e).__name__}); will retry")
+    app.state.app_control_refresh = app_control.start_refresh_loop()
+
     try:
         from scheduler import start_scheduler
         app.state.scheduler = start_scheduler()
@@ -139,6 +149,8 @@ async def shutdown_db_client():
         app.state.ai_settings_refresh.cancel()
     if hasattr(app.state, "plans_refresh"):
         app.state.plans_refresh.cancel()
+    if hasattr(app.state, "app_control_refresh"):
+        app.state.app_control_refresh.cancel()
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")

@@ -155,6 +155,19 @@ NOTIFICATION_TRANSLATIONS = {
         # Push-only (no in-app notification, so not in NOTIFICATION_LINKS): sent once to a device whose sign-in expired.
         "sign_in_reminder_title": "Sign in to Toe Pwar",
         "sign_in_reminder_msg": "You've been signed out. Sign in to keep getting your budget and goal alerts.",
+        # App control (admin switches and maintenance): the standard texts when the owner wrote none.
+        "feature_paused_msg": "{feature} is paused for now. Please try again later.",
+        "maintenance_msg": "Toe Pwar is under maintenance. Please try again soon.",
+        "app_switch_chat": "Chat with Ko Toe Pwar",
+        "app_switch_voice": "Voice entry",
+        "app_switch_receipts": "Receipt photos",
+        "app_switch_budget_ideas": "Budget ideas",
+        "app_switch_reports": "Weekly and monthly reports",
+        "app_switch_custom_reports": "Custom reports",
+        "app_switch_translation": "Myanmar translation",
+        "app_switch_signups": "Sign-ups",
+        "app_switch_free_trial": "The free trial",
+        "app_switch_family_new": "New families and invites",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -278,6 +291,19 @@ NOTIFICATION_TRANSLATIONS = {
         # needs native review
         "sign_in_reminder_title": "Toe Pwar သို့ ဝင်ရောက်ပါ",
         "sign_in_reminder_msg": "သင် ထွက်သွားပါပြီ။ ဘတ်ဂျက်နှင့် ရည်မှန်းချက် သတိပေးချက်များ ဆက်လက်ရရှိရန် ပြန်လည်ဝင်ရောက်ပါ။",
+        # App control (admin switches and maintenance): the standard texts when the owner wrote none.
+        "feature_paused_msg": "{feature} ကို ခေတ္တရပ်ထားပါတယ်။ နောက်မှ ပြန်ကြိုးစားကြည့်ပါ။",
+        "maintenance_msg": "တိုးပွား ကို ပြုပြင်ထိန်းသိမ်းနေပါတယ်။ မကြာမီ ပြန်ကြိုးစားကြည့်ပါ။",
+        "app_switch_chat": "ကိုတိုးပွားနှင့် စကားပြောခြင်း",
+        "app_switch_voice": "အသံဖြင့် မှတ်တမ်းတင်ခြင်း",
+        "app_switch_receipts": "ဘောက်ချာ ဓာတ်ပုံများ",
+        "app_switch_budget_ideas": "ဘတ်ဂျက် အကြံပြုချက်များ",
+        "app_switch_reports": "အပတ်စဉ်နှင့် လစဉ် အစီရင်ခံစာများ",
+        "app_switch_custom_reports": "စိတ်ကြိုက် အစီရင်ခံစာများ",
+        "app_switch_translation": "မြန်မာဘာသာ ပြန်ဆိုခြင်း",
+        "app_switch_signups": "အကောင့်သစ် ဖွင့်ခြင်း",
+        "app_switch_free_trial": "အခမဲ့ စမ်းသုံးခြင်း",
+        "app_switch_family_new": "မိသားစုအသစ်နှင့် ဖိတ်ခေါ်ခြင်း",
     }
 }
 
