@@ -48,6 +48,9 @@ PUBLIC = {
     ("GET", "/api/app/latest-android"),
     # Intentionally public: the landing page reads the plan prices and the contacts.
     ("GET", "/api/plan/public"),
+    # Intentionally public: the app reads what is paused, maintenance and the announcement before sign-in (a token
+    # is optional and only personalises the answer; see test_app_control.py section config).
+    ("GET", "/api/app/config"),
 }
 
 
