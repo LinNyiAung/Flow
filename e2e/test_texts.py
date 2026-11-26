@@ -3,6 +3,8 @@
 Sections (named on the command line, all by default):
   store -- overrides in-process: the nine email keys, placeholder validation, save -> translate, reset, stale versions,
     replaced_default / default_changed, an invalid stored row ignored, translate with an empty cache.
+  admin_api -- HTTP against the stub: roles, listing, save/reset, 409/422/404, the real-key path (a Free user's 403
+    message), the admin log. Overrides are removed through the API in `finally`.
   clean -- the text_overrides table is as it was when the run started.
 Every section deletes the overrides it created in `finally`.
 """
@@ -174,7 +176,151 @@ def section_clean():
           f"{RUN_START!r} -> {_table()!r}")
 
 
-SECTIONS = {"store": section_store, "clean": section_clean}
+# ------------------------------------------------------------------------------------------------------- admin_api
+BASE = "http://127.0.0.1:8765"
+PAID_KEY = "plan_paid_required_msg"
+
+
+def _admin(c, role):
+    import admin_utils
+    import uuid
+    from datetime import UTC, datetime
+    email, pw = f"tx-{role}-{uuid.uuid4().hex[:8]}@example.com", "tx-admin-pass-1"
+    aid = str(uuid.uuid4())
+    db.admins.insert_one({"_id": aid, "name": f"tx {role}", "email": email,
+                          "password": admin_utils.get_password_hash(pw), "role": role,
+                          "created_at": datetime.now(UTC), "last_login": None})
+    r = c.post("/api/admin/login", json={"email": email, "password": pw})
+    return {"Authorization": "Bearer " + r.json().get("access_token", "")}, aid
+
+
+def _free_user(c, made):
+    import uuid
+    email = f"tx-free-{uuid.uuid4().hex[:8]}@example.com"
+    c.post("/api/auth/register", json={"name": "Free", "email": email, "password": "secret123"})
+    db.sql("UPDATE users SET is_verified = true, subscription_type = 'free', subscription_expires_at = NULL, "
+           "trial_ends_at = NULL WHERE lower(email) = %s", email)
+    rows = db.sql("SELECT id FROM users WHERE lower(email) = %s", email)
+    made.append(rows[0]["id"])
+    r = c.post("/api/auth/login", json={"email": email, "password": "secret123"})
+    return {"Authorization": f"Bearer {r.json().get('access_token')}"}
+
+
+def _free_message(c, h):
+    r = c.post("/api/insights/regenerate", headers=h)
+    try:
+        d = r.json().get("detail", {})
+    except Exception:  # noqa: BLE001
+        d = {}
+    return r.status_code, (d.get("message") if isinstance(d, dict) else str(d))
+
+
+def section_admin_api():
+    import httpx
+    from notification_service import NOTIFICATION_TRANSLATIONS as T
+    import text_overrides as to
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_admins, made_users = [], []
+    ah = None
+    try:
+        mh, mid = _admin(c, "moderator")
+        ah, aid = _admin(c, "admin")
+        made_admins += [mid, aid]
+        free = _free_user(c, made_users)
+        default_msg = T["en"][PAID_KEY]
+
+        r = c.get("/api/admin/texts", headers=mh)
+        body = r.json() if r.status_code == 200 else {}
+        texts = body.get("texts", [])
+        keys = [t["key"] for t in texts]
+        check(r.status_code == 200 and sorted(keys) == sorted(T["en"]) and len(keys) == len(set(keys)),
+              "admin_api: a moderator lists every key once", f"{r.status_code} {r.text[:200]}")
+        check(keys == [t["key"] for t in sorted(texts, key=lambda t: (t["area"], t["key"]))],
+              "admin_api: sorted by area then key")
+        paid = next((t for t in texts if t["key"] == PAID_KEY), {})
+        check(paid.get("area") == "plans" and paid.get("placeholders") == []
+              and paid.get("default") == {"en": T["en"][PAID_KEY], "my": T["my"][PAID_KEY]}
+              and paid.get("override") == {"en": None, "my": None}, "admin_api: area, placeholders, default, no override", paid)
+        limit = next((t for t in texts if t["key"] == "plan_limit_reached_msg"), {})
+        check(limit.get("placeholders") == sorted(to.placeholders("plan_limit_reached_msg"))
+              and limit["placeholders"], "admin_api: placeholders listed, sorted", limit)
+        r = c.get("/api/admin/texts")
+        check(r.status_code in (401, 403), "admin_api: no token is refused", r.status_code)
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=mh, json={"text": "Nope", "version": None})
+        check(r.status_code == 403, "admin_api: a moderator cannot save", r.status_code)
+        r = c.delete(f"/api/admin/texts/{PAID_KEY}/en?version=1", headers=mh)
+        check(r.status_code == 403, "admin_api: a moderator cannot reset", r.status_code)
+
+        st, msg = _free_message(c, free)
+        check(st == 403 and default_msg in (msg or ""), "admin_api: a Free user gets the default message", (st, msg))
+
+        new = "Paid plans only, sorry."
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": f"  {new}  ", "version": None})
+        row = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and row.get("version") == 1 and row.get("text") == new
+              and row.get("default_changed") is False and row.get("updated_by"),
+              "admin_api: an admin saves a valid text (version 1)", f"{r.status_code} {r.text[:200]}")
+        st, msg = _free_message(c, free)
+        check(st == 403 and (msg or "").startswith(new), "admin_api: the Free user's 403 shows the new text", (st, msg))
+        g = next((t for t in c.get("/api/admin/texts", headers=mh).json()["texts"] if t["key"] == PAID_KEY), {})
+        check((g.get("override") or {}).get("en", {}) and g["override"]["en"]["version"] == 1
+              and g["override"]["my"] is None, "admin_api: the listing shows the override", g)
+
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": "Again", "version": None})
+        check(r.status_code == 409 and r.json() == {"detail": {
+            "code": "text_conflict", "message": "This text was changed by someone else. Reload to see it."}},
+              "admin_api: a stale save is 409 text_conflict", f"{r.status_code} {r.text[:200]}")
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": "Again", "version": 1, "extra": 1})
+        check(r.status_code == 422, "admin_api: an unknown body field is refused", r.status_code)
+
+        r = c.put("/api/admin/texts/plan_limit_reached_msg/en", headers=ah, json={"text": "No placeholders", "version": None})
+        check(r.status_code == 422 and isinstance(r.json().get("detail"), str)
+              and "{feature}" in r.json()["detail"], "admin_api: a missing placeholder is a readable 422",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put("/api/admin/texts/no_such_key/en", headers=ah, json={"text": "x", "version": None})
+        check(r.status_code == 404, "admin_api: an unknown key is 404", r.status_code)
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/fr", headers=ah, json={"text": "x", "version": None})
+        check(r.status_code == 404, "admin_api: an unknown language is 404", r.status_code)
+
+        r = c.delete(f"/api/admin/texts/{PAID_KEY}/en?version=7", headers=ah)
+        check(r.status_code == 409, "admin_api: a reset at a stale version is 409", r.status_code)
+        r = c.delete(f"/api/admin/texts/{PAID_KEY}/en?version=1", headers=ah)
+        check(r.status_code == 200 and r.json() == {"reset": True}, "admin_api: a reset is 200",
+              f"{r.status_code} {r.text[:200]}")
+        st, msg = _free_message(c, free)
+        check(st == 403 and default_msg in (msg or "") and new not in (msg or ""),
+              "admin_api: the Free user's message is the default again", (st, msg))
+        r = c.delete(f"/api/admin/texts/{PAID_KEY}/en?version=1", headers=ah)
+        check(r.status_code == 404, "admin_api: resetting again is 404", r.status_code)
+        r = c.delete(f"/api/admin/texts/no_such_key/en?version=1", headers=ah)
+        check(r.status_code == 404, "admin_api: resetting an unknown key is 404", r.status_code)
+
+        logs = db.sql("SELECT action, details FROM admin_action_logs WHERE admin_id = %s", aid)
+        upd = [x for x in logs if x["action"] == "text_update"]
+        rst = [x for x in logs if x["action"] == "text_reset"]
+        check(len(upd) == 1 and PAID_KEY in upd[0]["details"] and "en" in upd[0]["details"] and new in upd[0]["details"]
+              and len(upd[0]["details"]) <= 2000, "admin_api: the log has text_update naming key and language", upd)
+        check(len(rst) == 1 and PAID_KEY in rst[0]["details"] and "en" in rst[0]["details"],
+              "admin_api: the log has text_reset naming key and language", rst)
+    finally:
+        # Remove through the API so the server's own cache is clean at once (not only the table).
+        if ah is not None:
+            for lang in ("en", "my"):
+                try:
+                    for ver in range(1, 4):
+                        if c.delete(f"/api/admin/texts/{PAID_KEY}/{lang}?version={ver}", headers=ah).status_code != 409:
+                            break
+                except Exception:  # noqa: BLE001
+                    pass
+        db.sql("DELETE FROM text_overrides WHERE key = %s", PAID_KEY)
+        if made_admins:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", made_admins)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
+        if made_users:
+            db.sql("DELETE FROM users WHERE id = ANY(%s)", made_users)
+
+
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "clean": section_clean}
 
 
 def main():
