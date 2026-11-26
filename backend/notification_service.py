@@ -156,7 +156,8 @@ NOTIFICATION_TRANSLATIONS = {
         "sign_in_reminder_title": "Sign in to Toe Pwar",
         "sign_in_reminder_msg": "You've been signed out. Sign in to keep getting your budget and goal alerts.",
         # App control (admin switches and maintenance): the standard texts when the owner wrote none.
-        "feature_paused_msg": "{feature} is paused for now. Please try again later.",
+        # "Paused for now: X" reads right for singular and plural names ("Sign-ups", "Receipt photos").
+        "feature_paused_msg": "Paused for now: {feature}. Please try again later.",
         "maintenance_msg": "Toe Pwar is under maintenance. Please try again soon.",
         "announcement_open": "Open",
         "app_switch_chat": "Chat with Ko Toe Pwar",

@@ -69,7 +69,7 @@ const Preview = ({ text }) => (
 );
 
 const SwitchRow = ({ name, id, value, onChange }) => {
-  const standard = `${name} is paused for now. Please try again later.`;
+  const standard = `Paused for now: ${name}. Please try again later.`;
   return (
     <div className="p-4 border-b border-white/5 last:border-b-0">
       <div className="flex items-center justify-between gap-4 mb-3">

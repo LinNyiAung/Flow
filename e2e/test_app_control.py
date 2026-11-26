@@ -156,7 +156,7 @@ def section_store():
     check(res["en"] == "Back at 5", "store: the owner's English message")
     check(res["my"] == translate("feature_paused_msg", "my", feature=translate("app_switch_voice", "my")),
           "store: an empty Myanmar message uses the standard one")
-    check(res["chat_en"] == "Chat with Ko Toe Pwar is paused for now. Please try again later.",
+    check(res["chat_en"] == "Paused for now: Chat with Ko Toe Pwar. Please try again later.",
           "store: the standard English message names the feature")
     check(res["both"] == res["en"] + "\n\n" + res["my"], "store: both_languages joins English and Myanmar")
     check(res["raised"] is not None and res["raised"][0] == 403 and res["raised"][1]["code"] == "feature_paused"
@@ -352,7 +352,7 @@ def section_switches():
             check(r.status_code == 403 and d.get("code") == "feature_paused" and d.get("feature") == key
                   and (r.headers.get("content-type") or "").startswith("application/json"),
                   f"switches: {key} paused refuses {path}", f"{r.status_code} {r.text[:200]}")
-            check(set(d) == {"code", "feature", "message"} and "paused" in (d.get("message") or ""),
+            check(set(d) == {"code", "feature", "message"} and "paused" in (d.get("message") or "").lower(),
                   f"switches: {path} detail is code, feature and the English message", d)
 
         # the user's language

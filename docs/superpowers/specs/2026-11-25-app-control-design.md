@@ -80,7 +80,8 @@ promotion or a known problem (announcement).
 ## The switches
 
 Each switch has: on/off, and an optional message in English and in Myanmar. An empty message uses the standard
-one, "{feature} is paused for now. Please try again later." (and its Myanmar text), with the feature's name.
+one, "Paused for now: {feature}. Please try again later." (and its Myanmar text), with the feature's name.
+(Changed 2026-11-26 from "{feature} is paused for now", which read wrongly for plural names such as "Sign-ups".)
 
 | Switch | Server routes it refuses while paused | Where the app greys it |
 |---|---|---|
