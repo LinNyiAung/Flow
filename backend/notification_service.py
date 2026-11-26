@@ -170,6 +170,16 @@ NOTIFICATION_TRANSLATIONS = {
         "app_switch_signups": "Sign-ups",
         "app_switch_free_trial": "The free trial",
         "app_switch_family_new": "New families and invites",
+        # The two emails (email layout is fixed in email_service; only these texts are editable). No placeholders.
+        "email_verify_subject": "Verify your Toe Pwar account",
+        "email_verify_heading": "Welcome to Toe Pwar!",
+        "email_verify_intro": "Please verify your email address to activate your account. The link expires in 48 hours.",
+        "email_verify_button": "Verify my email",
+        "email_verify_footer": "If you didn't create a Toe Pwar account, you can safely ignore this email.",
+        "email_reset_subject": "Your Toe Pwar Password Reset Code",
+        "email_reset_heading": "Password Reset",
+        "email_reset_intro": "Use the code below to reset your password. It expires in 10 minutes.",
+        "email_reset_footer": "If you didn't request this, you can safely ignore this email.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -307,6 +317,15 @@ NOTIFICATION_TRANSLATIONS = {
         "app_switch_signups": "အကောင့်သစ် ဖွင့်ခြင်း",
         "app_switch_free_trial": "အခမဲ့ စမ်းသုံးခြင်း",
         "app_switch_family_new": "မိသားစုအသစ်နှင့် ဖိတ်ခေါ်ခြင်း",
+        "email_verify_subject": "သင့် တိုးပွား အကောင့်ကို အတည်ပြုပါ",
+        "email_verify_heading": "တိုးပွား မှ ကြိုဆိုပါတယ်!",
+        "email_verify_intro": "အကောင့်ကို အသက်ဝင်စေရန် သင့်အီးမေးလ်လိပ်စာကို အတည်ပြုပေးပါ။ လင့်ခ်သည် ၄၈ နာရီအတွင်း သက်တမ်းကုန်ပါမည်။",
+        "email_verify_button": "အီးမေးလ် အတည်ပြုမည်",
+        "email_verify_footer": "တိုးပွား အကောင့် မဖွင့်ခဲ့ပါက ဤအီးမေးလ်ကို လျစ်လျူရှုနိုင်ပါတယ်။",
+        "email_reset_subject": "တိုးပွား စကားဝှက် ပြန်လည်သတ်မှတ်ရန် ကုဒ်",
+        "email_reset_heading": "စကားဝှက် ပြန်လည်သတ်မှတ်ခြင်း",
+        "email_reset_intro": "စကားဝှက်ကို ပြန်လည်သတ်မှတ်ရန် အောက်ပါကုဒ်ကို အသုံးပြုပါ။ ကုဒ်သည် ၁၀ မိနစ်အတွင်း သက်တမ်းကုန်ပါမည်။",
+        "email_reset_footer": "သင်မတောင်းဆိုခဲ့ပါက ဤအီးမေးလ်ကို စိတ်ချလက်ချ လျစ်လျူရှုနိုင်ပါတယ်။",
     }
 }
 
@@ -330,7 +349,11 @@ async def get_user_language(user_id: str) -> str:
 
 def translate(key: str, language: str, **kwargs) -> str:
     """Get translated text with variable substitution"""
-    template = NOTIFICATION_TRANSLATIONS.get(language, NOTIFICATION_TRANSLATIONS["en"]).get(key, key)
+    import text_overrides  # here, not at module level: text_overrides reads this module's defaults
+    lang = language if language in NOTIFICATION_TRANSLATIONS else "en"
+    template = text_overrides.get(key, lang)  # an admin's override (cache only, never the database)
+    if template is None:
+        template = NOTIFICATION_TRANSLATIONS[lang].get(key) or NOTIFICATION_TRANSLATIONS["en"].get(key, key)
     return template.format(**kwargs)
 
 

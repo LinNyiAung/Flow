@@ -544,6 +544,18 @@ app_settings = Table(
     Column("updated_at", TS, nullable=False, server_default=func.now()),
 )
 
+# An admin's replacement for one server text in one language (Texts tab); the code default is used when none.
+text_overrides = Table(
+    "text_overrides", metadata,
+    Column("key", Text, primary_key=True),
+    Column("lang", Text, primary_key=True),
+    Column("text", Text, nullable=False),
+    Column("replaced_default", Text, nullable=False),  # the default this override replaced when it was saved
+    Column("version", Integer, nullable=False),
+    Column("updated_by", Text),
+    Column("updated_at", TS, nullable=False, server_default=func.now()),
+)
+
 # A notice the owner shows inside the app to the users of some plans between two instants (App control).
 announcements = Table(
     "announcements", metadata,

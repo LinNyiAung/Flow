@@ -77,6 +77,7 @@ from plans_admin_routes import requests_router as upgrade_requests_admin_router
 from plans_admin_routes import router as plans_admin_router
 from plans_routes import plan_error_handler, router as plans_router
 import app_control
+import text_overrides
 from app_control_routes import admin_router as app_control_admin_router, public_router as app_control_public_router
 from plans import periods, quota
 from plans import store as plan_store
@@ -136,6 +137,13 @@ async def startup_db_client():
         print(f"⚠️ Could not load the app control settings at startup ({type(e).__name__}); will retry")
     app.state.app_control_refresh = app_control.start_refresh_loop()
 
+    # Admin overrides of the server texts: same pattern. Until a load succeeds the code defaults apply.
+    try:
+        await text_overrides.load()
+    except Exception as e:
+        print(f"⚠️ Could not load the text overrides at startup ({type(e).__name__}); will retry")
+    app.state.text_overrides_refresh = text_overrides.start_refresh_loop()
+
     try:
         from scheduler import start_scheduler
         app.state.scheduler = start_scheduler()
@@ -152,6 +160,8 @@ async def shutdown_db_client():
         app.state.plans_refresh.cancel()
     if hasattr(app.state, "app_control_refresh"):
         app.state.app_control_refresh.cancel()
+    if hasattr(app.state, "text_overrides_refresh"):
+        app.state.text_overrides_refresh.cancel()
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown()
         print("🛑 Scheduler shut down successfully")
