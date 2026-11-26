@@ -334,7 +334,7 @@ async def request_password_reset_otp(request: ForgotPasswordRequest, background_
 
     await users_db.update_user(user["_id"], **set_fields)
 
-    background_tasks.add_task(send_otp_email, user["email"], otp)
+    background_tasks.add_task(send_otp_email, user["email"], otp, user_language(user))
     return generic
 
 

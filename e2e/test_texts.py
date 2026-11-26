@@ -5,6 +5,8 @@ Sections (named on the command line, all by default):
     replaced_default / default_changed, an invalid stored row ignored, translate with an empty cache.
   admin_api -- HTTP against the stub: roles, listing, save/reset, 409/422/404, the real-key path (a Free user's 403
     message), the admin log. Overrides are removed through the API in `finally`.
+  emails -- in-process: the reset email in the person's language, the two-language verification email, HTML escaping,
+    an edit appearing in the next email (the lookup is patched in-process; nothing is written to the table).
   clean -- the text_overrides table is as it was when the run started.
 Every section deletes the overrides it created in `finally`.
 """
@@ -320,7 +322,76 @@ def section_admin_api():
             db.sql("DELETE FROM users WHERE id = ANY(%s)", made_users)
 
 
-SECTIONS = {"store": section_store, "admin_api": section_admin_api, "clean": section_clean}
+# ------------------------------------------------------------------------------------------------------------ emails
+def _parts(msg):
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    html = msg.get_body(preferencelist=("html",)).get_content()
+    return plain, html
+
+
+def section_emails():
+    import re
+    import html as htmllib
+    import text_overrides as to
+    from notification_service import NOTIFICATION_TRANSLATIONS as T
+    import email_service as es
+
+    # reset email, both languages (build only, never send)
+    for lang in ("en", "my"):
+        m = es.build_reset_email("a@example.com", "123456", lang)
+        plain, html = _parts(m)
+        check(m["Subject"] == T[lang]["email_reset_subject"], f"emails: reset subject in {lang}", m["Subject"])
+        check("123456" in html and "123456" in plain, f"emails: reset code in html and plain ({lang})")
+        for k in ("heading", "intro", "footer"):
+            check(htmllib.escape(T[lang][f"email_reset_{k}"]) in html and T[lang][f"email_reset_{k}"] in plain,
+                  f"emails: reset {k} in html and plain ({lang})")
+        check(m["To"] == "a@example.com", f"emails: reset recipient ({lang})")
+    my_html = _parts(es.build_reset_email("a@example.com", "123456", "my"))[1]
+    check(T["my"]["email_reset_heading"] in my_html, "emails: Myanmar text survives in the html")
+    check(T["en"]["email_reset_heading"] not in my_html, "emails: the Myanmar reset email has no English heading")
+    unknown = es.build_reset_email("a@example.com", "123456", "fr")
+    check(unknown["Subject"] == T["en"]["email_reset_subject"], "emails: unknown language falls back to English")
+
+    # verification email: both languages
+    m = es.build_verification_email("a+b@example.com", "tok en")
+    plain, html = _parts(m)
+    check(m["Subject"] == T["en"]["email_verify_subject"] + " / " + T["my"]["email_verify_subject"],
+          "emails: verification subject is EN / MY", m["Subject"])
+    links = re.findall(r'href="([^"]*)"', html)
+    check(len(links) == 1 and "/api/auth/verify-email?" in links[0] and "token=tok%20en" in links[0]
+          and "email=a%2Bb%40example.com" in links[0].replace("&amp;", "&"),
+          "emails: html has one link, to verify-email with the token", links)
+    check("<a " in html and "background" in html.split("<a ", 1)[1].split(">", 1)[0],
+          "emails: the link is styled as a button")
+    link = htmllib.unescape(links[0]) if links else "?"
+    check(link in plain, "emails: plain text contains the link")
+    check(html.count(htmllib.escape(link)) >= 2, "emails: the link is also printed as text in the html")
+    check(T["en"]["email_verify_button"] + " / " + T["my"]["email_verify_button"] in htmllib.unescape(html),
+          "emails: the button is labelled EN / MY")
+    for lang in ("en", "my"):
+        for k in ("heading", "intro", "footer"):
+            t = T[lang][f"email_verify_{k}"]
+            check(htmllib.escape(t) in html and t in plain, f"emails: verify {k} ({lang}) in html and plain")
+    check(plain.index(T["en"]["email_verify_intro"]) < plain.index(T["my"]["email_verify_intro"]),
+          "emails: English texts come before Myanmar")
+
+    # an override shows up in the next email: patch the in-process lookup only, nothing is written to the table
+    real_get = to.get
+    to.get = lambda key, lang: "Reset <b>&</b> now" if (key, lang) == ("email_reset_heading", "en") else real_get(key, lang)
+    try:
+        plain, html = _parts(es.build_reset_email("a@example.com", "123456", "en"))
+        other = _parts(es.build_reset_email("a@example.com", "123456", "my"))[1]
+    finally:
+        to.get = real_get
+    check("Reset &lt;b&gt;&amp;&lt;/b&gt; now" in html and "<b>&</b>" not in html,
+          "emails: an edited text appears in the next email, HTML-escaped")
+    check("Reset <b>&</b> now" in plain, "emails: the edited text is raw in the plain version")
+    check(T["my"]["email_reset_heading"] in other, "emails: the other language is unchanged")
+    check(T["en"]["email_reset_heading"] in _parts(es.build_reset_email("a@example.com", "1", "en"))[1],
+          "emails: the lookup is restored")
+
+
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "emails": section_emails, "clean": section_clean}
 
 
 def main():

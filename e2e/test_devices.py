@@ -560,8 +560,8 @@ def _latest_otp(email):
             if rec.get("kind") != "smtp":
                 continue
             body = " ".join(rec.get("args", []))
-            if email in body and "Password Reset" in body:
-                m = __import__("re").search(r"verification code is:\s+(\d{6})", body.replace("\\n", "\n"))
+            if f"To: {email} " in body:  # the reset email's language follows the person: no fixed English words to match
+                m = __import__("re").search(r"\n[ \t]+(\d{6})[ \t]*(?:\n|$)", body.replace("\\n", "\n"))
                 if m:
                     code = m.group(1)
     return code
