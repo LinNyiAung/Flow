@@ -41,11 +41,26 @@ def _table():
 
 
 RUN_START = _table()
-KEY = "plan_limit_reached_msg"
+# A throwaway key that exists only in THIS process's defaults. The stub server polls the same table every 60 s, but its
+# load() drops rows for a key it doesn't know, so no test override can ever be cached or served there. (The real-key
+# behaviour over HTTP is covered by the admin API sections.)
+KEY = "zz_e2e_limit_reached_msg"
 
 
 # ------------------------------------------------------------------------------------------------------------ store
 def section_store():
+    from notification_service import NOTIFICATION_TRANSLATIONS as T
+    T["en"][KEY] = "You reached the {feature} limit. It resets on {date}."
+    T["my"][KEY] = "{feature} ကန့်သတ်ချက်ပြည့်ပါပြီ။ {date} တွင် ပြန်စပါမည်။"
+    try:
+        _store_body()
+    finally:
+        T["en"].pop(KEY, None)
+        T["my"].pop(KEY, None)
+        db.sql("DELETE FROM text_overrides WHERE key = %s", KEY)
+
+
+def _store_body():
     import text_overrides as to
     from notification_service import translate, NOTIFICATION_TRANSLATIONS as T
 
