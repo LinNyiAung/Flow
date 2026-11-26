@@ -38,6 +38,10 @@ def _heading(text: str) -> str:
     return f'<h1 style="margin:16px 0 4px; color:#333; font-size:22px;">{escape(text)}</h1>'
 
 
+def _sub_heading(text: str) -> str:
+    return f'      <h2 style="margin:20px 0 6px; color:#333; font-size:18px;">{escape(text)}</h2>'
+
+
 def _intro(text: str) -> str:
     return f'      <p style="color:#555; font-size:15px;">{escape(text)}</p>'
 
@@ -79,12 +83,10 @@ def build_verification_email(receiver_email: str, verification_token: str) -> Em
       </div>
       <p style="color:#888; font-size:12px; text-align:center; word-break:break-all;">{link_html}</p>"""
     body = "\n".join([
-        _intro(headings[0]).replace("color:#555; font-size:15px;", "color:#333; font-size:18px; font-weight:bold;"),
-        _intro(intros[0]),
-        _intro(headings[1]).replace("color:#555; font-size:15px;", "color:#333; font-size:18px; font-weight:bold;"),
-        _intro(intros[1]),
+        _sub_heading(headings[0]), _intro(intros[0]),
+        _sub_heading(headings[1]), _intro(intros[1]),
     ])
-    msg.add_alternative(_card("✉️", _heading(headings[0]), body, middle,
+    msg.add_alternative(_card("✉️", "", body, middle,
                               "\n".join(_footer(f) for f in footers)), subtype='html')
     return msg
 

@@ -372,6 +372,12 @@ def section_emails():
         for k in ("heading", "intro", "footer"):
             t = T[lang][f"email_verify_{k}"]
             check(htmllib.escape(t) in html and t in plain, f"emails: verify {k} ({lang}) in html and plain")
+    h_en, h_my = (htmllib.escape(T[l]["email_verify_heading"]) for l in ("en", "my"))
+    check(html.count(h_en) == 1 and html.count(h_my) == 1, "emails: each verification heading appears once in the html",
+          (html.count(h_en), html.count(h_my)))
+    check(html.index(h_en) < html.index(htmllib.escape(T["en"]["email_verify_intro"])) < html.index(h_my)
+          < html.index(htmllib.escape(T["my"]["email_verify_intro"])) < html.index(htmllib.escape(link)),
+          "emails: html order is EN heading+intro, MY heading+intro, then the button and link")
     check(plain.index(T["en"]["email_verify_intro"]) < plain.index(T["my"]["email_verify_intro"]),
           "emails: English texts come before Myanmar")
 
