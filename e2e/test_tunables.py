@@ -5,12 +5,15 @@ Sections (named on the command line, all by default):
     compare-and-swap on the version, a bad stored record.
   admin_api -- the admin routes over HTTP (roles, save, log, conflict, 422 shapes); every save is restored in `finally`.
   public_config -- GET /api/app/config carries the trial and invite lengths.
+  numbers -- the server uses the settings: trial length (over HTTP), the "ends soon" window, goal reminder days, budget
+    ending soon, invite length and the two unusual-spending rules (in-process, with the module cache swapped and put back).
   clean -- the real `tunables` row holds the same settings as when the run started (its version may have moved);
     keep this section last.
 In-process tests point sql.tunables.SETTINGS_KEY at a private key, so the stub server (which caches the real row) never
 sees them; they put the key and the module's cache back in `finally`.
 """
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -413,6 +416,268 @@ def section_public_config():
                 db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
 
 
+# ---------------------------------------------------------------------------------------------------------- numbers
+@contextlib.contextmanager
+def _with_values(values):
+    """Make `values` the stored overrides of the in-process cache (a fresh dict; the old cache and version are put back
+    in `finally`). The stub server is another process with its own cache, so it never sees this."""
+    import tunables as tn
+    saved = (tn._values, tn._version)
+    tn._values = dict(values)
+    try:
+        yield
+    finally:
+        tn._values, tn._version = saved
+
+
+def _n_person(c, made, label, plan="free"):
+    """A verified account on `plan` (id, email, h: the auth header, book: its personal book), its id added to `made`."""
+    from datetime import UTC, datetime, timedelta
+    import uuid
+    email = f"tn-{label}-{uuid.uuid4().hex[:8]}@example.com"
+    c.post("/api/auth/register", json={"name": label, "email": email, "password": "secret123"})
+    db.users.update_one({"email": email}, {"$set": {"is_verified": True}})
+    uid = db.users.find_one({"email": email})["_id"]
+    made.append(uid)
+    if plan != "free":
+        db.sql("UPDATE users SET subscription_type = %s, subscription_expires_at = %s, trial_ends_at = NULL WHERE id = %s",
+               plan, datetime.now(UTC) + timedelta(days=30), uid)
+    token = c.post("/api/auth/login", json={"email": email, "password": "secret123"}).json().get("access_token")
+    rows = db.sql("SELECT id FROM books WHERE person_id = %s", uid)
+    return {"id": uid, "email": email, "h": {"Authorization": f"Bearer {token}"}, "book": rows[0]["id"] if rows else None}
+
+
+def _n_cleanup(made):
+    made = [m for m in made if m]
+    if made:
+        db.sql("DELETE FROM notifications WHERE user_id = ANY(%s)", made)
+        db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))", made)
+        db.sql("DELETE FROM users WHERE id = ANY(%s)", made)
+
+
+def _n_notes(uid, ntype, **where):
+    sql = "SELECT * FROM notifications WHERE user_id = %s AND type = %s"
+    params = [uid, ntype]
+    for k, v in where.items():
+        sql += f" AND {k} = %s"
+        params.append(v)
+    return db.sql(sql, *params)
+
+
+def section_numbers():
+    import httpx
+    import uuid
+    from datetime import UTC, date, datetime, timedelta
+    from decimal import Decimal
+    from zoneinfo import ZoneInfo
+    import stubenv as se
+
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made, made_admins = [], []
+    ah, start_values = None, None
+    utc = ZoneInfo("UTC")
+    try:
+        # ---- the trial length, over HTTP (the stub has its own cache)
+        ah, aid = _admin(c, "admin")
+        made_admins.append(aid)
+        body = c.get("/api/admin/tunables", headers=ah).json()
+        start_values = {k: s["value"] for k, s in _by_key(body).items()}
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 45}, "version": body["version"]})
+        check(r.status_code == 200, "numbers: setup: trial_days saved as 45", f"{r.status_code} {r.text[:200]}")
+        p = _n_person(c, made, "trial")
+        before = datetime.now(UTC)
+        r = c.post("/api/auth/claim-free-trial", headers=p["h"])
+        row = db.sql("SELECT trial_ends_at FROM users WHERE id = %s", p["id"])[0]["trial_ends_at"]
+        row = row if row is None or row.tzinfo else row.replace(tzinfo=UTC)
+        want = before + timedelta(days=45)
+        check(r.status_code == 200 and row is not None and abs(row - want) < timedelta(minutes=5),
+              "numbers: a trial claimed at trial_days 45 ends 45 days from now", f"{r.status_code} {row} vs {want}")
+        c.put("/api/admin/tunables", headers=ah, json={"values": start_values, "version":
+              c.get("/api/admin/tunables", headers=ah).json()["version"]})
+        start_values = None
+
+        se.patch_loaded_modules()  # no real push; notifications are still stored
+        import subscription_service as ss
+        import notification_service as ns
+        now = datetime.now(UTC)
+        today = now.date()
+
+        # ---- the "ends soon" window: trial and renewal reminders
+        def reminders():
+            t_a = _n_person(c, made, "tra", "plus")
+            t_b = _n_person(c, made, "trb", "plus")
+            p_a = _n_person(c, made, "pra", "plus")
+            p_b = _n_person(c, made, "prb", "plus")
+            for u, days in ((t_a, 4.5), (t_b, 6)):
+                ends = now + timedelta(days=days)
+                db.sql("UPDATE users SET trial_ends_at = %s, subscription_expires_at = %s WHERE id = %s", ends, ends, u["id"])
+            for u, days in ((p_a, 4.5), (p_b, 6)):
+                db.sql("UPDATE users SET trial_ends_at = NULL, subscription_expires_at = %s WHERE id = %s",
+                       now + timedelta(days=days), u["id"])
+
+            async def run():
+                await ss.send_trial_reminders(now)
+                await ss.send_plan_renewal_reminders(now)
+                first = [len(_n_notes(u["id"], t)) for u, t in ((t_a, "trial_ending_soon"), (t_b, "trial_ending_soon"),
+                                                                (p_a, "plan_ending_soon"), (p_b, "plan_ending_soon"))]
+                await ss.send_trial_reminders(now)
+                await ss.send_plan_renewal_reminders(now)
+                second = [len(_n_notes(u["id"], t)) for u, t in ((t_a, "trial_ending_soon"), (t_b, "trial_ending_soon"),
+                                                                 (p_a, "plan_ending_soon"), (p_b, "plan_ending_soon"))]
+                return first, second
+            with _with_values({"ends_soon_days": 5}):
+                return _backend_async(run)
+        first, second = reminders()
+        check(first == [1, 0, 1, 0] and second == [1, 0, 1, 0],
+              "numbers: ends_soon_days 5: 4.5 days left gets the trial and renewal reminder once, 6 days gets none",
+              (first, second))
+
+        # ---- goal reminder days
+        g = _n_person(c, made, "goal")
+        goals = {}
+        for days in (9, 12):
+            r = c.post("/api/goals", headers=g["h"], json={
+                "name": f"Goal {days}", "target_amount": 1000, "goal_type": "savings", "currency": "usd",
+                "target_date": (today + timedelta(days=days)).isoformat()})
+            goals[days] = r.json().get("id") if r.status_code == 200 else f"{r.status_code} {r.text[:200]}"
+
+        def goal_rows(days):
+            return db.sql("SELECT reminder_threshold FROM notifications WHERE user_id = %s AND type = "
+                          "'goal_approaching_date' AND goal_id = %s", g["id"], goals[days])
+
+        async def run_goals():
+            await ns.goal_deadline_reminders_for_person(g["id"], today, utc)
+        with _with_values({"goal_reminder_days": [10, 2]}):
+            _backend_async(run_goals)
+        check([r_["reminder_threshold"] for r_ in goal_rows(9)] == [10] and not [
+            r_ for r_ in goal_rows(12) if r_["reminder_threshold"] == 10],
+            "numbers: goal_reminder_days [10, 2]: a goal due in 9 days gets the 10-day reminder, one due in 12 gets none",
+            (goal_rows(9), goal_rows(12)))
+
+        # ---- budget "ending soon" window
+        b = _n_person(c, made, "budget")
+        budgets = {}
+        for days in (5, 6):
+            bid = f"tn-bud-{days}-{uuid.uuid4().hex[:6]}"
+            budgets[days] = bid
+            ts = datetime.now(UTC)
+            db.budgets.insert_one({
+                "_id": bid, "book_id": b["book"], "name": f"Ending {days}", "period": "custom", "currency": "usd",
+                "start_date": today - timedelta(days=1), "end_date": today + timedelta(days=days),
+                "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
+                                      "percentage_used": 0, "is_exceeded": False}],
+                "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+                "status": "active", "is_active": True, "auto_create_enabled": False, "auto_create_with_ai": False,
+                "created_at": ts, "updated_at": ts})
+
+        async def run_budgets():
+            await ns.budget_ending_reminders_for_person(b["id"], today, utc)
+        with _with_values({"budget_ending_soon_days": 5}):
+            _backend_async(run_budgets)
+        n5 = len(_n_notes(b["id"], "budget_ending_soon", budget_id=budgets[5]))
+        n6 = len(_n_notes(b["id"], "budget_ending_soon", budget_id=budgets[6]))
+        check((n5, n6) == (1, 0), "numbers: budget_ending_soon_days 5: a budget ending in 5 days gets the reminder, in 6 none",
+              (n5, n6))
+
+        # ---- the family invite length
+        o = _n_person(c, made, "owner", "pro")
+        r = c.post("/api/family", headers=o["h"], json={"name": f"Fam {uuid.uuid4().hex[:5]}"})
+        check(r.status_code == 200, "numbers: setup: a Pro owner makes a family", f"{r.status_code} {r.text[:200]}")
+        from families import service as fs
+        from sql import users as users_db
+
+        async def run_invite():
+            user = await users_db.get_user(o["id"])
+            return await fs.create_invite({**user, "personal_book_id": o["book"]}, f"tn-inv-{uuid.uuid4().hex[:6]}@example.com")
+        with _with_values({"invite_days": 3}):
+            inv = _backend_async(run_invite)
+        exp = db.sql("SELECT expires_at, created_at FROM family_invites WHERE id = %s", inv["id"])[0] if inv else None
+        if exp:
+            e_at = exp["expires_at"] if exp["expires_at"].tzinfo else exp["expires_at"].replace(tzinfo=UTC)
+            check(abs(e_at - (datetime.now(UTC) + timedelta(days=3))) < timedelta(minutes=5),
+                  "numbers: invite_days 3: a new invite expires 3 days from now", exp)
+        else:
+            check(False, "numbers: invite_days 3: a new invite was created", inv)
+
+        # ---- unusual spending, rule 1 (one large expense)
+        u = _n_person(c, made, "large")
+
+        async def large(amount, currency, profile=None):
+            db.sql("DELETE FROM notifications WHERE user_id = %s AND type = 'large_transaction'", u["id"])
+            await ns.check_large_transaction(u["book"], {
+                "_id": str(uuid.uuid4()), "amount": amount, "type": "outflow", "main_category": "Food & Daily Living",
+                "currency": currency, "description": "x"}, profile)
+            return len(_n_notes(u["id"], "large_transaction"))
+
+        async def run_large():
+            res = {}
+            res["thb_1500"] = await large(1500, "thb")
+            res["thb_3000"] = await large(3000, "thb")
+            res["p_3500"] = await large(3500, "thb", {"avg_transaction": 2000})
+            res["p_4000"] = await large(4000, "thb", {"avg_transaction": 2000})
+            res["p_floor"] = await large(2900, "thb", {"avg_transaction": 10})
+            res["mmk_150000"] = await large(150000, "mmk")
+            res["mmk_149999"] = await large(149999, "mmk")
+            return res
+        with _with_values({"large_expense_multiple": 2}):
+            res = _backend_async(run_large)
+        check(res == {"thb_1500": 0, "thb_3000": 1, "p_3500": 0, "p_4000": 1, "p_floor": 1, "mmk_150000": 1,
+                      "mmk_149999": 0},
+              "numbers: rule 1 at multiple 2: no profile bar 1.5 x the minimum, with a profile max(2 x average, minimum)", res)
+
+        async def run_large_min():
+            return (await large(400, "usd", {"avg_transaction": 10}), await large(500, "usd", {"avg_transaction": 10}),
+                    await large(1000, "eur", {"avg_transaction": 10}))
+        with _with_values({"large_expense_min": {"mmk": 100000, "usd": 500, "thb": 2000}}):
+            res = _backend_async(run_large_min)
+        check(res == (0, 1, 1), "numbers: rule 1 follows large_expense_min per currency (an unknown currency uses usd)", res)
+        db.sql("DELETE FROM notifications WHERE user_id = %s", u["id"])
+
+        # ---- unusual spending, rule 2 (one category's week)
+        w = _n_person(c, made, "week")
+        for days in (10, 15, 20, 25, 30):
+            db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
+                   "VALUES (%s, %s, 'outflow', 'Food & Daily Living', 'Groceries', %s, 'usd', now() - %s * interval '1 day')",
+                   str(uuid.uuid4()), w["book"], Decimal("80"), days)  # 400 in the earlier weeks: 100 a week
+
+        async def week(amount):
+            db.sql("DELETE FROM notifications WHERE user_id = %s AND type = 'unusual_spending'", w["id"])
+            db.sql("DELETE FROM transactions WHERE book_id = %s AND date > now() - interval '5 days'", w["book"])
+            db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, currency, date) "
+                   "VALUES (%s, %s, 'outflow', 'Food & Daily Living', 'Groceries', %s, 'usd', now() - interval '1 day')",
+                   str(uuid.uuid4()), w["book"], Decimal(str(amount)))
+            await ns.analyze_unusual_spending(w["book"], utc)
+            return len(_n_notes(w["id"], "unusual_spending"))
+
+        async def run_week():
+            return await week(210), await week(190)
+        with _with_values({"unusual_week_multiple": 2}):
+            res = _backend_async(run_week)
+        check(res == (1, 0), "numbers: rule 2 at multiple 2: 2.1 x the weekly average notifies, 1.9 x does not", res)
+
+        async def run_diff():
+            return await week(210)
+        with _with_values({"unusual_week_min_diff": {"mmk": 50000, "usd": 200, "thb": 1000}}):
+            res = _backend_async(run_diff)
+        check(res == 0, "numbers: rule 2 follows unusual_week_min_diff (110 over the average is under a 200 minimum)", res)
+        async def run_default():
+            return await week(210)
+        res = _backend_async(run_default)
+        check(res == 1, "numbers: rule 2 with the defaults (1.5 x, 50 over) still notifies at 2.1 x", res)
+    finally:
+        try:
+            if ah and start_values is not None:
+                cur = c.get("/api/admin/tunables", headers=ah).json().get("version", 0)
+                c.put("/api/admin/tunables", headers=ah, json={"values": start_values, "version": cur})
+        finally:
+            try:
+                _n_cleanup(made)
+            finally:
+                if made_admins:
+                    db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", made_admins)
+                    db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
+
+
 # ------------------------------------------------------------------------------------------------------------ clean
 def section_clean():
     # Saving through the API always bumps the version, so a row that did not exist comes back as {"version": N}: the
@@ -430,7 +695,7 @@ def section_clean():
 
 
 SECTIONS = {"store": section_store, "admin_api": section_admin_api, "public_config": section_public_config,
-            "clean": section_clean}
+            "numbers": section_numbers, "clean": section_clean}
 RUN_START = _stored()  # the row as it was before anything ran
 
 

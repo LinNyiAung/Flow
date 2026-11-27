@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 from typing import Optional
 
+import tunables
 from plans import store
 from plans.catalog import PAID_PLANS
 from plans.contact import link_display
@@ -32,12 +33,14 @@ logger = logging.getLogger(__name__)
 # silently instead of flooding long-lapsed users with stale notices.
 NOTIFY_IF_ENDED_WITHIN = timedelta(days=7)
 
-# Trial reminders: "trial ends soon" once the trial has at most 3 days left, "last day" once it has at most 1 day.
-# The paid-plan renewal reminders use the same two windows.
-TRIAL_REMINDER_SOON = timedelta(days=3)
+# Trial reminders: "trial ends soon" once the trial has at most `ends_soon_days` (the admin setting, read on every run;
+# 3 by default) days left, "last day" once it has at most 1 day. The paid-plan renewal reminders use the same two windows.
 TRIAL_REMINDER_LAST = timedelta(days=1)
-PLAN_REMINDER_SOON = TRIAL_REMINDER_SOON
 PLAN_REMINDER_LAST = TRIAL_REMINDER_LAST
+
+
+def _ends_soon_window() -> timedelta:
+    return timedelta(days=tunables.get("ends_soon_days"))
 
 
 def active_paid_filter(now: Optional[datetime] = None):
@@ -130,7 +133,8 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
     """Remind trial users that their Plus trial is ending; returns the number of reminders sent.
 
     Two reminders, each sent at most once per trial and only to users whose trial marker (trial_ends_at) is still
-    in the future and who are still on a paid plan: "ends soon" when 3 days or less are left (but more than 1 day),
+    in the future and who are still on a paid plan: "ends soon" when the ends-soon setting's days or less are left (3 by
+    default; but more than 1 day),
     and "last day" when 1 day or less is left. A user first seen inside the last day gets only the last-day one.
     Plans an admin granted or changed carry no marker, so they are never reminded. Each reminder is claimed in the
     database before it is sent, so overlapping runs or a re-run cannot send it twice.
@@ -141,7 +145,7 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
         users_db.active_paid(now),
         users_db.users.c.trial_ends_at.isnot(None),
         users_db.users.c.trial_ends_at > now,
-        users_db.users.c.trial_ends_at <= now + TRIAL_REMINDER_SOON,
+        users_db.users.c.trial_ends_at <= now + _ends_soon_window(),
     )
 
     sent = 0
@@ -172,7 +176,7 @@ async def send_trial_reminders(now: Optional[datetime] = None) -> int:
 async def send_plan_renewal_reminders(now: Optional[datetime] = None) -> int:
     """Remind paying users that their Plus / Pro plan is ending; returns the number of reminders sent.
 
-    Same windows as the trial reminders: "plan_ending_soon" when 3 days or less are left (but more than 1 day), and
+    Same windows as the trial reminders: "plan_ending_soon" when the ends-soon setting's days or less are left (but more than 1 day), and
     "plan_ends_today" when 1 day or less is left; a user first seen inside the last day gets only the last-day one.
     Only users on a paid plan with an end date still in the future who are not on a free trial (trial users get the
     trial reminders instead); lifetime plans (no end date) are never reminded. Each reminder is claimed in the database
@@ -185,7 +189,7 @@ async def send_plan_renewal_reminders(now: Optional[datetime] = None) -> int:
         users_db.active_paid(now),
         users_db.users.c.subscription_expires_at.isnot(None),
         users_db.users.c.subscription_expires_at > now,
-        users_db.users.c.subscription_expires_at <= now + PLAN_REMINDER_SOON,
+        users_db.users.c.subscription_expires_at <= now + _ends_soon_window(),
         users_db.not_on_trial(now),
     )
 

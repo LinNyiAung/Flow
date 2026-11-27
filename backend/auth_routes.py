@@ -41,6 +41,7 @@ from models import (
 )
 from config import settings
 import app_control
+import tunables
 from plans.access import effective_plan, is_trial, user_language
 from plans.catalog import PAID_PLANS
 from sql import books as books_db
@@ -584,7 +585,7 @@ async def get_subscription_status(current_user: dict = Depends(get_current_user)
 @router.post("/claim-free-trial", response_model=UserResponse)
 async def claim_free_trial(current_user: dict = Depends(get_current_user)):
     """
-    Grants the authenticated user 30 days of the Plus plan, marked as a trial (trial_ends_at).
+    Grants the authenticated user the admin-set trial length (30 days by default) of the Plus plan, marked as a trial (trial_ends_at).
     Can only be claimed once per account.
     """
     app_control.require_on("free_trial", user_language(current_user))
@@ -604,7 +605,7 @@ async def claim_free_trial(current_user: dict = Depends(get_current_user)):
                 detail="You already have an active paid plan."
             )
 
-    trial_expiry = datetime.now(UTC) + timedelta(days=30)
+    trial_expiry = datetime.now(UTC) + timedelta(days=tunables.get("trial_days"))
 
     # Atomic guard against concurrent double-claims
     if not await users_db.claim_free_trial(current_user["_id"], trial_expiry):

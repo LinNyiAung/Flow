@@ -16,7 +16,8 @@
 - Nobody's history is rewritten: a removed or leaving account member becomes `former` (role kept), a placeholder with
   tagged entries becomes former, one without is deleted. Accepting an invite linked to a placeholder or former member,
   or re-joining after leaving, reuses that member row (same id), so its tags carry over.
-- Invites expire after INVITE_DAYS; expiry is applied lazily whenever invites are read.
+- Invites expire after the invite_days setting (14 days by default, read when an invite is created; sent invites keep
+  their expiry); expiry is applied lazily whenever invites are read.
 - Deleting an account (before_account_delete, in the deletion's own transaction): a member becomes former; an owner
   hands the family to the longest-standing admin, else account member; an owner left alone takes the family along.
 
@@ -32,6 +33,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 import notification_service
+import tunables
 from notification_service import translate
 from plans import store
 from plans.access import effective_plan, user_language
@@ -44,7 +46,6 @@ from sql.db import transaction
 
 logger = logging.getLogger(__name__)
 
-INVITE_DAYS = 14
 STATUS = {
     "no_family": 409,  # as a family-book request answers it (families.book.get_book): one status for one code
     "not_found": 404,
@@ -457,7 +458,7 @@ async def create_invite(user: Mapping[str, Any], email: str, link_member_id: Opt
         if taken + 1 > max_members:
             _fail(user, "family_full")
         invite = await fdb.insert_invite(str(uuid.uuid4()), family["id"], email, me["id"], link_member_id,
-                                         now + timedelta(days=INVITE_DAYS))
+                                         now + timedelta(days=tunables.get("invite_days")))
     if invitee:
         await _notify(invitee["_id"], "family_invite", "family_invite", {"family_invite_id": invite["id"]},
                       family["name"], inviter=me["display_name"], family_name=family["name"])

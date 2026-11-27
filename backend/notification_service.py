@@ -12,10 +12,10 @@ from sql import notifications as notifications_db
 from sql import notification_prefs as prefs_db
 from sql import books as books_db
 from sql import users as users_db
+import tunables
 from plans.access import format_day
 from tz_utils import (
     as_calendar_date, as_wall_clock, days_until, goal_reminder_threshold, is_budget_ending_soon, local_now,
-    GOAL_REMINDER_THRESHOLDS, BUDGET_ENDING_SOON_DAYS,
 )
 from user_zones import person_zone
 
@@ -657,11 +657,12 @@ async def goal_deadline_reminders_for_person(person_id: str, today: date, tz: tz
     """The person's daily goal-deadline reminders (local_jobs, 09:00 on their clock): the active goals of their
     books (personal, and their family's) whose target date is near, counted in calendar days from the person's `today`.
 
-    Each goal gets at most one reminder per threshold (14/7/3/1 days) for a given target date for each person;
-    thresholds are matched as ranges (e.g. 8-14 days -> the 14-day reminder) so a missed run or a goal created inside a
+    Each goal gets at most one reminder per threshold (the goal_reminder_days setting; 14/7/3/1 days by default) for a
+    given target date for each person; thresholds are matched as ranges (e.g. 8-14 days -> the 14-day reminder) so a missed run or a goal created inside a
     window still gets it. A family goal's reminder goes to this member only (each member gets theirs in their own
     run, counted from their own today)."""
-    window = (today - timedelta(days=1), today + timedelta(days=max(GOAL_REMINDER_THRESHOLDS) + 1))
+    thresholds = tunables.get("goal_reminder_days")
+    window = (today - timedelta(days=1), today + timedelta(days=max(thresholds) + 1))
     since = datetime.now(UTC) - timedelta(hours=20)
     for book_id in await _books_of_person(person_id):
         for goal in await goals_db.list_goals(book_id, status="active", target_between=window):
@@ -670,7 +671,7 @@ async def goal_deadline_reminders_for_person(person_id: str, today: date, tz: tz
                 if not target_date:
                     continue
                 days_remaining = days_until(target_date, today)
-                threshold = goal_reminder_threshold(days_remaining)
+                threshold = goal_reminder_threshold(days_remaining, thresholds=thresholds)
                 if threshold is None:
                     continue
                 goal_id = goal["_id"]
@@ -722,7 +723,7 @@ async def check_budget_notifications(book_id: str, budget_id: str, old_percentag
 
 async def budget_ending_reminders_for_person(person_id: str, today: date, tz: tzinfo) -> None:
     """The person's daily "budget ending soon" reminders (local_jobs, 09:00 on their clock): the running budgets of
-    their books (personal, and their family's) whose last day is at most BUDGET_ENDING_SOON_DAYS calendar days after
+    their books (personal, and their family's) whose last day is at most the budget_ending_soon_days setting (3 by default) calendar days after
     the person's `today` (0: it ends today).
 
     "Running" = its days include the person's own today (an exceeded budget is still running and must get the alert).
@@ -730,7 +731,8 @@ async def budget_ending_reminders_for_person(person_id: str, today: date, tz: tz
     book (the book's zone, a family's owner), so for a member behind the owner it already reads "completed" on the
     member's last day, which would never get its "ends today". Budget ids are per period, so each person gets one
     "ending soon" per budget ever; a family budget's goes to this member only."""
-    window = (today - timedelta(days=1), today + timedelta(days=BUDGET_ENDING_SOON_DAYS + 1))
+    ending_days = tunables.get("budget_ending_soon_days")
+    window = (today - timedelta(days=1), today + timedelta(days=ending_days + 1))
     for budget in await budgets_db.ending_soon_candidates(await _books_of_person(person_id), today, *window):
         try:
             book_id = budget["book_id"]
@@ -738,7 +740,7 @@ async def budget_ending_reminders_for_person(person_id: str, today: date, tz: tz
             if not start or not end or not as_calendar_date(start) <= today <= as_calendar_date(end):
                 continue
             days_until_end = days_until(budget["end_date"], today)
-            if not is_budget_ending_soon(days_until_end):
+            if not is_budget_ending_soon(days_until_end, window=ending_days):
                 continue
             budget_id = budget["_id"]
             if await notifications_db.exists([person_id], "budget_ending_soon", budget_id=budget_id):
@@ -849,11 +851,12 @@ async def check_large_transaction(book_id: str, transaction: Dict, user_spending
     if transaction_type != "outflow":
         return
 
+    minimum = tunables.amount_for("large_expense_min", currency)
     if user_spending_profile and "avg_transaction" in user_spending_profile:
-        threshold = user_spending_profile["avg_transaction"] * 3
-        threshold = max(threshold, 100000 if currency == "mmk" else 100)
+        threshold = user_spending_profile["avg_transaction"] * tunables.get("large_expense_multiple")
+        threshold = max(threshold, minimum)
     else:
-        threshold = 150000 if currency == "mmk" else 150
+        threshold = 1.5 * minimum
 
     if amount >= threshold:
         # [FIX] Added await
@@ -937,9 +940,9 @@ async def analyze_unusual_spending(book_id: str, tz: Optional[tzinfo] = None):
                 continue
 
             weekly_avg = last_month_by_category[category] / weeks_in_last_month
-            min_diff = 50000 if currency == "mmk" else 50
+            min_diff = tunables.amount_for("unusual_week_min_diff", currency)
 
-            if this_week_amount > weekly_avg * 1.5 and this_week_amount - weekly_avg > min_diff:
+            if this_week_amount > weekly_avg * tunables.get("unusual_week_multiple") and this_week_amount - weekly_avg > min_diff:
                 # [FIX] Added await
                 existing = await notifications_db.exists(
                     person_id, "unusual_spending", goal_name=category, currency=currency, since=recent_notification_cutoff
