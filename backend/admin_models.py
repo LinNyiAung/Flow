@@ -64,6 +64,8 @@ class UserListResponse(BaseModel):
     total_goals: int = 0
     last_active: Optional[datetime] = None
     device_count: int = 0  # devices the person is signed in on (push tokens)
+    language: str = "en"
+    ai_cost_month: float = 0.0  # estimated AI spend (USD) since the start of the current UTC month
     suspended: bool = False
 
 

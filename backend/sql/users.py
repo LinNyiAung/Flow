@@ -9,7 +9,7 @@ from plans.catalog import PAID_PLANS
 from sql import devices as devices_db
 from sql.db import execute, fetch_all, fetch_one, fetch_value, write_returning
 from sql.docs import row_to_doc, rows_to_docs
-from sql.tables import books, users
+from sql.tables import ai_usage, books, chat_sessions, goals, transactions, user_devices, users
 
 _COLUMNS = {c.name for c in users.columns}
 
@@ -103,11 +103,41 @@ async def list_fields(columns: Iterable[str], *conditions: ColumnElement) -> Lis
     return rows_to_docs(await fetch_all(stmt))
 
 
+ADMIN_SORTS = ("newest", "oldest", "last_active", "ai_cost")
+
+
 async def admin_list(search: Optional[str], subscription_type: Optional[str], skip: int, limit: int,
-                     now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    """Users for the admin list. `subscription_type` filters by the plan a user has at `now` (an expired Plus is free)."""
+                     now: Optional[datetime] = None, sort: str = "newest",
+                     status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Users for the admin list, one query: each row is the user plus total_transactions and total_goals (their
+    personal book's), last_active (the later of their latest entry in it and their latest chat activity; None when
+    neither), device_count and ai_cost_month (estimated AI spend since the start of the current UTC month, 0 when
+    none), so the caller makes no per-user query.
+
+    `subscription_type` filters by the plan a user has at `now` (an expired Plus is free); `status` is "active" or
+    "suspended". `sort`: newest (default), oldest, last_active (never-active last) or ai_cost (highest first); ties go
+    newest first, then by id."""
     now = now or datetime.now(timezone.utc)
-    stmt = select(users)
+    utc_now = now.astimezone(timezone.utc)
+    month_start = datetime(utc_now.year, utc_now.month, 1, tzinfo=timezone.utc)
+    mine = books.c.person_id == users.c.id  # their personal book (never their family's)
+    entries = transactions.join(books, books.c.id == transactions.c.book_id)
+    tx_count = select(func.count()).select_from(entries).where(mine).correlate(users).scalar_subquery()
+    tx_last = select(func.max(transactions.c.created_at)).select_from(entries).where(mine).correlate(users).scalar_subquery()
+    goal_count = (select(func.count()).select_from(goals.join(books, books.c.id == goals.c.book_id)).where(mine)
+                  .correlate(users).scalar_subquery())
+    chat_last = (select(func.max(chat_sessions.c.updated_at)).where(chat_sessions.c.user_id == users.c.id)
+                 .correlate(users).scalar_subquery())
+    devices = (select(func.count()).select_from(user_devices).where(user_devices.c.user_id == users.c.id)
+               .correlate(users).scalar_subquery())
+    ai_cost = (select(func.coalesce(func.sum(ai_usage.c.estimated_cost_usd), 0))
+               .where(ai_usage.c.user_id == users.c.id, ai_usage.c.created_at >= month_start)
+               .correlate(users).scalar_subquery())
+    last_active = func.greatest(tx_last, chat_last)  # GREATEST skips NULLs: NULL only when both are
+    stmt = select(users, tx_count.label("total_transactions"), goal_count.label("total_goals"),
+                  last_active.label("last_active"), devices.label("device_count"), ai_cost.label("ai_cost_month"))
+    if status:
+        stmt = stmt.where(users.c.suspended_at.is_not(None) if status == "suspended" else not_suspended())
     if search and search.strip():
         # Literal (not pattern) substring match, case-insensitive.
         needle = search.strip().lower()
@@ -115,7 +145,9 @@ async def admin_list(search: Optional[str], subscription_type: Optional[str], sk
                               func.strpos(func.lower(users.c.email), needle) > 0))
     if subscription_type:
         stmt = stmt.where(effectively_free(now) if subscription_type == "free" else active_plan(subscription_type, now))
-    stmt = stmt.order_by(users.c.created_at.desc(), users.c.id).offset(skip).limit(limit)
+    lead = {"newest": [], "oldest": [users.c.created_at.asc()],
+            "last_active": [last_active.desc().nulls_last()], "ai_cost": [ai_cost.desc()]}[sort]
+    stmt = stmt.order_by(*lead, users.c.created_at.desc(), users.c.id).offset(skip).limit(limit)
     return rows_to_docs(await fetch_all(stmt))
 
 

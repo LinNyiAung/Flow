@@ -7,6 +7,8 @@ Sections (named on the command line, all by default):
     the suspension in the detail and the list.
   recovery -- an admin sends a reset code (and its limits), and a super admin corrects a sign-in email.
   effects -- a suspended person gets no notices, broadcasts or AI work; data jobs and family books go on.
+  grant -- granting an upgrade request in one call.
+  list -- the users list: sorting, status, language, AI cost this month, and a fixed number of queries.
   clean -- no throwaway users or admins are left; keep this section last.
 """
 import asyncio
@@ -953,6 +955,130 @@ def section_grant():
         _cleanup(made_users, made_admins)
 
 
+# --------------------------------------------------------------------------------------------------------------- list
+def _fill(uid, *, txs=(), chat=None, costs=(), devices=0, goals=0):
+    """Known activity for a person: entries (hours ago, in the personal book), a chat session (hours ago), AI cost rows
+    (cost, days ago), devices, goals."""
+    book = _book_of(uid)
+    for i, hours in enumerate(txs):
+        db.sql("INSERT INTO transactions (id, book_id, type, main_category, sub_category, amount, date, created_at) "
+               "VALUES (%s, %s, 'outflow', 'Food & Daily Living', 'Groceries', 5, now(), now() - %s * interval '1 hour')",
+               f"ua-tx-{uuid.uuid4().hex[:10]}", book, hours)
+    if chat is not None:
+        db.sql("INSERT INTO chat_sessions (id, user_id, book_id, updated_at) "
+               "VALUES (%s, %s, %s, now() - %s * interval '1 hour')", f"ua-cs-{uuid.uuid4().hex[:10]}", uid, book, chat)
+    for cost, days_ago in costs:
+        # days_ago None: the last day of the previous UTC month (never this month's)
+        when = ("date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' - interval '1 hour'"
+                if days_ago is None else "now()")
+        db.sql("INSERT INTO ai_usage (id, user_id, feature_type, provider, model_name, estimated_cost_usd, created_at) "
+               f"VALUES (%s, %s, 'chat', 'gemini', 'm', %s, {when})", f"ua-ai-{uuid.uuid4().hex[:10]}", uid, cost)
+    for _ in range(devices):
+        _add_device(uid, f"ua-tok-{uuid.uuid4().hex}")
+    for _ in range(goals):
+        db.sql("INSERT INTO goals (id, book_id, name, goal_type, target_amount) VALUES (%s, %s, 'g', 'savings', 10)",
+               f"ua-gl-{uuid.uuid4().hex[:10]}", book)
+
+
+def section_list():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    tag = uuid.uuid4().hex[:6]
+    try:
+        ah, admin_id = _admin(c, "admin")
+        made_admins.append(admin_id)
+        a = _person(c, made_users, f"lst{tag}-a")
+        b = _person(c, made_users, f"lst{tag}-b")
+        s = _person(c, made_users, f"lst{tag}-c")
+        # created: a oldest, then b, then s (newest). last active: b (chat 1h), a (entry 2h), s never.
+        # AI cost this month: a 3.0 (2.5 + 0.5; a 9.0 row from last month does not count), b 2.0, s 0.
+        for uid, days in ((a["id"], 3), (b["id"], 2), (s["id"], 1)):
+            db.sql("UPDATE users SET created_at = now() - %s * interval '1 day' WHERE id = %s", days, uid)
+        db.sql("UPDATE users SET language = 'my' WHERE id = %s", b["id"])
+        _fill(a["id"], txs=(2, 30), costs=((2.5, 0), (0.5, 0), (9.0, None)), devices=2)
+        _fill(b["id"], txs=(240,), chat=1, costs=((2.0, 0),), goals=1)
+        _suspend_in_db(s["id"], admin_id)
+        search = f"lst{tag}"
+
+        def listing(**params):
+            r = c.get("/api/admin/users", headers=ah, params={"search": search, **params})
+            return r, ([u["email"] for u in r.json()] if r.status_code == 200 else None)
+        order = {"newest": [s, b, a], "oldest": [a, b, s], "last_active": [b, a, s], "ai_cost": [a, b, s]}
+        for sort, people in order.items():
+            r, emails = listing(sort=sort)
+            check(emails == [p["email"] for p in people], f"list: sort={sort} orders them as expected",
+                  f"{r.status_code} {emails}")
+        r, emails = listing()
+        check(emails == [p["email"] for p in order["newest"]], "list: no sort means newest first", str(emails))
+        r, emails = listing(sort="last_active", skip=1, limit=1)
+        check(emails == [a["email"]], "list: a page of a sorted list is the right slice", str(emails))
+        for bad in ({"sort": "bad"}, {"status": "bad"}):
+            check(listing(**bad)[0].status_code == 422, f"list: {bad} is a 422")
+        r, emails = listing(status="suspended")
+        check(emails == [s["email"]], "list: status=suspended returns only the suspended one", str(emails))
+        r, emails = listing(status="active")
+        check(emails == [b["email"], a["email"]], "list: status=active leaves the suspended one out", str(emails))
+        r, emails = listing(status="suspended", sort="ai_cost")
+        check(emails == [s["email"]], "list: status and sort go together", str(emails))
+
+        rows = {u["email"]: u for u in listing(sort="newest")[0].json()}
+        costs = [rows[p["email"]].get("ai_cost_month") for p in (a, b, s)]
+        check(costs == [3.0, 2.0, 0.0] and all(isinstance(x, float) for x in costs),
+              "list: the AI cost counts this UTC month only, 0.0 when none", str(costs))
+        check(rows[a["email"]]["last_active"] is not None and rows[s["email"]]["last_active"] is None,
+              "list: last_active is null for a person with no entry or chat")
+        check([rows[p["email"]].get("language") for p in (a, b, s)] == ["en", "my", "en"],
+              "list: each row has the language")
+        check([rows[p["email"]]["suspended"] for p in (a, b, s)] == [False, False, True], "list: each row says suspended")
+        for p in (a, b, s):
+            d = c.get(f"/api/admin/users/{p['id']}", headers=ah).json()
+            row = rows[p["email"]]
+            same = all(row.get(k) == d[k] for k in ("total_transactions", "total_goals", "last_active", "device_count",
+                                                 "language", "effective_plan", "default_currency"))
+            check(same and row["suspended"] == (d["suspension"] is not None),
+                  f"list: {p['email'][:12]} matches the detail route",
+                  f"{ {k: (row.get(k), d[k]) for k in ('total_transactions', 'total_goals', 'last_active', 'device_count')} }")
+        check((rows[a["email"]]["total_transactions"], rows[a["email"]]["device_count"]) == (2, 2)
+              and (rows[b["email"]]["total_goals"], rows[b["email"]]["total_transactions"]) == (1, 1),
+              "list: the counts are the known ones")
+
+        # a page of 2 and a page of 6 run the same number of statements
+        more = [_person(c, made_users, f"lst{tag}-x{i}") for i in range(3)]
+        for p in more:
+            _fill(p["id"], txs=(5,), chat=2, costs=((0.1, 0),), devices=1, goals=1)
+
+        async def count_statements():
+            from sqlalchemy import event
+            import admin_routes
+            from sql import db as sqldb
+            seen = []
+            engine = sqldb.get_engine().sync_engine
+
+            def count(conn, cursor, statement, params, context, executemany):
+                seen.append(statement)
+            event.listen(engine, "before_cursor_execute", count)
+            try:
+                out = {}
+                for limit in (2, 6):
+                    seen.clear()
+                    got = await admin_routes.get_all_users(current_admin={}, skip=0, limit=limit, search=search,
+                                                           subscription_type=None, sort="newest", status=None)
+                    out[limit] = (len(seen), len(got))
+                return out
+            finally:
+                event.remove(engine, "before_cursor_execute", count)
+        try:
+            counts = _backend_async(count_statements)
+        except Exception as e:  # noqa: BLE001
+            counts = f"{type(e).__name__}: {e}"
+        check(isinstance(counts, dict) and counts[2][1] == 2 and counts[6][1] == 6
+              and counts[2][0] == counts[6][0] and counts[6][0] <= 3,
+              "list: a page of 2 and a page of 6 run the same few statements", str(counts))
+    finally:
+        _cleanup(made_users, made_admins)
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -961,7 +1087,7 @@ def section_clean():
 
 
 SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery,
-            "effects": section_effects, "grant": section_grant, "clean": section_clean}
+            "effects": section_effects, "grant": section_grant, "list": section_list, "clean": section_clean}
 
 
 def main():

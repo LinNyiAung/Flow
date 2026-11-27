@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, UTC
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request, status, Depends, Query, Path
 from starlette.concurrency import run_in_threadpool
@@ -558,39 +558,19 @@ async def get_all_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = Query(None),
-    subscription_type: Optional[SubscriptionType] = Query(None)
+    subscription_type: Optional[SubscriptionType] = Query(None),
+    sort: Literal["newest", "oldest", "last_active", "ai_cost"] = Query("newest"),
+    status: Optional[Literal["active", "suspended"]] = Query(None)
 ):
-    """Get all users with pagination and filters"""
+    """Get all users with pagination, filters and a sort. The counts, last activity, devices and AI cost come with the
+    rows (one query), whatever the page size."""
     # The plan filter, like the badge, is about the plan a user has now (an expired Plus is Free).
     now = datetime.now(UTC)
-    users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit, now)
-
-    device_counts = await devices_db.count_for(u["_id"] for u in users)
+    users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit, now,
+                                      sort, status)
 
     user_list = []
     for user in users:
-        # Counts and the last entry are the person's personal book (never their family's, and never every book: a
-        # None id would count them all).
-        book_id = await books_db.personal_book_id(user["_id"])
-        transaction_count = await transactions_db.count_transactions(book_id) if book_id else 0
-        goals_count = await goals_db.count_goals(book_id) if book_id else 0
-
-        last_tx_at = await transactions_db.latest_created_at(book_id) if book_id else None
-        last_transaction = {"created_at": last_tx_at} if last_tx_at else None
-        last_chat_at = await chat_db.latest_activity(user["_id"])
-        last_chat = {"updated_at": last_chat_at} if last_chat_at else None
-
-        last_active = None
-        if last_transaction and last_chat:
-            last_active = max(
-                last_transaction.get("created_at"),
-                last_chat.get("updated_at")
-            )
-        elif last_transaction:
-            last_active = last_transaction.get("created_at")
-        elif last_chat:
-            last_active = last_chat.get("updated_at")
-
         user_list.append(UserListResponse(
             id=user["_id"],
             name=user["name"],
@@ -599,11 +579,13 @@ async def get_all_users(
             effective_plan=SubscriptionType(effective_plan(user, now)),
             subscription_expires_at=user.get("subscription_expires_at"),
             default_currency=Currency(user.get("default_currency", "usd")),
+            language=user.get("language", "en"),
             created_at=user["created_at"],
-            total_transactions=transaction_count,
-            total_goals=goals_count,
-            last_active=last_active,
-            device_count=device_counts.get(user["_id"], 0),
+            total_transactions=user["total_transactions"],
+            total_goals=user["total_goals"],
+            last_active=user["last_active"],
+            device_count=user["device_count"],
+            ai_cost_month=round(float(user["ai_cost_month"] or 0), 4),
             suspended=is_suspended(user)
         ))
 
