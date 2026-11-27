@@ -921,6 +921,30 @@ def section_grant():
         check(plan == "plus" and abs(end - want) < close and trial is None,
               "grant: the trial ends and the plan runs from now", f"{plan} {end} {trial}")
 
+        # never a downgrade, never a shortening
+        v = _person(c, made_users, "gdown")
+        _set_plan(v["id"], "pro", 10)
+        before = _end_of(v["id"])
+        rid6 = _request(v["id"], "plus", "month")
+        r = c.post(f"/api/admin/upgrade-requests/{rid6}/grant", headers=ah, json={})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "grant_would_downgrade"
+              and d.get("message") == "This person already has a higher plan. Change it on the Users tab if you mean to.",
+              "grant: a Pro holder with a Plus request is 409 grant_would_downgrade", f"{r.status_code} {r.text[:200]}")
+        check(_end_of(v["id"]) == before and _row_of(c, ah, rid6)["status"] == "pending"
+              and not _logs(v["id"], "upgrade_request_granted"),
+              "grant: the downgrade refusal leaves the plan and the pending request alone")
+        w = _person(c, made_users, "glife")
+        _set_plan(w["id"], "plus")
+        rid7 = _request(w["id"], "plus", "month")
+        r = c.post(f"/api/admin/upgrade-requests/{rid7}/grant", headers=ah, json={})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "grant_no_end_date"
+              and d.get("message") == "This person's plan has no end date. Change it on the Users tab if you mean to.",
+              "grant: a plan with no end date is 409 grant_no_end_date", f"{r.status_code} {r.text[:200]}")
+        check(_end_of(w["id"]) == ("plus", None) and _row_of(c, ah, rid7)["status"] == "pending",
+              "grant: the no-end-date refusal leaves the plan and the pending request alone")
+
         # a handled request has no grant_until
         row = _row_of(c, ah, rid5)
         check(row and row["status"] == "done" and "grant_until" not in row,

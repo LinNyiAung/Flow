@@ -309,6 +309,17 @@ async def grant_upgrade_request(request_id: str = Path(...), body: Optional[Gran
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     now = datetime.now(UTC)
+    # A grant only ever gives or extends: never a lower plan than the person has, never an end date on a plan without one.
+    have = effective_plan(user, now)
+    if have != "free" and not is_trial(user, now):
+        if PLAN_RANK[have] > PLAN_RANK[request["plan"]]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+                "code": "grant_would_downgrade",
+                "message": "This person already has a higher plan. Change it on the Users tab if you mean to."})
+        if user.get("subscription_expires_at") is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+                "code": "grant_no_end_date",
+                "message": "This person's plan has no end date. Change it on the Users tab if you mean to."})
     expires_at = body.expires_at if body and body.expires_at else None
     if expires_at is None:
         expires_at = grant_until(user, request["plan"], request["billing"], now)
