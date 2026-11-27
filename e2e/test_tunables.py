@@ -3,7 +3,10 @@
 Sections (named on the command line, all by default):
   store -- the settings store in-process: defaults, validation (types, ranges, the cross-field rule), save with the
     compare-and-swap on the version, a bad stored record.
-  clean -- the real `tunables` row is as it was when the run started (keep this section last).
+  admin_api -- the admin routes over HTTP (roles, save, log, conflict, 422 shapes); every save is restored in `finally`.
+  public_config -- GET /api/app/config carries the trial and invite lengths.
+  clean -- the real `tunables` row holds the same settings as when the run started (its version may have moved);
+    keep this section last.
 In-process tests point sql.tunables.SETTINGS_KEY at a private key, so the stub server (which caches the real row) never
 sees them; they put the key and the module's cache back in `finally`.
 """
@@ -269,14 +272,165 @@ def section_store():
     check(_stored() == original, "store: the real tunables row is untouched")
 
 
+# ------------------------------------------------------------------------------------------------------- admin_api
+BASE = "http://127.0.0.1:8765"
+
+
+def _admin(c, role):
+    import admin_utils
+    import uuid
+    from datetime import UTC, datetime
+    email, pw = f"tn-{role}-{uuid.uuid4().hex[:8]}@example.com", "tn-admin-pass-1"
+    aid = str(uuid.uuid4())
+    db.admins.insert_one({"_id": aid, "name": f"tn {role}", "email": email,
+                          "password": admin_utils.get_password_hash(pw), "role": role,
+                          "created_at": datetime.now(UTC), "last_login": None})
+    r = c.post("/api/admin/login", json={"email": email, "password": pw})
+    return {"Authorization": "Bearer " + r.json().get("access_token", "")}, aid
+
+
+def _by_key(body):
+    return {s["key"]: s for s in body.get("settings", [])}
+
+
+def section_admin_api():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_admins = []
+    ah = None
+    start_values = None
+    try:
+        mh, mid = _admin(c, "moderator")
+        ah, aid = _admin(c, "admin")
+        made_admins += [mid, aid]
+
+        r = c.get("/api/admin/tunables", headers=mh)
+        body = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and len(body.get("settings", [])) == 13 and isinstance(body.get("version"), int),
+              "admin_api: a moderator reads 13 settings and the version", f"{r.status_code} {r.text[:200]}")
+        start_values = {k: s["value"] for k, s in _by_key(body).items()}
+        v = body.get("version", 0)
+        r = c.put("/api/admin/tunables", headers=mh, json={"values": {"trial_days": 45}, "version": v})
+        check(r.status_code == 403, "admin_api: a moderator cannot save", r.status_code)
+        check(c.get("/api/admin/tunables").status_code == 401, "admin_api: no token on GET is 401")
+        check(c.put("/api/admin/tunables", json={"values": {}, "version": v}).status_code == 401,
+              "admin_api: no token on PUT is 401")
+
+        r = c.put("/api/admin/tunables", headers=ah,
+                  json={"values": {"trial_days": 45, "reminders_time": "10:00"}, "version": v})
+        body = r.json() if r.status_code == 200 else {}
+        td = _by_key(body).get("trial_days", {})
+        check(r.status_code == 200 and td.get("value") == 45 and td.get("changed") is True and body.get("version") == v + 1
+              and _by_key(body).get("reminders_time", {}).get("value") == "10:00",
+              "admin_api: an admin saves and gets the new state back", f"{r.status_code} {r.text[:200]}")
+        logs = db.sql("SELECT action, details FROM admin_action_logs WHERE admin_id = %s ORDER BY timestamp DESC", aid)
+        check(logs and logs[0]["action"] == "tunables_update" and "trial_days: 30 -> 45" in logs[0]["details"]
+              and "reminders_time: 09:00 -> 10:00" in logs[0]["details"] and len(logs[0]["details"]) <= 2000,
+              "admin_api: the log has tunables_update naming each change", logs[:1])
+        n_logs = len(logs)
+
+        r = c.get("/api/app/config")
+        check(r.status_code == 200 and r.json().get("numbers") == {"trial_days": 45, "invite_days": 14},
+              "admin_api: the app config shows the saved numbers", r.text[:300])
+
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 50}, "version": v})
+        d = r.json().get("detail", {}) if r.status_code == 409 else {}
+        check(r.status_code == 409 and d.get("code") == "settings_conflict" and d.get("message"),
+              "admin_api: an old version is 409 settings_conflict", f"{r.status_code} {r.text[:200]}")
+
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 45}, "version": v + 1})
+        body = r.json() if r.status_code == 200 else {}
+        n2 = db.sql("SELECT count(*) AS n FROM admin_action_logs WHERE admin_id = %s", aid)[0]["n"]
+        check(r.status_code == 200 and body.get("version") == v + 1 and n2 == n_logs,
+              "admin_api: a save that changes nothing is 200, keeps the version and logs nothing",
+              f"{r.status_code} {r.text[:200]} {n2} {n_logs}")
+
+        cur = v + 1
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 3, "invite_days": 0}, "version": cur})
+        errs = r.json().get("detail", {}).get("errors", {}) if r.status_code == 422 else {}
+        check(r.status_code == 422 and r.json()["detail"].get("code") == "settings_invalid"
+              and {"trial_days", "invite_days"} <= set(errs), "admin_api: a bad save is 422 with every field error",
+              f"{r.status_code} {r.text[:200]}")
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 7}, "version": cur})
+        check(r.status_code == 200, "admin_api: trial_days 7 alone is fine at ends_soon_days 3", r.status_code)
+        cur += 1
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"ends_soon_days": 7}, "version": cur})
+        check(r.status_code == 422 and "ends_soon_days" in r.json().get("detail", {}).get("errors", {}),
+              "admin_api: the cross-field rule is a 422 under ends_soon_days", f"{r.status_code} {r.text[:200]}")
+        for bad in (True, 1.5, "1", -1, None):
+            r = c.put("/api/admin/tunables", headers=ah, json={"values": {}, "version": bad})
+            d = r.json().get("detail", {}) if r.status_code == 422 else {}
+            check(r.status_code == 422 and d.get("code") == "settings_invalid" and d.get("errors", {}).get("version"),
+                  f"admin_api: version {bad!r} is a 422 settings_invalid under 'version'", f"{r.status_code} {r.text[:200]}")
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {}})
+        check(r.status_code == 422 and r.json().get("detail", {}).get("errors", {}).get("version"),
+              "admin_api: a missing version is a 422 under 'version'", f"{r.status_code} {r.text[:200]}")
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {}, "version": cur, "extra": 1})
+        check(r.status_code == 422, "admin_api: extra fields are refused", r.status_code)
+    finally:
+        try:
+            if ah and start_values is not None:
+                cur = c.get("/api/admin/tunables", headers=ah).json().get("version", 0)
+                c.put("/api/admin/tunables", headers=ah, json={"values": start_values, "version": cur})
+        finally:
+            if made_admins:
+                db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", made_admins)
+                db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
+
+
+# ---------------------------------------------------------------------------------------------------- public_config
+def section_public_config():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_admins = []
+    ah = None
+    start_values = None
+    try:
+        ah, aid = _admin(c, "admin")
+        made_admins.append(aid)
+        body = c.get("/api/admin/tunables", headers=ah).json()
+        start_values = {k: s["value"] for k, s in _by_key(body).items()}
+        r = c.get("/api/app/config")
+        check(r.status_code == 200 and r.json().get("numbers") == {"trial_days": start_values["trial_days"],
+                                                                    "invite_days": start_values["invite_days"]},
+              "public_config: signed out, the config carries the trial and invite lengths", r.text[:300])
+        r = c.put("/api/admin/tunables", headers=ah,
+                  json={"values": {"trial_days": 45}, "version": body["version"]})
+        r = c.get("/api/app/config")
+        check(r.json().get("numbers") == {"trial_days": 45, "invite_days": start_values["invite_days"]},
+              "public_config: a saved trial length shows at once", r.text[:300])
+    finally:
+        try:
+            if ah and start_values is not None:
+                cur = c.get("/api/admin/tunables", headers=ah).json().get("version", 0)
+                c.put("/api/admin/tunables", headers=ah, json={"values": start_values, "version": cur})
+                r = c.get("/api/app/config")
+                check(r.json().get("numbers", {}).get("trial_days") == start_values["trial_days"],
+                      "public_config: restored, the config shows the original length", r.text[:300])
+        finally:
+            if made_admins:
+                db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", made_admins)
+                db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
+
+
 # ------------------------------------------------------------------------------------------------------------ clean
 def section_clean():
-    check(_stored() == RUN_START, "clean: the stored tunables row is as it was when the run started",
+    # Saving through the API always bumps the version, so a row that did not exist comes back as {"version": N}: the
+    # settings in it (everything but the version) are what must be as they were.
+    def settings(raw):
+        try:
+            rec = json.loads(raw) if raw else {}
+        except ValueError:
+            return raw
+        return {k: v for k, v in rec.items() if k != "version"} if isinstance(rec, dict) else raw
+
+    check(settings(_stored()) == settings(RUN_START), "clean: the stored settings are as they were when the run started",
           f"{RUN_START!r} -> {_stored()!r}")
     check(_stored(E2E_KEY) is None, "clean: no private tunables row is left")
 
 
-SECTIONS = {"store": section_store, "clean": section_clean}
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "public_config": section_public_config,
+            "clean": section_clean}
 RUN_START = _stored()  # the row as it was before anything ran
 
 

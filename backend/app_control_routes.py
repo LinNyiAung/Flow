@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, ConfigDict
 
 import app_control
+import tunables
 import utils
 from admin_utils import log_admin_action, require_admin_or_super, require_moderator_or_above
 from notification_service import translate
@@ -184,4 +185,5 @@ async def app_config(lang: str = Query("en"), authorization: Optional[str] = Hea
                         "can_enter": (not on) or app_control.is_tester(user["email"] if user else None)},
         "paused": {k: app_control.paused_message(k, lang) for k in app_control.SWITCHES if app_control.is_paused(k)},
         "announcement": announcement,
+        "numbers": {"trial_days": tunables.get("trial_days"), "invite_days": tunables.get("invite_days")},
     }
