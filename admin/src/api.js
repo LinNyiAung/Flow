@@ -81,6 +81,7 @@ export function formatErrorDetail(detail, fallback = 'Request failed') {
     return msgs.length ? msgs.join('; ') : fallback;
   }
   if (typeof detail === 'object' && detail.msg) return detail.msg;
+  if (typeof detail === 'object' && typeof detail.message === 'string' && detail.message) return detail.message;
   return fallback;
 }
 
@@ -213,6 +214,33 @@ export const markUpgradeRequestDone = (token, id) =>
 
 export const dismissUpgradeRequest = (token, id) =>
   apiRequest(`/api/admin/upgrade-requests/${enc(id)}/dismiss`, { token, method: 'POST' });
+
+// ─── Person actions (user detail modal) ───────────────────────────────────────
+const userPath = (id, tail) => `/api/admin/users/${enc(id)}/${tail}`;
+
+/** 409 detail {code: 'already_suspended', message} when already suspended. */
+export const suspendUser = (token, id, reason) =>
+  apiRequest(userPath(id, 'suspend'), { token, method: 'POST', body: { reason } });
+
+/** 409 detail {code: 'not_suspended', message}. */
+export const unsuspendUser = (token, id) => apiRequest(userPath(id, 'unsuspend'), { token, method: 'POST' });
+
+/** Resolves to { devices_removed }. */
+export const signOutUser = (token, id) => apiRequest(userPath(id, 'sign-out'), { token, method: 'POST' });
+
+/** body: { name?, default_currency? ('usd'|'mmk'|'thb') }. Resolves to the updated detail. */
+export const updateUserProfile = (token, id, body) =>
+  apiRequest(userPath(id, 'profile'), { token, method: 'PUT', body });
+
+/** Super admin only. Resolves to { email }; 409 detail {code: 'email_taken'}. */
+export const changeUserEmail = (token, id, email) =>
+  apiRequest(userPath(id, 'email'), { token, method: 'PUT', body: { email } });
+
+/** Resolves to { sent: true }; 409 detail {code: 'reset_code_not_sent', reason, retry_at, message}. */
+export const sendUserResetCode = (token, id) => apiRequest(userPath(id, 'reset-code'), { token, method: 'POST' });
+
+/** body: { title, message, notification_type: 'system_broadcast' | 'admin_announcement' }. Resolves to { devices }. */
+export const messageUser = (token, id, body) => apiRequest(userPath(id, 'message'), { token, method: 'POST', body });
 
 // ─── Roles ────────────────────────────────────────────────────────────────────
 /** admin and super_admin can make changes; moderators are read-only. */

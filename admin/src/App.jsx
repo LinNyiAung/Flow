@@ -15,6 +15,7 @@ import Texts from './Texts';
 import Tunables from './Tunables';
 import UpgradeRequests from './UpgradeRequests';
 import FeedbackManagement from './FeedbackManagement';
+import UserActions from './UserActions';
 import ErrorBoundary from './ErrorBoundary';
 import {
   apiRequest, errorMessage, onUnauthorized, loadStoredSession, storeSession, clearSession,
@@ -1064,7 +1065,9 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   // Draft inputs vs. filters actually applied to the users query.
   const [searchQuery, setSearchQuery] = useState('');
   const [subscriptionFilter, setSubscriptionFilter] = useState('');
-  const [userFilters, setUserFilters] = useState({ search: '', subscription_type: '' });
+  const [sortDraft, setSortDraft] = useState('newest');
+  const [statusDraft, setStatusDraft] = useState('');
+  const [userFilters, setUserFilters] = useState({ search: '', subscription_type: '', sort: 'newest', status: '' });
   const [selectedUser, setSelectedUser] = useState(null);
   const [planPick, setPlanPick] = useState('plus');  // plan chosen in the user modal's picker
   const [broadcastStats, setBroadcastStats] = useState(null);
@@ -1079,7 +1082,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   const isSuper = isSuperAdmin(admin.role);
   const writable = canWrite(admin.role);
 
-  const loadKey = `${activeTab}|${userFilters.search}|${userFilters.subscription_type}|${refreshKey}`;
+  const loadKey = `${activeTab}|${userFilters.search}|${userFilters.subscription_type}|${userFilters.sort}|${userFilters.status}|${refreshKey}`;
   const tabLoadsData = DASHBOARD_DATA_TABS.includes(activeTab);
   const loading = tabLoadsData && tabStatus.key !== loadKey;
   const tabError = tabLoadsData && tabStatus.key === loadKey ? tabStatus.error : null;
@@ -1101,6 +1104,8 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
           const data = await api.getUsers(token, {
             search: userFilters.search,
             subscription_type: userFilters.subscription_type,
+            sort: userFilters.sort,
+            status: userFilters.status,
             skip: 0,
             limit: USERS_PAGE_SIZE,
           });
@@ -1139,7 +1144,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
       });
 
     return () => { cancelled = true; };
-  }, [token, activeTab, userFilters.search, userFilters.subscription_type, isSuper, loadKey]);
+  }, [token, activeTab, userFilters.search, userFilters.subscription_type, userFilters.sort, userFilters.status, isSuper, loadKey]);
 
   const reload = () => setRefreshKey((k) => k + 1);
 
@@ -1156,7 +1161,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   }, [token, activeTab, refreshKey]);
 
   const handleSearch = () => {
-    setUserFilters({ search: searchQuery.trim(), subscription_type: subscriptionFilter });
+    setUserFilters({ search: searchQuery.trim(), subscription_type: subscriptionFilter, sort: sortDraft, status: statusDraft });
     reload(); // also re-fetch when the filters didn't change
   };
 
@@ -1164,7 +1169,9 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
     // All updates batch into one render → exactly one fetch with cleared filters.
     setSearchQuery('');
     setSubscriptionFilter('');
-    setUserFilters({ search: '', subscription_type: '' });
+    setSortDraft('newest');
+    setStatusDraft('');
+    setUserFilters({ search: '', subscription_type: '', sort: 'newest', status: '' });
     reload();
   };
 
@@ -1175,6 +1182,8 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
       const data = await api.getUsers(token, {
         search: userFilters.search,
         subscription_type: userFilters.subscription_type,
+        sort: userFilters.sort,
+        status: userFilters.status,
         skip: usersState.items.length,
         limit: USERS_PAGE_SIZE,
       });
@@ -1270,6 +1279,16 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
       const detail = await api.getUser(token, user.id);
       setSelectedUser((cur) => (cur && cur.id === user.id ? { ...cur, ...detail } : cur));
     } catch (error) { /* the row stays; the device list just stays empty */ }
+  };
+
+  // After a person action: re-read the detail for the open modal and refresh that person's list row.
+  const refreshUser = async (userId) => {
+    try {
+      const detail = await api.getUser(token, userId);
+      const merged = { ...detail, suspended: !!detail.suspension };
+      setSelectedUser((cur) => (cur && cur.id === userId ? { ...cur, ...merged } : cur));
+      setUsersState((prev) => ({ ...prev, items: prev.items.map((u) => (u.id === userId ? { ...u, ...merged } : u)) }));
+    } catch { /* the modal keeps what it shows; the next reload corrects it */ }
   };
 
   // Open a user's detail panel from elsewhere (the upgrade requests list) by id.
@@ -1499,6 +1518,19 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                   <option value="plus">Plus</option>
                   <option value="pro">Pro</option>
                 </select>
+                <select value={sortDraft} onChange={(e) => setSortDraft(e.target.value)} aria-label="Sort"
+                  className="flex-1 md:flex-none px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500/50">
+                  <option value="newest">Newest joined</option>
+                  <option value="oldest">Oldest joined</option>
+                  <option value="last_active">Last active</option>
+                  <option value="ai_cost">AI cost this month</option>
+                </select>
+                <select value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)} aria-label="Suspended filter"
+                  className="flex-1 md:flex-none px-4 py-3.5 bg-slate-900/50 border border-slate-600/20 rounded-xl text-slate-100 text-[15px] outline-none cursor-pointer focus:border-blue-500/50">
+                  <option value="">All accounts</option>
+                  <option value="active">Not suspended</option>
+                  <option value="suspended">Suspended</option>
+                </select>
                 <button onClick={handleSearch} className="px-6 py-3.5 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl text-white text-[15px] font-semibold flex items-center gap-2 hover:-translate-y-0.5 transition-transform">
                   <Search size={18} /><span className="hidden md:inline">Search</span>
                 </button>
@@ -1514,11 +1546,11 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
               ) : (
                 <>
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse min-w-[800px]">
+                    <table className="w-full border-collapse min-w-[1100px]">
                       <thead>
                         <tr className="bg-slate-900/50 border-b border-white/5">
-                          {['User', 'Subscription', 'Activity', 'Joined', 'Actions'].map((header, i) => (
-                            <th key={header} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold tracking-wider uppercase ${i === 4 ? 'text-center' : ''}`}>{header}</th>
+                          {['User', 'Subscription', 'Activity', 'Last active', 'Language', 'AI cost (this month, UTC)', 'Joined', 'Actions'].map((header, i) => (
+                            <th key={header} className={`px-6 py-4 text-left text-slate-400 text-xs font-semibold tracking-wider uppercase ${i === 7 ? 'text-center' : ''}`}>{header}</th>
                           ))}
                         </tr>
                       </thead>
@@ -1529,7 +1561,10 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                               <div className="flex items-center gap-3">
                                 <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-violet-500 rounded-xl flex items-center justify-center text-white font-bold shadow-md">{(user.name || '?').charAt(0).toUpperCase()}</div>
                                 <div>
-                                  <div className="text-[15px] font-semibold text-slate-100 mb-1">{user.name}</div>
+                                  <div className="text-[15px] font-semibold text-slate-100 mb-1">
+                                    {user.name}
+                                    {user.suspended && <span className="ml-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold bg-red-500/15 border-red-500/30 text-red-300">Suspended</span>}
+                                  </div>
                                   <div className="text-xs text-slate-400">{user.email}</div>
                                 </div>
                               </div>
@@ -1549,6 +1584,11 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                               <div className="text-xs text-slate-500">{fmtNum(user.total_goals)} goals</div>
                               <div className="text-xs text-slate-500">{fmtNum(user.device_count)} {user.device_count === 1 ? 'device' : 'devices'}</div>
                             </td>
+                            <td className="px-6 py-5 text-sm text-slate-400">
+                              {user.last_active ? new Date(user.last_active).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}
+                            </td>
+                            <td className="px-6 py-5 text-sm text-slate-400">{user.language ? String(user.language).toUpperCase() : ''}</td>
+                            <td className="px-6 py-5 text-sm text-slate-300">{fmtUsd(user.ai_cost_month)}</td>
                             <td className="px-6 py-5 text-sm text-slate-400">
                               {user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                             </td>
@@ -1846,6 +1886,9 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
                 </>
               )}
             </div>
+
+            <UserActions key={`actions-${selectedUser.id}`} token={token} user={selectedUser} adminRole={admin.role}
+              ConfirmDialog={ConfirmDialog} onChanged={() => refreshUser(selectedUser.id)} />
 
             <UserUsagePanel key={selectedUser.id} token={token} user={selectedUser} writable={writable} />
 
