@@ -796,6 +796,139 @@ def section_effects():
             _cleanup(made_users, made_admins)
 
 
+# -------------------------------------------------------------------------------------------------------------- grant
+def _request(uid, plan, billing=None):
+    rid = str(uuid.uuid4())
+    db.sql("INSERT INTO upgrade_requests (id, user_id, plan, billing, status, created_at) "
+           "VALUES (%s, %s, %s, %s, 'pending', now())", rid, uid, plan, billing)
+    return rid
+
+
+def _set_plan(uid, plan, days=None, trial=False):
+    end = f"now() + interval '{days} days'" if days is not None else "NULL"
+    db.sql(f"UPDATE users SET subscription_type = %s, subscription_expires_at = {end}, "
+           f"trial_ends_at = {end if trial else 'NULL'} WHERE id = %s", plan, uid)
+
+
+def _parse(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _row_of(c, h, rid):
+    for st in ("pending", "done"):
+        for r in c.get(f"/api/admin/upgrade-requests?status={st}&limit=200", headers=h).json():
+            if r["id"] == rid:
+                return r
+    return None
+
+
+def _end_of(uid):
+    row = db.sql("SELECT subscription_type, subscription_expires_at FROM users WHERE id = %s", uid)[0]
+    end = row["subscription_expires_at"]
+    return row["subscription_type"], (end.astimezone(UTC) if end else None)
+
+
+def section_grant():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    close = timedelta(minutes=1)
+    try:
+        ah, admin_id = _admin(c, "admin")
+        mh, mod_id = _admin(c, "moderator")
+        made_admins += [admin_id, mod_id]
+        now = datetime.now(UTC)
+
+        # free person, Plus month request
+        p = _person(c, made_users, "gfree")
+        rid = _request(p["id"], "plus", "month")
+        row = _row_of(c, ah, rid)
+        want = now + timedelta(days=30)
+        check(row is not None and row.get("grant_until") and abs(_parse(row.get("grant_until") or "1970-01-01T00:00:00+00:00") - want) < close,
+              "grant: a free person's Plus month request offers now + 30 days", str(row))
+        r = c.post(f"/api/admin/upgrade-requests/{rid}/grant", headers=mh, json={})
+        check(r.status_code == 403, "grant: a moderator gets 403", r.status_code)
+        r = c.post(f"/api/admin/upgrade-requests/{uuid.uuid4()}/grant", headers=ah, json={})
+        check(r.status_code == 404, "grant: a missing request is 404", r.status_code)
+        r = c.post(f"/api/admin/upgrade-requests/{rid}/grant", headers=ah, json={})
+        plan, end = _end_of(p["id"])
+        check(r.status_code == 200 and r.json().get("status") == "done" and "grant_until" not in r.json(),
+              "grant: 200 with the request row, status done", f"{r.status_code} {r.text[:200]}")
+        check(plan == "plus" and end is not None and abs(end - want) < close,
+              "grant: the person is on plus until now + 30 days", f"{plan} {end}")
+        check(len(_notes(p["id"], "plan_activated")) == 1, "grant: a plan_activated notice is stored")
+        logs = _logs(p["id"], "upgrade_request_granted")
+        check(len(logs) == 1 and logs[0]["details"] == f"plus until {end.date().isoformat()}",
+              "grant: the log line says 'plus until <date>'", str(logs))
+        r = c.post(f"/api/admin/upgrade-requests/{rid}/grant", headers=ah, json={})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "request_already_handled",
+              "grant: the same request again is 409 request_already_handled", f"{r.status_code} {r.text[:200]}")
+        plan2, end2 = _end_of(p["id"])
+        check(end2 == end, "grant: the end date moved once, not twice", f"{end} {end2}")
+
+        # past end date
+        q = _person(c, made_users, "gpast")
+        rid2 = _request(q["id"], "plus", "month")
+        r = c.post(f"/api/admin/upgrade-requests/{rid2}/grant", headers=ah,
+                   json={"expires_at": (now - timedelta(days=1)).isoformat()})
+        check(r.status_code == 422, "grant: an end date in the past is 422", r.status_code)
+        check(_end_of(q["id"])[0] == "free" and _row_of(c, ah, rid2)["status"] == "pending",
+              "grant: the 422 changed nothing")
+        custom = now + timedelta(days=90)
+        r = c.post(f"/api/admin/upgrade-requests/{rid2}/grant", headers=ah, json={"expires_at": custom.isoformat()})
+        plan, end = _end_of(q["id"])
+        check(r.status_code == 200 and plan == "plus" and abs(end - custom) < close,
+              "grant: a custom end date is used", f"{r.status_code} {plan} {end}")
+
+        # Plus person (10 days left) renewing for a year: from their end
+        s = _person(c, made_users, "gplus")
+        _set_plan(s["id"], "plus", 10)
+        _, old_end = _end_of(s["id"])
+        rid3 = _request(s["id"], "plus", "year")
+        row = _row_of(c, ah, rid3)
+        want = old_end + timedelta(days=365)
+        check(row and abs(_parse(row.get("grant_until") or "1970-01-01T00:00:00+00:00") - want) < close,
+              "grant: a Plus person's year renewal offers their end + 365 days", str(row))
+        r = c.post(f"/api/admin/upgrade-requests/{rid3}/grant", headers=ah, json={})
+        plan, end = _end_of(s["id"])
+        check(r.status_code == 200 and abs(end - want) < close, "grant: the renewal is added to their end",
+              f"{r.status_code} {end}")
+
+        # Plus person asking Pro: from now
+        t = _person(c, made_users, "gpro")
+        _set_plan(t["id"], "plus", 10)
+        rid4 = _request(t["id"], "pro", "month")
+        want = now + timedelta(days=30)
+        row = _row_of(c, ah, rid4)
+        check(row and abs(_parse(row.get("grant_until") or "1970-01-01T00:00:00+00:00") - want) < close,
+              "grant: a Plus person asking Pro is counted from now", str(row))
+        c.post(f"/api/admin/upgrade-requests/{rid4}/grant", headers=ah, json={})
+        plan, end = _end_of(t["id"])
+        check(plan == "pro" and abs(end - want) < close, "grant: they are on pro from now", f"{plan} {end}")
+
+        # trial person: from now
+        u = _person(c, made_users, "gtrial")
+        _set_plan(u["id"], "plus", 5, trial=True)
+        rid5 = _request(u["id"], "plus", None)
+        want = now + timedelta(days=30)
+        row = _row_of(c, ah, rid5)
+        check(row and abs(_parse(row.get("grant_until") or "1970-01-01T00:00:00+00:00") - want) < close,
+              "grant: a trial person is counted from now (billing none = 30 days)", str(row))
+        c.post(f"/api/admin/upgrade-requests/{rid5}/grant", headers=ah, json={})
+        plan, end = _end_of(u["id"])
+        trial = db.sql("SELECT trial_ends_at FROM users WHERE id = %s", u["id"])[0]["trial_ends_at"]
+        check(plan == "plus" and abs(end - want) < close and trial is None,
+              "grant: the trial ends and the plan runs from now", f"{plan} {end} {trial}")
+
+        # a handled request has no grant_until
+        row = _row_of(c, ah, rid5)
+        check(row and row["status"] == "done" and "grant_until" not in row,
+              "grant: a done request has no grant_until", str(row))
+    finally:
+        _cleanup(made_users, made_admins)
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -804,7 +937,7 @@ def section_clean():
 
 
 SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery,
-            "effects": section_effects, "clean": section_clean}
+            "effects": section_effects, "grant": section_grant, "clean": section_clean}
 
 
 def main():

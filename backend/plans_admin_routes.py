@@ -5,16 +5,18 @@ requests (at the end of this file).
 Moderators can view; admins and super admins can change. A change applies in this process at once and in
 other workers within a minute (plans.store refreshes every 60 s). Every change is written to the admin action log.
 """
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt
 
+from admin_routes import apply_plan
 from admin_utils import log_admin_action, require_admin_or_super, require_moderator_or_above
 from plans import store
 from plans.access import effective_plan, is_trial
-from plans.catalog import FEATURES, PLANS, Limit
+from plans.catalog import FEATURES, PLAN_RANK, PLANS, Limit
+from tz_utils import as_utc
 from subscription_service import notify_upgrade_request_declined
 from sql import upgrade_requests as requests_db
 from sql import users as users_db
@@ -188,6 +190,19 @@ async def put_plans(body: PlansBody, current_admin: dict = Depends(require_admin
 requests_router = APIRouter(prefix="/api/admin/upgrade-requests", tags=["admin", "plans"])
 
 
+def grant_until(user: dict, plan: str, billing: Optional[str], now: datetime) -> datetime:
+    """When a granted request's plan should end: 30 days ("month" or no billing) or 365 days ("year") after the base.
+    The base is the person's current end date when they hold a paid plan, not on a trial, of at least the requested
+    rank, that is still running (a renewal adds to it); otherwise now."""
+    base = now
+    have = effective_plan(user, now)
+    ends = user.get("subscription_expires_at")
+    if (have != "free" and not is_trial(user, now) and PLAN_RANK[have] >= PLAN_RANK[plan]
+            and ends is not None and as_utc(ends) > now):
+        base = as_utc(ends)
+    return base + timedelta(days=365 if billing == "year" else 30)
+
+
 def _request_row(row: dict) -> dict:
     plan = effective_plan({"subscription_type": row["subscription_type"],
                            "subscription_expires_at": row["subscription_expires_at"]})
@@ -196,7 +211,7 @@ def _request_row(row: dict) -> dict:
     # trying). Worked out when the list is read; a handled request is never marked, since by then the user usually
     # has the plan they asked for whether it was a renewal or an upgrade.
     is_renewal = row["status"] == "pending" and not on_trial and plan == row["plan"]
-    return {
+    out = {
         "id": row["_id"],
         "user_id": row["user_id"],
         "name": row["user_name"],
@@ -216,6 +231,15 @@ def _request_row(row: dict) -> dict:
         "status": row["status"],
         "handled_at": row["handled_at"].isoformat() if row["handled_at"] else None,
     }
+    if row["status"] == "pending":
+        # What the one-click grant would set the plan's end to, for the panel's "Grant until" button.
+        out["grant_until"] = grant_until(row, row["plan"], row["billing"], datetime.now(UTC)).isoformat()
+    return out
+
+
+def _already_handled() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT,
+                         detail={"code": "request_already_handled", "message": "This request was already handled."})
 
 
 @requests_router.get("")
@@ -265,3 +289,47 @@ async def dismiss_upgrade_request(request_id: str = Path(...),
                                   current_admin: dict = Depends(require_admin_or_super)):
     """Turn the request down without changing the user's plan."""
     return await _handle(request_id, "dismissed", "upgrade_request_dismissed", current_admin)
+
+
+class GrantBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expires_at: Optional[datetime] = None
+
+
+@requests_router.post("/{request_id}/grant")
+async def grant_upgrade_request(request_id: str = Path(...), body: Optional[GrantBody] = None,
+                                current_admin: dict = Depends(require_admin_or_super)):
+    """Give the person the plan they asked for, until `expires_at` (default: grant_until), and close the request."""
+    request = await requests_db.get(request_id)
+    if not request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade request not found")
+    if request["status"] != "pending":
+        raise _already_handled()
+    user = await users_db.get_user(request["user_id"])
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    now = datetime.now(UTC)
+    expires_at = body.expires_at if body and body.expires_at else None
+    if expires_at is None:
+        expires_at = grant_until(user, request["plan"], request["billing"], now)
+    elif as_utc(expires_at) <= now:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="The end date must be in the future")
+    # Closed first, by a conditional update: of two grants at once only one gets past here, so the plan is extended once.
+    row = await requests_db.mark(request_id, "done", current_admin["_id"], now)
+    if row is None:
+        raise _already_handled()
+    await apply_plan(current_admin, user, request["plan"], expires_at)
+    await log_admin_action(
+        admin_id=current_admin["_id"],
+        admin_email=current_admin["email"],
+        action="upgrade_request_granted",
+        target_user_id=user["_id"],
+        target_user_email=user["email"],
+        details=f"{request['plan']} until {as_utc(expires_at).date().isoformat()}",
+    )
+    fresh = await users_db.get_user(user["_id"])
+    return _request_row({**row, "user_name": fresh["name"], "user_email": fresh["email"],
+                         "subscription_type": fresh["subscription_type"],
+                         "subscription_expires_at": fresh.get("subscription_expires_at"),
+                         "trial_ends_at": fresh.get("trial_ends_at")})

@@ -21,7 +21,8 @@ BEFORE_PRICES = "b8f4d2c6e9a1"  # the revision the plan prices / billing migrati
 REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "status", "created_at"}
 PLAN_REQUEST_KEYS = {"plan", "note", "viber_number", "billing", "created_at"}
 ADMIN_ROW_KEYS = {"id", "user_id", "name", "email", "current_plan", "is_trial", "trial_ends_at", "requested_plan",
-                  "is_renewal", "note", "viber_number", "billing", "created_at", "status", "handled_at"}
+                  "is_renewal", "note", "viber_number", "billing", "created_at", "status", "handled_at",
+                  "grant_until"}  # grant_until: only on pending requests (the one-click grant)
 OWNER_EMAIL, OWNER_VIBER = "owner@example.com", "+959123456789"
 OWNER_KEYS = ("email", "viber", "telegram", "facebook", "messenger")
 OWNER_TELEGRAM, OWNER_FACEBOOK, OWNER_MESSENGER = "@FlowOwner", "https://facebook.com/flowapp", "https://m.me/flowapp"

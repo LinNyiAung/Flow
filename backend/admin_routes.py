@@ -682,31 +682,20 @@ async def _suspension_info(user: dict) -> Optional[SuspensionInfo]:
                           by_email=by["email"] if by else None)
 
 
-@router.put("/users/{user_id}/subscription")
-async def update_user_subscription(
-    user_id: str = Path(...),
-    subscription_data: UpdateUserSubscriptionRequest = ...,
-    current_admin: dict = Depends(require_admin_or_super)
-):
-    """Update user subscription and instantly notify their device to refresh"""
-    user = await users_db.get_user(user_id)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
+async def apply_plan(admin: dict, user: dict, plan: str, expires_at: Optional[datetime]) -> dict:
+    """Set the user's plan and end date, close the upgrade requests it answers, tell the user and refresh their
+    devices, and log it. Shared by the plan editor and the one-click grant of an upgrade request."""
+    user_id = user["_id"]
     # Always store timezone-aware UTC. Any admin change ends the free-trial marker (and with it the trial reminders):
     # a plan an admin sets is never shown or treated as a trial.
-    expires_at = _to_aware_utc(subscription_data.subscription_expires_at)
-    await users_db.set_plan(user_id, subscription_data.subscription_type.value, expires_at)
+    expires_at = _to_aware_utc(expires_at)
+    await users_db.set_plan(user_id, plan, expires_at)
 
     # A pending upgrade request for this plan (or a lower one) is answered by this change. Judged by the plan the
     # user really has afterwards, so setting a plan that has already ended does not count. That includes a renewal
     # request (the plan the user already has): setting that plan with a new end date answers it. Re-saving the plan
     # and end date the user already had changes nothing for them, so it answers nothing.
-    new_plan = effective_plan({"subscription_type": subscription_data.subscription_type.value,
+    new_plan = effective_plan({"subscription_type": plan,
                                "subscription_expires_at": expires_at})
     unchanged = (effective_plan(user) == new_plan and not is_trial(user)
                  and _to_aware_utc(user.get("subscription_expires_at")) == expires_at)
@@ -716,15 +705,15 @@ async def update_user_subscription(
     closed = None
     if not unchanged:
         closed = await upgrade_requests_db.mark_user_done_if_covered(
-            user_id, covered, current_admin["_id"], datetime.now(UTC))
+            user_id, covered, admin["_id"], datetime.now(UTC))
     if closed:
         await log_admin_action(
-            admin_id=current_admin["_id"],
-            admin_email=current_admin["email"],
+            admin_id=admin["_id"],
+            admin_email=admin["email"],
             action="upgrade_request_done",
             target_user_id=user_id,
             target_user_email=user["email"],
-            details=f"Upgrade request for {closed['plan']}: done (plan set to {subscription_data.subscription_type.value})",
+            details=f"Upgrade request for {closed['plan']}: done (plan set to {plan})",
         )
 
     # Tell the user (stored notification + push) that Plus / Pro is now theirs, whether or not they had asked for it.
@@ -747,7 +736,7 @@ async def update_user_subscription(
                 None,
                 {
                     "type": "subscription_updated",
-                    "subscription_type": subscription_data.subscription_type.value,
+                    "subscription_type": plan,
                 },
             )
             fcm_sent = result.get("success", 0) > 0  # at least one device got it
@@ -761,17 +750,37 @@ async def update_user_subscription(
     # ────────────────────────────────────────────────────────────────────────────
 
     await log_admin_action(
-        admin_id=current_admin["_id"],
-        admin_email=current_admin["email"],
+        admin_id=admin["_id"],
+        admin_email=admin["email"],
         action="updated_user_subscription",
         target_user_id=user_id,
         target_user_email=user["email"],
-        details=f"Updated subscription to {subscription_data.subscription_type.value}"
+        details=f"Updated subscription to {plan}"
     )
 
+    return {"fcm_refresh_sent": fcm_sent}
+
+
+@router.put("/users/{user_id}/subscription")
+async def update_user_subscription(
+    user_id: str = Path(...),
+    subscription_data: UpdateUserSubscriptionRequest = ...,
+    current_admin: dict = Depends(require_admin_or_super)
+):
+    """Update user subscription and instantly notify their device to refresh"""
+    user = await users_db.get_user(user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    result = await apply_plan(current_admin, user, subscription_data.subscription_type.value,
+                              subscription_data.subscription_expires_at)
     return {
         "message": "User subscription updated successfully",
-        "fcm_refresh_sent": fcm_sent
+        "fcm_refresh_sent": result["fcm_refresh_sent"]
     }
 
 
