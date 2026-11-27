@@ -81,6 +81,7 @@ import tunables
 import text_overrides
 from text_admin_routes import router as text_admin_router
 from tunables_routes import admin_router as tunables_admin_router
+from user_admin_routes import admin_router as user_admin_router
 from app_control_routes import admin_router as app_control_admin_router, public_router as app_control_public_router
 from plans import periods, quota
 from plans import store as plan_store
@@ -113,6 +114,7 @@ app.include_router(app_control_admin_router)
 app.include_router(app_control_public_router)
 app.include_router(text_admin_router)
 app.include_router(tunables_admin_router)
+app.include_router(user_admin_router)
 
 
 @app.on_event("startup")

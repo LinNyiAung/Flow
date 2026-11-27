@@ -449,13 +449,10 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return build_user_response(current_user)
 
 
-@router.put("/profile", response_model=UserResponse)
-async def update_profile(
-    profile_data: ProfileUpdate,
-    current_user: dict = Depends(get_current_user)
-):
-    """Update user profile (name only). Name is stripped and validated by the model."""
-    name = profile_data.name.strip()
+async def apply_profile_name(user_id: str, raw_name: str) -> str:
+    """The app's name rule, shared with the admin API: strip, at least 2 characters (else 400), then the new name and
+    the person's name in their family in one transaction. Returns the stored name."""
+    name = raw_name.strip()
     if len(name) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -463,9 +460,19 @@ async def update_profile(
         )
 
     async with transaction():
-        updated_user = await users_db.update_user_returning(current_user["_id"], name=name)
-        await families_service.follow_profile_name(current_user["_id"], name)
-    return build_user_response(updated_user)
+        await users_db.update_user(user_id, name=name)
+        await families_service.follow_profile_name(user_id, name)
+    return name
+
+
+@router.put("/profile", response_model=UserResponse)
+async def update_profile(
+    profile_data: ProfileUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user profile (name only). Name is stripped and validated by the model."""
+    await apply_profile_name(current_user["_id"], profile_data.name)
+    return build_user_response(await users_db.get_user(current_user["_id"]))
 
 
 @router.put("/currency", response_model=UserResponse)

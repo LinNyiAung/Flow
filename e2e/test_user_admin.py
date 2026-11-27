@@ -3,6 +3,8 @@
 Sections (named on the command line, all by default):
   guard -- a suspended account: sign-in, old and new tokens, forgot-password and resend-verification, suspend and
     unsuspend as conditional writes; and a completed password reset verifies an unverified e-mail.
+  actions -- the admin API on one person: roles, suspend / unsuspend, sign out, name and currency, a message, and
+    the suspension in the detail and the list.
   clean -- no throwaway users or admins are left; keep this section last.
 """
 import asyncio
@@ -217,6 +219,181 @@ def section_guard():
         _cleanup(made_users, made_admins)
 
 
+# ----------------------------------------------------------------------------------------------------------- actions
+def _add_device(uid, token):
+    db.sql("INSERT INTO user_devices (id, user_id, token, session_expires_at) "
+           "VALUES (%s, %s, %s, now() + interval '30 days')", str(uuid.uuid4()), uid, token)
+
+
+def _pushes_to(token):
+    if not os.path.exists(OUTBOX):
+        return 0
+    n = 0
+    for line in open(OUTBOX, encoding="utf-8"):
+        if '"fcm_send"' in line and json.loads(line).get("token") == token:
+            n += 1
+    return n
+
+
+def _logs(uid, action):
+    return db.sql("SELECT admin_email, details FROM admin_action_logs WHERE target_user_id = %s AND action = %s",
+                  uid, action)
+
+
+def section_actions():
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    try:
+        ah, admin_id = _admin(c, "admin")
+        mh, mod_id = _admin(c, "moderator")
+        made_admins += [admin_id, mod_id]
+        p = _person(c, made_users, "act")
+        uid = p["id"]
+        url = f"/api/admin/users/{uid}"
+        ghost = f"/api/admin/users/{uuid.uuid4()}"
+
+        # roles: a moderator reads, never acts
+        calls = [("post", "/suspend", {"reason": "x"}), ("post", "/unsuspend", None), ("post", "/sign-out", None),
+                 ("put", "/profile", {"name": "Zed Zed"}),
+                 ("post", "/message", {"title": "t", "message": "m", "notification_type": "system_broadcast"})]
+        for method, path, body in calls:
+            r = getattr(c, method)(url + path, headers=mh, **({"json": body} if body is not None else {}))
+            check(r.status_code == 403, f"actions: a moderator gets 403 on {method.upper()} {path}", r.status_code)
+        r = c.get(url, headers=mh)
+        check(r.status_code == 200 and r.json().get("suspension") is None,
+              "actions: a moderator sees suspension (null) in the detail", f"{r.status_code} {r.text[:200]}")
+
+        # unknown person
+        for method, path, body in [("post", "/suspend", {"reason": "x"}), ("post", "/unsuspend", None),
+                                   ("post", "/sign-out", None), ("put", "/profile", {"name": "Zed Zed"}),
+                                   ("post", "/message", {"title": "t", "message": "m",
+                                                         "notification_type": "system_broadcast"})]:
+            r = getattr(c, method)(ghost + path, headers=ah, **({"json": body} if body is not None else {}))
+            check(r.status_code == 404, f"actions: unknown id is 404 on {method.upper()} {path}", r.status_code)
+
+        # profile
+        r = c.put(url + "/profile", headers=ah, json={"name": "B"})
+        check(r.status_code == 400, "actions: a one-character name is 400", f"{r.status_code} {r.text[:200]}")
+        r = c.put(url + "/profile", headers=ah, json={})
+        check(r.status_code == 422, "actions: an empty profile body is 422", r.status_code)
+        r = c.put(url + "/profile", headers=ah, json={"name": "Bo Bo", "email": "x@y.com"})
+        check(r.status_code == 422, "actions: extra fields are refused (422)", r.status_code)
+        r = c.put(url + "/profile", headers=ah, json={"default_currency": "gbp"})
+        check(r.status_code == 422, "actions: an unknown currency is 422", r.status_code)
+        # a family the person owns: their member name must follow
+        db.sql("UPDATE users SET subscription_type = 'plus', subscription_expires_at = now() + interval '30 days', "
+               "trial_ends_at = NULL WHERE id = %s", uid)
+        r = c.post("/api/family", headers=p["h"], json={"name": "ua family"})
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        check(fid is not None, "actions: the person made a family", f"{r.status_code} {r.text[:200]}")
+        r = c.put(url + "/profile", headers=ah, json={"name": "  Bo Bo  "})
+        check(r.status_code == 200 and r.json().get("name") == "Bo Bo" and r.json().get("id") == uid,
+              "actions: a name change is 200 and returns the detail", f"{r.status_code} {r.text[:200]}")
+        row = db.sql("SELECT name FROM users WHERE id = %s", uid)[0]
+        mem = db.sql("SELECT display_name FROM family_members WHERE user_id = %s", uid)
+        check(row["name"] == "Bo Bo" and mem and all(m["display_name"] == "Bo Bo" for m in mem),
+              "actions: the name is stored and their family member name follows", f"{row} {mem}")
+        logs = _logs(uid, "user_profile_updated")
+        check(len(logs) == 1 and logs[0]["details"] == "name: act -> Bo Bo", "actions: the name change is logged",
+              str(logs))
+        r = c.put(url + "/profile", headers=ah, json={"name": "Bo Bo"})
+        check(r.status_code == 200 and len(_logs(uid, "user_profile_updated")) == 1,
+              "actions: no change is 200 and not logged", f"{r.status_code} {len(_logs(uid, 'user_profile_updated'))}")
+        r = c.put(url + "/profile", headers=ah, json={"default_currency": "thb"})
+        check(r.status_code == 200 and r.json().get("default_currency") == "thb",
+              "actions: the currency changes", f"{r.status_code} {r.text[:200]}")
+        logs = _logs(uid, "user_profile_updated")
+        check(len(logs) == 2 and any(l["details"] == "default_currency: usd -> thb" for l in logs),
+              "actions: the currency change is logged", str(logs))
+
+        # message
+        tok1 = f"ua-tok-{uuid.uuid4().hex[:8]}"
+        _add_device(uid, tok1)
+        r = c.post(url + "/message", headers=ah, json={"title": "  Hello  ", "message": "  Hi there ",
+                                                       "notification_type": "admin_announcement"})
+        check(r.status_code == 200 and r.json() == {"devices": 1}, "actions: a message reports one device pushed",
+              f"{r.status_code} {r.text[:200]}")
+        nrows = db.sql("SELECT title, message, type FROM notifications WHERE user_id = %s AND title = 'Hello'", uid)
+        check(len(nrows) == 1 and nrows[0]["message"] == "Hi there" and nrows[0]["type"] == "admin_announcement",
+              "actions: the message is one notification row for the person", str(nrows))
+        check(_pushes_to(tok1) == 1, "actions: one push reached the device", _pushes_to(tok1))
+        check([l["details"] for l in _logs(uid, "user_message_sent")] == ["Hello"], "actions: the message is logged")
+        for bad in ({"title": " ", "message": "m", "notification_type": "system_broadcast"},
+                    {"title": "t", "message": "", "notification_type": "system_broadcast"},
+                    {"title": "t" * 101, "message": "m", "notification_type": "system_broadcast"},
+                    {"title": "t", "message": "m" * 501, "notification_type": "system_broadcast"},
+                    {"title": "t", "message": "m", "notification_type": "goal_progress"}):
+            r = c.post(url + "/message", headers=ah, json=bad)
+            check(r.status_code == 422, "actions: a bad message body is 422", f"{r.status_code} {str(bad)[:60]}")
+
+        # sign out
+        _add_device(uid, "ua-tok-2")
+        r = c.post(url + "/sign-out", headers=ah)
+        check(r.status_code == 200 and r.json() == {"devices_removed": 2},
+              "actions: sign-out reports the devices removed", f"{r.status_code} {r.text[:200]}")
+        check(c.get("/api/auth/me", headers=p["h"]).status_code == 401, "actions: sign-out ends the old token")
+        check(not db.sql("SELECT 1 FROM user_devices WHERE user_id = %s", uid), "actions: the devices are gone")
+        check(len(_logs(uid, "user_signed_out")) == 1, "actions: the sign-out is logged")
+        r = c.post(url + "/sign-out", headers=ah)
+        check(r.status_code == 200 and r.json() == {"devices_removed": 0}, "actions: a second sign-out removes none",
+              r.text[:200])
+
+        # suspend
+        _add_device(uid, "ua-tok-3")
+        for bad in ({"reason": ""}, {"reason": "   "}, {"reason": "r" * 501}, {}):
+            r = c.post(url + "/suspend", headers=ah, json=bad)
+            check(r.status_code == 422, "actions: a bad suspend reason is 422", f"{r.status_code} {str(bad)[:30]}")
+        r = c.post(url + "/suspend", headers=ah, json={"reason": "  spam  "})
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and j.get("suspended_reason") == "spam" and j.get("suspended_at"),
+              "actions: suspend is 200 with the stripped reason", f"{r.status_code} {r.text[:200]}")
+        row = db.sql("SELECT suspended_reason, suspended_by FROM users WHERE id = %s", uid)[0]
+        check(row["suspended_reason"] == "spam" and row["suspended_by"] == admin_id,
+              "actions: the reason and admin are stored", str(row))
+        check(not db.sql("SELECT 1 FROM user_devices WHERE user_id = %s", uid), "actions: suspend removes the devices")
+        check(c.get("/api/auth/me", headers=p["h"]).status_code == 401, "actions: the old token is 401 after suspend")
+        logs = _logs(uid, "user_suspended")
+        check(len(logs) == 1 and "spam" in (logs[0]["details"] or ""), "actions: the suspension is logged with the reason",
+              str(logs))
+        r = c.post(url + "/suspend", headers=ah, json={"reason": "again"})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "already_suspended" and d.get("message"),
+              "actions: suspending again is 409 already_suspended", f"{r.status_code} {r.text[:200]}")
+        r = c.get(url, headers=mh)
+        s = (r.json() if r.status_code == 200 else {}).get("suspension") or {}
+        check(s.get("reason") == "spam" and s.get("by_email") and s.get("at"),
+              "actions: the detail shows the suspension to a moderator", f"{r.status_code} {r.text[:300]}")
+        r = c.post(url + "/message", headers=ah, json={"title": "t", "message": "m",
+                                                       "notification_type": "system_broadcast"})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "user_suspended",
+              "actions: a message to a suspended person is 409 user_suspended", f"{r.status_code} {r.text[:200]}")
+        db.sql("DELETE FROM admins WHERE id = %s", admin_id)
+        r = c.get(url, headers=mh)
+        s = (r.json() if r.status_code == 200 else {}).get("suspension") or {}
+        check(r.status_code == 200 and s.get("by_email") is None and s.get("reason") == "spam",
+              "actions: when the suspending admin is gone by_email is null", f"{r.status_code} {r.text[:300]}")
+        ah, admin_id = _admin(c, "admin")
+        made_admins.append(admin_id)
+        r = c.get("/api/admin/users", headers=ah, params={"search": p["email"]})
+        row = next((u for u in (r.json() if r.status_code == 200 else []) if u["id"] == uid), {})
+        check(row.get("suspended") is True, "actions: the users list flags the suspended person", str(row)[:200])
+
+        # unsuspend
+        r = c.post(url + "/unsuspend", headers=ah)
+        check(r.status_code == 200, "actions: unsuspend is 200", f"{r.status_code} {r.text[:200]}")
+        check(len(_logs(uid, "user_unsuspended")) == 1, "actions: the unsuspend is logged")
+        r = c.post(url + "/unsuspend", headers=ah)
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "not_suspended",
+              "actions: unsuspending again is 409 not_suspended", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/auth/login", json={"email": p["email"], "password": PW})
+        check(r.status_code == 200, "actions: the person signs in again", r.status_code)
+    finally:
+        _cleanup(made_users, made_admins)
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -224,7 +401,7 @@ def section_clean():
     check(n == 0 and m == 0, "clean: no throwaway users or admins are left", f"users {n}, admins {m}")
 
 
-SECTIONS = {"guard": section_guard, "clean": section_clean}
+SECTIONS = {"guard": section_guard, "actions": section_actions, "clean": section_clean}
 
 
 def main():

@@ -64,6 +64,7 @@ class UserListResponse(BaseModel):
     total_goals: int = 0
     last_active: Optional[datetime] = None
     device_count: int = 0  # devices the person is signed in on (push tokens)
+    suspended: bool = False
 
 
 class DeviceInfo(BaseModel):
@@ -84,6 +85,12 @@ class UserStatsResponse(BaseModel):
     total_goals: int
 
 
+class SuspensionInfo(BaseModel):
+    at: datetime
+    reason: Optional[str] = None
+    by_email: Optional[str] = None  # None when the admin who suspended is gone
+
+
 class UserDetailResponse(BaseModel):
     id: str
     name: str
@@ -101,6 +108,7 @@ class UserDetailResponse(BaseModel):
     last_active: Optional[datetime] = None
     device_count: int = 0
     devices: List[DeviceInfo] = []
+    suspension: Optional[SuspensionInfo] = None
 
 
 class UpdateUserSubscriptionRequest(BaseModel):

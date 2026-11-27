@@ -24,7 +24,9 @@ from admin_utils import (
     require_super_admin,
     verify_password
 )
+from account_guard import is_suspended
 from admin_models import (
+    SuspensionInfo,
     AdminActionLog,
     AdminCreate,
     AdminFeedbackListResponse,
@@ -601,7 +603,8 @@ async def get_all_users(
             total_transactions=transaction_count,
             total_goals=goals_count,
             last_active=last_active,
-            device_count=device_counts.get(user["_id"], 0)
+            device_count=device_counts.get(user["_id"], 0),
+            suspended=is_suspended(user)
         ))
 
     return user_list
@@ -620,7 +623,12 @@ async def get_user_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    return await build_user_detail(user)
 
+
+async def build_user_detail(user: dict) -> UserDetailResponse:
+    """The detail view of a person (also what the admin actions on a person answer with)."""
+    user_id = user["_id"]
     # Book counts are the person's personal book (a None id would count every book); chat sessions are the person's.
     book_id = await books_db.personal_book_id(user_id)
     transaction_count = await transactions_db.count_transactions(book_id) if book_id else 0
@@ -661,8 +669,17 @@ async def get_user_detail(
         total_chat_sessions=chat_sessions_count,
         last_active=last_active,
         device_count=len(devices),
-        devices=devices
+        devices=devices,
+        suspension=await _suspension_info(user)
     )
+
+
+async def _suspension_info(user: dict) -> Optional[SuspensionInfo]:
+    if not is_suspended(user):
+        return None
+    by = await admins_db.get_admin_by_id(user["suspended_by"]) if user.get("suspended_by") else None
+    return SuspensionInfo(at=user["suspended_at"], reason=user.get("suspended_reason"),
+                          by_email=by["email"] if by else None)
 
 
 @router.put("/users/{user_id}/subscription")
