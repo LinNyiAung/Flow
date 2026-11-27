@@ -159,6 +159,23 @@ def section_store():
         res["cross_stored"] = (tn.get("trial_days"), tn.get("ends_soon_days"))
         _set_raw(None, E2E_KEY)
         await tn.load()
+        # an unreadable row counts as version 0: a save at 0 replaces it, a save at N > 0 is a conflict, never a 500
+        for name, raw in (("text", "not json"), ("version_x", json.dumps({"version": "x"})),
+                          ("no_version", json.dumps({"trial_days": 40})), ("array", "[1]"),
+                          ("version_float", json.dumps({"version": 2.5, "trial_days": 40}))):
+            _set_raw(raw, E2E_KEY)
+            await tn.load()
+            before = (tn.get("trial_days"), tn.version())
+            try:
+                await tn.save({"invite_days": 21}, 3, "t")
+                at_n = None
+            except tn.SettingsConflict:
+                at_n = "conflict"
+            untouched = _stored(E2E_KEY) == raw
+            r = await tn.save({"invite_days": 21}, 0, "t")
+            res["unreadable_" + name] = (before, at_n, untouched, r["version"], json.loads(_stored(E2E_KEY)))
+        _set_raw(None, E2E_KEY)
+        await tn.load()
         res["none"] = (tn.get("trial_days"), tn.version())
         return res
 
@@ -242,6 +259,11 @@ def section_store():
     check(res["bad_range"], "store: wrong-kind and out-of-range stored values fall back to their defaults")
     check(res["cross_stored"] == (7, 3), "store: stored values that break the cross-field rule drop ends_soon_days",
           res["cross_stored"])
+    for name, trial in (("text", 30), ("version_x", 30), ("no_version", 40), ("array", 30), ("version_float", 40)):
+        got = res["unreadable_" + name]
+        want_row = {"version": 1, "invite_days": 21, **({"trial_days": 40} if trial == 40 else {})}
+        check(got[0] == (trial, 0) and got[1] == "conflict" and got[2] and got[3] == 1 and got[4] == want_row,
+              f"store: a stored row that is {name} is version 0: save at 0 replaces it, at 3 conflicts", got)
     check(res["none"] == (30, 0), "store: nothing stored is version 0 and the defaults")
     check(_stored(E2E_KEY) is None, "store: the private key is cleaned up")
     check(_stored() == original, "store: the real tunables row is untouched")
