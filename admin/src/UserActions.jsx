@@ -215,7 +215,8 @@ const UserActions = (props) => {
             <button onClick={doProfile} disabled={busy || !profileChanged || nameInvalid} className={neutralBtn}><Pencil size={16} />Save changes</button>
           </Section>
 
-          <button onClick={doResetCode} disabled={busy} className={neutralBtn}><KeyRound size={16} />Send reset code</button>
+          <button onClick={doResetCode} disabled={busy || !!suspension} className={neutralBtn}><KeyRound size={16} />Send reset code</button>
+          {suspension && <div className="text-xs text-slate-500">Suspended people get no reset codes.</div>}
 
           <Section title="Message">
             <input type="text" value={msgTitle} onChange={(e) => setMsgTitle(e.target.value)} maxLength={100}
