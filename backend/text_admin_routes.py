@@ -41,8 +41,11 @@ def _check_target(key: str, lang: str) -> dict:
 def _override(row: Optional[dict]) -> Optional[dict]:
     if row is None:
         return None
-    return {"text": row["text"], "version": row["version"], "default_changed": row["default_changed"],
-            "updated_by": row.get("updated_by"), "updated_at": row.get("updated_at")}
+    out = {"text": row["text"], "version": row["version"], "default_changed": row["default_changed"],
+           "updated_by": row.get("updated_by"), "updated_at": row.get("updated_at")}
+    if row.get("invalid"):
+        out["invalid"] = row["invalid"]
+    return out
 
 
 @router.get("")
@@ -64,15 +67,31 @@ async def list_texts(current_admin: dict = Depends(require_moderator_or_above)):
 @router.put("/{key}/{lang}")
 async def put_text(body: TextBody, key: str = Path(...), lang: str = Path(...),
                    current_admin: dict = Depends(require_admin_or_super)):
+    """Save an override. `version` is the version the editor saw (null: no override). Saving text that equals the
+    current default is not an override: with a version it resets the override (logged as a reset, answer null); without
+    one it stores nothing and answers null (409 if an override exists after all). A stored row that no longer fits the
+    text is shown with `invalid`; saving or resetting it works at its stored version."""
     default = _check_target(key, lang)
     old = text_overrides.rows().get((key, lang))
     try:
-        await text_overrides.save(key, lang, body.text, body.version, current_admin["email"])
+        clean = text_overrides.validate(key, lang, body.text)
+        if clean == default[lang]:
+            if body.version is None:
+                if old is not None:
+                    raise text_overrides.TextConflict(f"{key}/{lang}")
+                return None
+            done = await text_overrides.reset(key, lang, body.version, current_admin["email"])
+            if done:
+                await log_admin_action(admin_id=current_admin["_id"], admin_email=current_admin["email"],
+                                       action="text_reset",
+                                       details=_cut(f"{key}/{lang}: {old['text'] if old else '(override)'} -> default"))
+            return None
+        row = await text_overrides.save(key, lang, clean, body.version, current_admin["email"])
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except text_overrides.TextConflict:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICT)
-    row = text_overrides.rows()[(key, lang)]
+    row = {**row, "default_changed": row["replaced_default"] != default[lang]}
     before = old["text"] if old else default[lang]
     await log_admin_action(admin_id=current_admin["_id"], admin_email=current_admin["email"], action="text_update",
                            details=_cut(f"{key}/{lang}: {before} -> {row['text']}"))

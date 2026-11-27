@@ -136,4 +136,6 @@ split and look, the Myanmar email defaults' wording, within the decisions above.
 
 ## Deploy
 
-One migration (the overrides table). Server only: no app release needed. Existing texts are unchanged until edited.
+One migration (the overrides table, `c9e3a7d1f4b2`). It comes after App control's migration `b7d2e9c4a1f3` in the
+Alembic chain, so App control's migration ships first or together with this one. Server only: no app release needed.
+Existing texts are unchanged until edited.

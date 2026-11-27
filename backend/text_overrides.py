@@ -31,6 +31,14 @@ _AREAS = (
 )
 
 _cache: Dict[Tuple[str, str], dict] = {}
+# Stored rows (for keys the code still has) that no longer validate. get() never serves them; the admin listing shows
+# them with the reason so the editor can save over or reset them (their version is the stored one).
+_invalid: Dict[Tuple[str, str], dict] = {}
+_warned: Set[Tuple[str, str, str]] = set()  # (key, lang, text) already logged, so the 60 s reload does not repeat it
+
+# Texts that sit on one line (a header or a button label): a line break would break the email.
+_SINGLE_LINE = frozenset({"email_verify_subject", "email_reset_subject", "email_verify_button",
+                          "email_verify_heading", "email_reset_heading"})
 # Bumped by every write (before the database call and after the cache changes): a load whose read overlapped a write
 # drops its possibly stale result.
 _write_gen = 0
@@ -95,6 +103,10 @@ def validate(key: str, lang: str, text: str) -> str:
         raise ValueError("The text cannot be empty")
     if len(text) > MAX_TEXT:
         raise ValueError(f"The text is longer than {MAX_TEXT} characters")
+    if key in _SINGLE_LINE and ("\n" in text or "\r" in text):
+        raise ValueError("This text must stay on one line. Remove the line break.")
+    if "{{" in text or "}}" in text:
+        raise ValueError("Doubled braces are not allowed. Write a placeholder as {name} and do not use other braces.")
     wanted = _fields(known[key]["en"])
     found = _fields(text)
     missing, extra = sorted(wanted - found), sorted(found - wanted)
@@ -116,32 +128,43 @@ def get(key: str, lang: str) -> Optional[str]:
 
 
 def rows() -> Dict[Tuple[str, str], dict]:
-    """Copies of the cached rows for the admin listing, each with default_changed."""
+    """Copies of the stored rows for the admin listing, each with default_changed. A row that no longer validates is
+    included with "invalid": the reason (it is not served; the editor can save over it or reset it)."""
     known = defaults()
     out = {}
-    for k, row in _cache.items():
-        current = known.get(k[0], {}).get(k[1])
-        out[k] = {**row, "default_changed": row["replaced_default"] != current}
+    for source in (_cache, _invalid):
+        for k, row in source.items():
+            current = known.get(k[0], {}).get(k[1])
+            out[k] = {**row, "default_changed": row["replaced_default"] != current}
     return out
 
 
 async def load() -> None:
-    """Reload the cache from the database. A stored row that no longer validates is ignored (logged)."""
+    """Reload the cache from the database. A stored row that no longer validates is never served; it is kept apart
+    (when its key still exists) so the admin panel can show it, and logged once per process."""
     gen = _write_gen
     stored = await overrides_db.read_all()
     fresh: Dict[Tuple[str, str], dict] = {}
+    broken: Dict[Tuple[str, str], dict] = {}
+    known = defaults()
     for row in stored:
         try:
             validate(row["key"], row["lang"], row["text"])
         except ValueError as e:
-            logger.warning("Ignoring the stored text override %s/%s: %s", row["key"], row["lang"], e)
+            token = (row["key"], row["lang"], row["text"])
+            if token not in _warned:
+                _warned.add(token)
+                logger.warning("Ignoring the stored text override %s/%s: %s", row["key"], row["lang"], e)
+            if row["lang"] in known.get(row["key"], {}):
+                broken[(row["key"], row["lang"])] = {**row, "invalid": str(e)}
             continue
         fresh[(row["key"], row["lang"])] = row
     if _write_gen != gen:
         logger.debug("Discarding a stale text override snapshot: a write happened while it was being read")
         return
-    global _cache
+    global _cache, _invalid
     _cache = fresh
+    _invalid = broken
 
 
 async def save(key: str, lang: str, text: str, expected_version: Optional[int], admin_email: str) -> dict:
@@ -156,6 +179,7 @@ async def save(key: str, lang: str, text: str, expected_version: Optional[int], 
         if row is None:
             raise TextConflict(f"{key}/{lang}")
         _cache[(key, lang)] = row
+        _invalid.pop((key, lang), None)
     finally:
         _write_gen += 1
     logger.info("Text %s/%s saved by %s", key, lang, admin_email)
@@ -172,6 +196,7 @@ async def reset(key: str, lang: str, expected_version: int, admin_email: str) ->
         if done is None:
             raise TextConflict(f"{key}/{lang}")
         _cache.pop((key, lang), None)
+        _invalid.pop((key, lang), None)
     finally:
         _write_gen += 1
     if done:

@@ -22,7 +22,6 @@ const Texts = ({ token, adminRole, ConfirmDialog }) => {
   const [loadError, setLoadError] = useState(null);
   const [query, setQuery] = useState('');
   const [onlyChanged, setOnlyChanged] = useState(false);
-  const [nonce, setNonce] = useState({}); // key -> number; a bump remounts that row so it shows the server's text
 
   const fetchTexts = useCallback(async () => {
     try {
@@ -45,9 +44,17 @@ const Texts = ({ token, adminRole, ConfirmDialog }) => {
     fetchTexts();
   };
 
-  const reloadOne = async (key) => {
-    await fetchTexts();
-    setNonce((n) => ({ ...n, [key]: (n[key] ?? 0) + 1 }));
+  // Refetch after a conflict. The rows stay mounted, so the person's typing is kept (their editors follow the new
+  // server text but keep a dirty draft). Resolves to null on success or an error message; nothing changes on failure.
+  const reloadOne = async () => {
+    try {
+      const data = await apiRequest('/api/admin/texts', { token });
+      setTexts(data.texts);
+      setLoadError(null);
+      return null;
+    } catch (err) {
+      return errorMessage(err, 'Failed to reload this text');
+    }
   };
 
   const onChanged = (key, lang, override) => {
@@ -130,7 +137,7 @@ const Texts = ({ token, adminRole, ConfirmDialog }) => {
           </h2>
           <div className={`${card} overflow-hidden`}>
             {area.items.map((item) => (
-              <TextRow key={`${item.key}:${nonce[item.key] ?? 0}`} item={item} writable={writable}
+              <TextRow key={item.key} item={item} writable={writable}
                 token={token} ConfirmDialog={ConfirmDialog} onChanged={onChanged} onReload={reloadOne} />
             ))}
           </div>

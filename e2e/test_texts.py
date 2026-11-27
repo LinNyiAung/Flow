@@ -5,6 +5,8 @@ Sections (named on the command line, all by default):
     replaced_default / default_changed, an invalid stored row ignored, translate with an empty cache.
   admin_api -- HTTP against the stub: roles, listing, save/reset, 409/422/404, the real-key path (a Free user's 403
     message), the admin log. Overrides are removed through the API in `finally`.
+  invalid_http -- a stored row that no longer validates is listed with `invalid` and can be saved over or reset
+    (waits for the stub's 60 s refresh).
   emails -- in-process: the reset email in the person's language, the two-language verification email, HTML escaping,
     an edit appearing in the next email (the lookup is patched in-process; nothing is written to the table).
   clean -- the text_overrides table is as it was when the run started.
@@ -75,7 +77,7 @@ def _store_body():
     check(to.placeholders(KEY) == {"feature", "date"}, "store: placeholders from the English default")
     for bad in ("{feature} only", "{feature} {date} {plan}", "{feature} {date} {", "{} {feature} {date}",
                 "{feature:>5} {date}", "   ", "x" * 1001, "{feature} {date} {0}", "{feature!r} {date}",
-                "{feature.x} {date}"):
+                "{feature.x} {date}", "{feature} {date} {{x}}", "{feature} {date} }}"):
         try:
             to.validate(KEY, "my", bad)
             check(False, f"store: rejects {bad[:20]!r}")
@@ -87,6 +89,20 @@ def _store_body():
             check(False, f"store: unknown {key}/{lang}")
         except ValueError as e:
             check(str(e).startswith("Unknown text"), f"store: unknown {key}/{lang} is 'Unknown text...'", str(e))
+    for key in ("email_reset_subject", "email_verify_subject", "email_verify_button", "email_verify_heading",
+                "email_reset_heading"):
+        for bad in ("Line one\nLine two", "Line one\r\nLine two"):
+            try:
+                to.validate(key, "en", bad)
+                check(False, f"store: {key} rejects a line break")
+            except ValueError as e:
+                check("one line" in str(e), f"store: {key} rejects a line break (readable)", str(e))
+    check(to.validate("email_reset_intro", "en", "Line one\nLine two") == "Line one\nLine two",
+          "store: a multi-line intro is accepted")
+    # every key's Myanmar placeholders equal its English ones
+    check(all(to._fields(T["my"][k]) == to._fields(T["en"][k]) for k in T["en"] if not k.startswith("zz_")),
+          "store: every key's my placeholders equal its en placeholders",
+          [k for k in T["en"] if not k.startswith("zz_") and to._fields(T["my"][k]) != to._fields(T["en"][k])])
     check(to.validate(KEY, "en", "  {date}: no more {feature}  ") == "{date}: no more {feature}",
           "store: accepts reordered placeholders, trimmed")
     check(to.area("plan_limit_reached_msg") == "plans" and to.area("email_reset_intro") == "emails"
@@ -134,9 +150,33 @@ def _store_body():
             # a stored row with a placeholder the code does not pass is ignored
             db.sql("INSERT INTO text_overrides (key, lang, text, replaced_default, version) "
                    "VALUES (%s, 'my', '{nope}', 'x', 1)", KEY)
-            await to.load()
+            import logging
+            seen = []
+
+            class _H(logging.Handler):
+                def emit(self, record):
+                    seen.append(record.getMessage())
+            handler = _H(level=logging.WARNING)
+            logging.getLogger("text_overrides").addHandler(handler)
+            try:
+                await to.load()
+                await to.load()
+                await to.load()
+            finally:
+                logging.getLogger("text_overrides").removeHandler(handler)
+            res["warned"] = len([m for m in seen if "Ignoring" in m and KEY in m])
+            bad = to.rows().get((KEY, "my"), {})
             res["bad_row_ignored"] = (translate(KEY, "my", feature="F", date="D") == my_default.format(feature="F", date="D"),
-                                      (KEY, "my") not in to.rows())
+                                      to.get(KEY, "my") is None)
+            # ...but it stays visible with the reason and its version, and a save at that version replaces it
+            res["bad_listed"] = (bool(bad.get("invalid")) and bad.get("version") == 1, bad.get("invalid", ""))
+            fixed = await to.save(KEY, "my", "{feature} / {date} ok", 1, "t@example.com")
+            res["bad_fixed"] = (fixed["version"] == 2, "invalid" not in to.rows()[(KEY, "my")],
+                                translate(KEY, "my", feature="F", date="D") == "F / D ok")
+            db.sql("UPDATE text_overrides SET text = '{nope}' WHERE key = %s AND lang = 'my'", KEY)
+            await to.load()
+            res["bad_again"] = "invalid" in to.rows()[(KEY, "my")]
+            res["bad_reset"] = (await to.reset(KEY, "my", 2, "t@example.com"), (KEY, "my") in to.rows())
             # a reset gives the default back
             res["reset"] = await to.reset(KEY, "en", 2, "t@example.com")
             res["after_reset"] = translate(KEY, "en", feature="F", date="D")
@@ -165,6 +205,11 @@ def _store_body():
     check(r["after_load"] == "F / D", "store: the saved override survives a reload", r["after_load"])
     check(r["bad_row_ignored"] == (True, True), "store: a stored row with a placeholder the code lacks is ignored",
           r["bad_row_ignored"])
+    check(r["warned"] == 1, "store: an ignored row is logged once per process, not every reload", r["warned"])
+    check(r["bad_listed"][0], "store: an ignored row is listed with its reason and version", r["bad_listed"])
+    check(r["bad_fixed"] == (True, True, True), "store: saving at the ignored row's version replaces it", r["bad_fixed"])
+    check(r["bad_again"] and r["bad_reset"] == (True, False),
+          "store: an ignored row can be reset at its version", (r["bad_again"], r["bad_reset"]))
     check(r["reset"] is True and r["after_reset"] == en_default.format(feature="F", date="D"),
           "store: reset gives the default again", r["after_reset"])
     check(r["reset_again"] is False, "store: resetting a missing override is False")
@@ -304,6 +349,45 @@ def section_admin_api():
               and len(upd[0]["details"]) <= 2000, "admin_api: the log has text_update naming key and language", upd)
         check(len(rst) == 1 and PAID_KEY in rst[0]["details"] and "en" in rst[0]["details"],
               "admin_api: the log has text_reset naming key and language", rst)
+
+        # a Myanmar save changes the message of a Myanmar-language Free user, not an English one
+        db.sql("UPDATE users SET language = 'my' WHERE id = %s", made_users[0])
+        my_default = T["my"][PAID_KEY]
+        st, msg = _free_message(c, free)
+        check(st == 403 and my_default in (msg or ""), "admin_api: a Myanmar Free user gets the Myanmar default", (st, msg))
+        my_new = "ဤလုပ်ဆောင်ချက်သည် အခပေးအစီအစဉ်များအတွက်သာ ဖြစ်ပါသည်။"
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/my", headers=ah, json={"text": my_new, "version": None})
+        check(r.status_code == 200 and r.json().get("text") == my_new, "admin_api: an admin saves a Myanmar text",
+              f"{r.status_code} {r.text[:200]}")
+        st, msg = _free_message(c, free)
+        check(st == 403 and (msg or "").startswith(my_new) and my_default not in (msg or ""),
+              "admin_api: the Myanmar user's 403 shows the Myanmar override", (st, msg))
+        r = c.delete(f"/api/admin/texts/{PAID_KEY}/my?version=1", headers=ah)
+        check(r.status_code == 200, "admin_api: the Myanmar text is reset", r.status_code)
+        st, msg = _free_message(c, free)
+        check(st == 403 and my_default in (msg or ""), "admin_api: the Myanmar message is the default again", (st, msg))
+
+        # saving the default is not an override: nothing stored without one; a reset with one
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": f" {default_msg} ", "version": None})
+        check(r.status_code == 200 and r.json() is None
+              and not db.sql("SELECT 1 FROM text_overrides WHERE key = %s", PAID_KEY),
+              "admin_api: saving the default with no override stores nothing (200, null)", f"{r.status_code} {r.text[:100]}")
+        c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": new, "version": None})
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": default_msg, "version": 1})
+        check(r.status_code == 200 and r.json() is None
+              and not db.sql("SELECT 1 FROM text_overrides WHERE key = %s", PAID_KEY),
+              "admin_api: saving the default over an override resets it (200, null)", f"{r.status_code} {r.text[:100]}")
+        c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": new, "version": None})
+        r = c.put(f"/api/admin/texts/{PAID_KEY}/en", headers=ah, json={"text": default_msg, "version": None})
+        check(r.status_code == 409, "admin_api: the default with a stale 'no override' version is 409", r.status_code)
+        c.delete(f"/api/admin/texts/{PAID_KEY}/en?version=1", headers=ah)
+
+        # a line break in an email subject and doubled braces are refused
+        for key, bad in (("email_reset_subject", "Line one\nLine two"), ("email_verify_button", "A\r\nB"),
+                         (PAID_KEY, "Braces {{like}} this")):
+            r = c.put(f"/api/admin/texts/{key}/en", headers=ah, json={"text": bad, "version": None})
+            check(r.status_code == 422 and isinstance(r.json().get("detail"), str),
+                  f"admin_api: {key} with {bad[:12]!r} is a readable 422", f"{r.status_code} {r.text[:150]}")
     finally:
         # Remove through the API so the server's own cache is clean at once (not only the table).
         if ah is not None:
@@ -320,6 +404,56 @@ def section_admin_api():
             db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
         if made_users:
             db.sql("DELETE FROM users WHERE id = ANY(%s)", made_users)
+
+
+# ------------------------------------------------------------------------------------------------------- invalid_http
+def section_invalid_http():
+    """A stored row that no longer fits (inserted by SQL) is listed with `invalid` and can be saved over / reset.
+    The stub is a separate process that reloads the table every 60 s, so this waits for its next refresh (up to 90 s).
+    The row is invalid, so the stub never serves it; it is removed through the API and then by SQL in `finally`."""
+    import httpx
+    import time
+    c = httpx.Client(base_url=BASE, timeout=60)
+    key = "plan_limit_reached_msg"
+    ah, made = None, []
+    try:
+        ah, aid = _admin(c, "admin")
+        made.append(aid)
+        db.sql("INSERT INTO text_overrides (key, lang, text, replaced_default, version) "
+               "VALUES (%s, 'my', '{nope} only', 'x', 1)", key)
+        ov = None
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            g = next((t for t in c.get("/api/admin/texts", headers=ah).json()["texts"] if t["key"] == key), {})
+            ov = (g.get("override") or {}).get("my")
+            if ov:
+                break
+            time.sleep(3)
+        check(bool(ov) and ov.get("invalid") and ov.get("version") == 1 and ov.get("text") == "{nope} only",
+              "invalid_http: the listing shows an ignored row with its reason, text and version", ov)
+        import text_overrides as to
+        good = " ".join("{" + n + "}" for n in sorted(to.placeholders(key))) + " fixed"
+        r = c.put(f"/api/admin/texts/{key}/my", headers=ah, json={"text": good, "version": ov["version"] if ov else 1})
+        body = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and body.get("version") == 2 and "invalid" not in body,
+              "invalid_http: a save at the stored version replaces the ignored row", f"{r.status_code} {r.text[:200]}")
+        g = next((t for t in c.get("/api/admin/texts", headers=ah).json()["texts"] if t["key"] == key), {})
+        check((g.get("override") or {}).get("my", {}).get("text") == good
+              and "invalid" not in g["override"]["my"], "invalid_http: the listing now shows it as a normal override")
+        r = c.delete(f"/api/admin/texts/{key}/my?version=2", headers=ah)
+        check(r.status_code == 200, "invalid_http: and it can be reset", r.status_code)
+    finally:
+        if ah is not None:
+            for ver in range(1, 4):
+                try:
+                    if c.delete(f"/api/admin/texts/{key}/my?version={ver}", headers=ah).status_code != 409:
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+        db.sql("DELETE FROM text_overrides WHERE key = %s", key)
+        if made:
+            db.sql("DELETE FROM admin_action_logs WHERE admin_id = ANY(%s)", made)
+            db.sql("DELETE FROM admins WHERE id = ANY(%s)", made)
 
 
 # ------------------------------------------------------------------------------------------------------------ emails
@@ -396,8 +530,25 @@ def section_emails():
     check(T["en"]["email_reset_heading"] in _parts(es.build_reset_email("a@example.com", "1", "en"))[1],
           "emails: the lookup is restored")
 
+    # a line break in a stored subject (hand-edited row) never stops the email; intro/footer breaks show in the HTML
+    odd = {("email_reset_subject", "en"): "Line one\nLine two", ("email_verify_subject", "en"): "A\r\nB",
+           ("email_reset_intro", "en"): "First <line>\nSecond line", ("email_reset_footer", "en"): "Foot\r\nnote"}
+    to.get = lambda key, lang: odd.get((key, lang), real_get(key, lang))
+    try:
+        rm = es.build_reset_email("a@example.com", "123456", "en")
+        vm = es.build_verification_email("a@example.com", "tok")
+        plain, html = _parts(rm)
+    finally:
+        to.get = real_get
+    check(rm["Subject"] == "Line one Line two", "emails: a line break in the reset subject is collapsed", rm["Subject"])
+    check(vm["Subject"].startswith("A B / "), "emails: a line break in the verification subject is collapsed", vm["Subject"])
+    check("First &lt;line&gt;<br>Second line" in html and "Foot<br>note" in html,
+          "emails: line breaks in the intro and footer become <br> in the html (escaped)")
+    check("First <line>\nSecond line" in plain, "emails: the plain version keeps the raw line break")
 
-SECTIONS = {"store": section_store, "admin_api": section_admin_api, "emails": section_emails, "clean": section_clean}
+
+SECTIONS = {"store": section_store, "admin_api": section_admin_api, "invalid_http": section_invalid_http,
+            "emails": section_emails, "clean": section_clean}
 
 
 def main():

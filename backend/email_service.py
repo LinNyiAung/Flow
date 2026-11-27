@@ -42,18 +42,28 @@ def _sub_heading(text: str) -> str:
     return f'      <h2 style="margin:20px 0 6px; color:#333; font-size:18px;">{escape(text)}</h2>'
 
 
+def _multiline(text: str) -> str:
+    """Escaped text with its line breaks kept (as <br>) in the HTML."""
+    return escape(text).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
+def _one_line(text: str) -> str:
+    """A header value must not hold a line break (EmailMessage refuses it): collapse all whitespace."""
+    return " ".join(text.split())
+
+
 def _intro(text: str) -> str:
-    return f'      <p style="color:#555; font-size:15px;">{escape(text)}</p>'
+    return f'      <p style="color:#555; font-size:15px;">{_multiline(text)}</p>'
 
 
 def _footer(text: str) -> str:
-    return f'      <p style="color:#aaa; font-size:13px; text-align:center;">{escape(text)}</p>'
+    return f'      <p style="color:#aaa; font-size:13px; text-align:center;">{_multiline(text)}</p>'
 
 
 def build_verification_email(receiver_email: str, verification_token: str) -> EmailMessage:
     """The verification email: English then Myanmar texts, one button labelled "EN / MY", the link also printed as text."""
     msg = EmailMessage()
-    msg['Subject'] = " / ".join(translate("email_verify_subject", lang) for lang in LANGS)
+    msg['Subject'] = _one_line(" / ".join(translate("email_verify_subject", lang) for lang in LANGS))
     msg['From'] = os.getenv("EMAIL_SENDER")
     msg['To'] = receiver_email
 
@@ -94,7 +104,7 @@ def build_verification_email(receiver_email: str, verification_token: str) -> Em
 def build_reset_email(receiver_email: str, otp: str, lang: str) -> EmailMessage:
     """The password-reset email in the person's language, with the code in its fixed box."""
     msg = EmailMessage()
-    msg['Subject'] = translate("email_reset_subject", lang)
+    msg['Subject'] = _one_line(translate("email_reset_subject", lang))
     msg['From'] = os.getenv("EMAIL_SENDER")
     msg['To'] = receiver_email
 

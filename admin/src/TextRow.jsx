@@ -27,6 +27,8 @@ const LangEditor = ({ textKey, lang, label, def, override, writable, token, onCh
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);   // { message, conflict }
   const [confirming, setConfirming] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [reloaded, setReloaded] = useState(false); // after a conflict the page refetched: show the server's text next to the draft
 
   // The server's text changed under us (saved here, reset, or reloaded): follow it unless the person is typing.
   if (current !== base) {
@@ -45,6 +47,9 @@ const LangEditor = ({ textKey, lang, label, def, override, writable, token, onCh
       const res = await apiRequest(path, {
         token, method: 'PUT', body: { text: value, version: override ? override.version : null },
       });
+      // The server trims, and answers null when the text equals the default (no override is kept).
+      setValue(res ? res.text : def);
+      setReloaded(false);
       onChanged(lang, res);
     } catch (err) {
       setError({ message: detailMessage(err), conflict: isConflict(err) });
@@ -60,12 +65,26 @@ const LangEditor = ({ textKey, lang, label, def, override, writable, token, onCh
       await apiRequest(path, { token, method: 'DELETE', params: { version: override.version } });
       setConfirming(false);
       setValue(def);
+      setReloaded(false);
       onChanged(lang, null);
     } catch (err) {
       setConfirming(false);
       setError({ message: detailMessage(err), conflict: isConflict(err) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Refetch after a conflict. The draft stays; the server's current text is shown beside it so the redo is deliberate.
+  const reloadText = async () => {
+    setReloading(true);
+    const failed = await onReload();
+    setReloading(false);
+    if (failed) {
+      setError({ message: failed, conflict: true });
+    } else {
+      setError(null);
+      setReloaded(true);
     }
   };
 
@@ -86,7 +105,21 @@ const LangEditor = ({ textKey, lang, label, def, override, writable, token, onCh
           <span lang={lang} className="whitespace-pre-wrap break-words">{def}</span>
         </div>
       )}
-      {override?.default_changed && (
+      {override?.invalid && (
+        <div role="alert" className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
+          <AlertTriangle size={14} className="flex-shrink-0 mt-px" />
+          <span className="min-w-0 break-words">
+            Your edit no longer fits this text ({override.invalid}); the default is used. Fix it and save, or reset.
+          </span>
+        </div>
+      )}
+      {reloaded && dirty && (
+        <div className="mt-2 p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-lg text-xs text-amber-200">
+          <div className="font-semibold mb-1">Someone else changed this. The text on the server now (your typing is kept above):</div>
+          <div lang={lang} className="whitespace-pre-wrap break-words text-slate-300">{current}</div>
+        </div>
+      )}
+      {override?.default_changed && !override.invalid && (
         <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
           <AlertTriangle size={14} className="flex-shrink-0 mt-px" />
           <span>Default changed since your edit. Check that your text still fits.</span>
@@ -100,9 +133,9 @@ const LangEditor = ({ textKey, lang, label, def, override, writable, token, onCh
             <span className="min-w-0 break-words">{error.message}</span>
           </div>
           {error.conflict && (
-            <button type="button" onClick={onReload}
-              className="mt-2 px-3 py-1 bg-red-500/15 border border-red-500/30 rounded-lg text-red-200 font-semibold hover:bg-red-500/25">
-              Reload this text
+            <button type="button" onClick={reloadText} disabled={reloading}
+              className="mt-2 px-3 py-1 bg-red-500/15 border border-red-500/30 rounded-lg text-red-200 font-semibold hover:bg-red-500/25 disabled:opacity-40">
+              {reloading ? 'Reloading...' : 'Reload this text'}
             </button>
           )}
         </div>
@@ -155,7 +188,7 @@ const TextRow = ({ item, writable, token, ConfirmDialog, onChanged, onReload }) 
           def={item.default[l.id] ?? ''} override={item.override?.[l.id] ?? null}
           writable={writable} token={token} ConfirmDialog={ConfirmDialog}
           onChanged={(lang, ov) => onChanged(item.key, lang, ov)}
-          onReload={() => onReload(item.key)} />
+          onReload={() => onReload()} />
       ))}
     </div>
   </div>
