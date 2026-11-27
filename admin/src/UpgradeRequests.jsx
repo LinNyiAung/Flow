@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowUpCircle, Crown, Check, X, Eye, RefreshCw } from 'lucide-react';
-import { getUpgradeRequests, markUpgradeRequestDone, dismissUpgradeRequest, errorMessage, canWrite, ApiError } from './api';
+import {
+  getUpgradeRequests, markUpgradeRequestDone, dismissUpgradeRequest, grantUpgradeRequest,
+  errorMessage, canWrite, ApiError, parseLocalDate, toLocalDateInput,
+} from './api';
 import { PLAN_BADGE, planLabel } from './planLabels';
 
 const STATUSES = [
@@ -38,12 +42,15 @@ const PlanBadge = ({ plan }) => (
  * refreshSignal: the dashboard's refresh counter. The list reloads whenever it changes, because a plan change or a
  * user delete from the user panel can answer or remove a request.
  */
-const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSignal = 0 }) => {
+const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSignal = 0, ...props }) => {
+  const { ConfirmDialog } = props; // the page's in-page confirm dialog
   const [status, setStatus] = useState('pending');
   const [refreshKey, setRefreshKey] = useState(0);
   const [list, setList] = useState({ key: null, items: [], error: null });
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [grant, setGrant] = useState(null); // { item, date: 'YYYY-MM-DD', error }
+  const [grantBusy, setGrantBusy] = useState(false);
 
   const writable = canWrite(adminRole);
   const queryKey = `${status}|${refreshKey}|${refreshSignal}`;
@@ -83,6 +90,33 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
       }
     } finally {
       setBusyId(null);
+      refresh();
+      if (onChanged) onChanged();
+    }
+  };
+
+  const openGrant = (item) => {
+    setNotice(null);
+    const until = item.grant_until ? new Date(item.grant_until) : null;
+    setGrant({ item, date: until ? toLocalDateInput(until) : '', error: null });
+  };
+
+  const confirmGrant = async () => {
+    const { item, date } = grant;
+    const end = parseLocalDate(date, true); // end of that local day
+    if (!end) { setGrant({ ...grant, error: 'Pick an end date.' }); return; }
+    if (end.getTime() <= Date.now()) { setGrant({ ...grant, error: 'The end date must be in the future.' }); return; }
+    setGrantBusy(true);
+    try {
+      await grantUpgradeRequest(token, item.id, end.toISOString());
+      setNotice(`Granted ${planLabel(item.requested_plan)} to ${item.name || item.email} until ${fmtDate(end.toISOString())}.`);
+      setGrant(null);
+    } catch (err) {
+      // 409 (already handled, would downgrade, no end date): the message says what to do. 404: gone.
+      setNotice(errorMessage(err, 'Failed to grant the plan'));
+      setGrant(null);
+    } finally {
+      setGrantBusy(false);
       refresh();
       if (onChanged) onChanged();
     }
@@ -200,6 +234,10 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
                         </button>
                         {writable && item.status === 'pending' && (
                           <>
+                            <button onClick={() => openGrant(item)} disabled={busyId === item.id || grantBusy}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-500/15 border border-violet-500/30 rounded-lg text-violet-300 text-[13px] font-semibold hover:bg-violet-500/25 transition-colors disabled:opacity-50">
+                              <Crown size={14} /> Grant {planLabel(item.requested_plan)} for 1 {item.billing === 'year' ? 'year' : 'month'}
+                            </button>
                             <button onClick={() => handle(item, 'done')} disabled={busyId === item.id}
                               className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-400 text-[13px] font-semibold hover:bg-emerald-500/25 transition-colors disabled:opacity-50">
                               <Check size={14} /> Mark done
@@ -219,6 +257,30 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
           </div>
         )}
       </div>
+
+      {/* In a portal, like the person actions: no animated ancestor should anchor the dialog. */}
+      {grant && createPortal(
+        <ConfirmDialog
+          title={`Grant ${planLabel(grant.item.requested_plan)}?`}
+          message={(
+            <div className="space-y-3">
+              <div>{grant.item.name || 'This person'} ({grant.item.email}) gets {planLabel(grant.item.requested_plan)}
+                {grant.item.is_renewal ? ' (renewal)' : ''} and the request is marked done.</div>
+              <label className="block text-xs text-slate-400" htmlFor="grant-until">Plan ends at the end of</label>
+              <input id="grant-until" type="date" value={grant.date}
+                onChange={(e) => setGrant({ ...grant, date: e.target.value, error: null })}
+                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500" />
+              {grant.error && <div role="alert" className="text-xs text-red-400">{grant.error}</div>}
+            </div>
+          )}
+          confirmLabel="Grant"
+          tone="warning"
+          busy={grantBusy}
+          onConfirm={confirmGrant}
+          onCancel={() => setGrant(null)}
+        />,
+        document.body,
+      )}
     </div>
   );
 };

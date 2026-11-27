@@ -215,6 +215,16 @@ export const markUpgradeRequestDone = (token, id) =>
 export const dismissUpgradeRequest = (token, id) =>
   apiRequest(`/api/admin/upgrade-requests/${enc(id)}/dismiss`, { token, method: 'POST' });
 
+/** Admins only. Grants the requested plan for the request's length; expiresAt (ISO) overrides the end date. */
+export const grantUpgradeRequest = (token, id, expiresAt) =>
+  apiRequest(`/api/admin/upgrade-requests/${enc(id)}/grant`, {
+    token, method: 'POST', body: expiresAt ? { expires_at: expiresAt } : {},
+  });
+
+// ─── Activity logs (super admin) ──────────────────────────────────────────────
+export const getAdminLogs = (token, params = {}) => apiRequest('/api/admin/logs', { token, params });
+export const getAdminLogFilters = (token) => apiRequest('/api/admin/logs/filters', { token });
+
 // ─── Person actions (user detail modal) ───────────────────────────────────────
 const userPath = (id, tail) => `/api/admin/users/${enc(id)}/${tail}`;
 

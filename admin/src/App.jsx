@@ -14,6 +14,7 @@ import AppControl from './AppControl';
 import Texts from './Texts';
 import Tunables from './Tunables';
 import UpgradeRequests from './UpgradeRequests';
+import AdminLogs from './AdminLogs';
 import FeedbackManagement from './FeedbackManagement';
 import UserActions from './UserActions';
 import ErrorBoundary from './ErrorBoundary';
@@ -42,7 +43,6 @@ const api = {
   getAdmins: (token) => apiRequest('/api/admin/admins', { token }),
   createAdmin: (token, data) => apiRequest('/api/admin/admins', { token, method: 'POST', body: data }),
   deleteUser: (token, userId) => apiRequest(`/api/admin/users/${enc(userId)}`, { token, method: 'DELETE' }),
-  getLogs: (token, params = {}) => apiRequest('/api/admin/logs', { token, params }),
   getBroadcastStats: (token) => apiRequest('/api/admin/broadcast-stats', { token }),
   sendBroadcastNotification: (token, data) =>
     apiRequest('/api/admin/broadcast-notification', { token, method: 'POST', body: data }),
@@ -1041,7 +1041,7 @@ const AppVersionManagement = ({ token, adminRole }) => {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 // Tabs whose data is loaded by the Dashboard itself (others load their own).
-const DASHBOARD_DATA_TABS = ['overview', 'users', 'broadcast', 'admins', 'logs'];
+const DASHBOARD_DATA_TABS = ['overview', 'users', 'broadcast', 'admins'];
 const BROADCAST_TARGETS = [
   { value: 'all', label: 'All Users', statKey: 'total_users', sentence: 'all users' },
   { value: 'free', label: 'Free Users', statKey: 'free_users', sentence: 'all free users' },
@@ -1061,7 +1061,6 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   const [usersState, setUsersState] = useState({ key: null, items: [], hasMore: false });
   const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
   const [admins, setAdmins] = useState([]);
-  const [logs, setLogs] = useState([]);
   // Draft inputs vs. filters actually applied to the users query.
   const [searchQuery, setSearchQuery] = useState('');
   const [subscriptionFilter, setSubscriptionFilter] = useState('');
@@ -1120,11 +1119,6 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
           if (!isSuper) return null;
           const data = await api.getAdmins(token);
           return () => setAdmins(Array.isArray(data) ? data : []);
-        }
-        case 'logs': {
-          if (!isSuper) return null;
-          const data = await api.getLogs(token, { limit: 50 });
-          return () => setLogs(Array.isArray(data) ? data : []);
         }
         default:
           return null;
@@ -1489,7 +1483,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
 
         {/* Upgrade Requests Tab */}
         {activeTab === 'upgrade-requests' && (
-          <UpgradeRequests token={token} adminRole={admin.role} onOpenUser={openUserById} onChanged={reload} refreshSignal={refreshKey} />
+          <UpgradeRequests token={token} adminRole={admin.role} onOpenUser={openUserById} onChanged={reload} refreshSignal={refreshKey} ConfirmDialog={ConfirmDialog} />
         )}
 
         {/* Feedback Tab */}
@@ -1689,32 +1683,7 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
         )}
 
         {/* Logs Tab */}
-        {activeTab === 'logs' && isSuper && (
-          <div className="animate-slideIn">
-            <div className="mb-6 md:mb-8 mt-2 md:mt-0">
-              <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">Activity Logs</h1>
-              <p className="text-slate-400 font-medium text-sm md:text-base">Audit trail of all admin actions</p>
-            </div>
-            <div className="bg-gradient-to-br from-slate-800/60 to-slate-700/30 rounded-2xl border border-white/5 p-4 md:p-8">
-              {logs.map((log, index) => (
-                <div key={log.id} className="p-4 md:p-5 bg-slate-900/40 rounded-xl mb-3 border border-white/5 animate-slideIn" style={{ animationDelay: `${Math.min(index, 20) * 50}ms` }}>
-                  <div className="flex flex-col md:flex-row md:justify-between md:items-start mb-3 gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-blue-500/15 rounded-lg flex items-center justify-center flex-shrink-0"><Activity size={18} className="text-blue-500" /></div>
-                      <div>
-                        <div className="text-[15px] font-semibold text-slate-100 mb-1">{String(log.action || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</div>
-                        <div className="text-[13px] text-slate-500">by {log.admin_email}</div>
-                      </div>
-                    </div>
-                    <div className="text-[13px] text-slate-500 pl-12 md:pl-0">{log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</div>
-                  </div>
-                  {log.details && <div className="p-3 bg-slate-800/50 rounded-lg text-[13px] text-slate-400 font-mono ml-0 md:ml-12">{log.details}</div>}
-                </div>
-              ))}
-              {logs.length === 0 && !loading && <div className="p-16 text-center text-slate-400">No activity logs found</div>}
-            </div>
-          </div>
-        )}
+        {activeTab === 'logs' && isSuper && <AdminLogs token={token} />}
 
         {/* Broadcast Tab */}
         {activeTab === 'broadcast' && (
