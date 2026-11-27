@@ -47,6 +47,11 @@ def not_on_trial(now: datetime) -> ColumnElement:
     return or_(users.c.trial_ends_at.is_(None), users.c.trial_ends_at <= now)
 
 
+def not_suspended() -> ColumnElement:
+    """The person's account is not suspended (users.suspended_at is NULL; see account_guard)."""
+    return users.c.suspended_at.is_(None)
+
+
 HAS_DEVICE = devices_db.HAS_DEVICE  # at least one device row (sql.devices)
 
 

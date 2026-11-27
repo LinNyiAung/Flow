@@ -7,6 +7,7 @@ from collections import defaultdict
 import statistics
 import uuid
 
+from account_guard import is_suspended
 from notification_service import check_budget_notifications, notify_budget_auto_created, notify_budget_now_active_once, translate
 from tz_utils import as_calendar_date, day_bounds, local_now, local_today
 from user_zones import book_zone
@@ -1368,6 +1369,8 @@ async def _owner_gets_ai_budgets(book_id: str) -> bool:
         owner = await books_db.book_profile(book_id) if book else None
         if owner is None or effective_plan(owner) not in PAID_PLANS:
             return False
+        if book["kind"] != "family" and is_suspended(owner):
+            return False  # a suspended person's own book gets no AI work (a family's budgets still do: others use them)
         if book["kind"] == "family":
             return not await quota.family_over_cost_cap(owner, book_id)
         return not await quota.over_cost_cap(owner)

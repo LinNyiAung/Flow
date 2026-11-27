@@ -369,8 +369,11 @@ def translate(key: str, language: str, **kwargs) -> str:
 
 async def get_user_notification_preferences(user_id: str) -> Dict[str, bool]:
     """Get user's notification preferences, return defaults if not set"""
-    prefs = await prefs_db.get(user_id)
+    return _preferences_from(await prefs_db.get(user_id))
 
+
+def _preferences_from(prefs: Optional[dict]) -> Dict[str, bool]:
+    """The preferences map of a stored row (sql.notification_prefs), or the defaults when the person has no row."""
     if not prefs:
         default_prefs = {
             "goal_progress": True,
@@ -449,8 +452,13 @@ async def create_notification(
     if set(links) - set(notifications_db.LINKS) or subject not in ([], [NOTIFICATION_LINKS.get(notification_type)]):
         raise ValueError(f"A {notification_type} notice can't link {sorted(links)}")
 
-    # [FIX] Added await
-    if not await should_send_notification(user_id, notification_type):
+    # One read for both checks: a suspended person gets no notice at all (stored or pushed; their devices are also
+    # gone), whatever their preferences say. Data jobs keep running; only what would tell the person is dropped here.
+    prefs, suspended = await prefs_db.get_with_suspension(user_id)
+    if suspended:
+        print(f"Skipping notification {notification_type} for user {user_id} (suspended)")
+        return None
+    if not _preferences_from(prefs).get(notification_type, True):
         print(f"Skipping notification {notification_type} for user {user_id} (disabled in preferences)")
         return None
 

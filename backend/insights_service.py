@@ -2,6 +2,7 @@ import re
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timedelta, tzinfo, UTC
+from account_guard import is_suspended
 from notification_service import notify_monthly_insights_generated, notify_weekly_insights_generated
 import app_control
 from plans import quota
@@ -57,6 +58,11 @@ async def _skip_user(user: dict, feature: str, book_id: str, is_family: bool) ->
 
     is_family: `book_id` is a family book and `user` its owner; the cap then counts the owner's spend plus the book's
     own (ruling R16, quota.family_over_cost_cap)."""
+    if not is_family and is_suspended(user):
+        # A suspended person gets no AI work on their own book. A family book's insight serves its other members
+        # too, so it is never skipped for a suspended owner (its notice only reaches the unsuspended members).
+        logger.info(f"⏭️ Skipping book {book_id} of user {user['_id']} - the account is suspended")
+        return True
     plan = effective_plan(user)
     if plan not in PAID_PLANS:
         logger.info(f"⏭️ Skipping book {book_id} of user {user['_id']} - subscription expired")

@@ -987,6 +987,8 @@ async def broadcast_notification(
         elif broadcast_data.target_users in ("plus", "pro"):
             conditions.append(active_plan_filter(broadcast_data.target_users))
 
+        # A suspended person gets no broadcast (the notice or the push).
+        conditions.append(users_db.not_suspended())
         users = await users_db.list_fields([], *conditions)
         total_users = len(users)
 
@@ -1089,12 +1091,14 @@ async def get_broadcast_stats(
     """Get statistics for potential broadcast reach"""
     try:
         now = datetime.now(UTC)
+        # What a broadcast would reach: suspended people are left out of every count.
+        reachable = users_db.not_suspended()
         has_fcm = users_db.HAS_DEVICE
-        total_users = await users_db.count_users()
-        reach = await _plan_counts(now)
-        reach_with_push = await _plan_counts(now, has_fcm)
+        total_users = await users_db.count_users(reachable)
+        reach = await _plan_counts(now, reachable)
+        reach_with_push = await _plan_counts(now, reachable, has_fcm)
 
-        users_with_fcm = await users_db.count_users(has_fcm)
+        users_with_fcm = await users_db.count_users(reachable, has_fcm)
 
         return {
             "total_users": total_users,

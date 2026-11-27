@@ -1,16 +1,25 @@
 """Per-user notification preferences (one row per user; preferences is a JSON map of type -> bool)."""
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy import cast, delete, select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 
 from sql.db import execute, fetch_one, write_returning
-from sql.tables import notification_preferences as np
+from sql.tables import notification_preferences as np, users
 
 
 async def get(user_id: str) -> Optional[Dict[str, Any]]:
     return await fetch_one(select(np).where(np.c.user_id == user_id))
+
+
+async def get_with_suspension(user_id: str) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """(the user's preferences row or None, whether the person is suspended), in one read. An unknown user: (None, False)."""
+    row = await fetch_one(select(np, users.c.suspended_at)
+                          .select_from(users.outerjoin(np, np.c.user_id == users.c.id)).where(users.c.id == user_id))
+    if row is None:
+        return None, False
+    return (row if row["preferences"] is not None else None), row["suspended_at"] is not None
 
 
 async def get_or_create(user_id: str, defaults: Dict[str, bool], now: datetime) -> Dict[str, Any]:

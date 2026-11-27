@@ -6,6 +6,7 @@ Sections (named on the command line, all by default):
   actions -- the admin API on one person: roles, suspend / unsuspend, sign out, name and currency, a message, and
     the suspension in the detail and the list.
   recovery -- an admin sends a reset code (and its limits), and a super admin corrects a sign-in email.
+  effects -- a suspended person gets no notices, broadcasts or AI work; data jobs and family books go on.
   clean -- no throwaway users or admins are left; keep this section last.
 """
 import asyncio
@@ -599,6 +600,202 @@ def section_recovery():
         _cleanup(made_users, made_admins)
 
 
+# ----------------------------------------------------------------------------------------------------------- effects
+def _suspend_in_db(uid, admin_id):
+    db.sql("UPDATE users SET suspended_at = now(), suspended_reason = 'e2e', suspended_by = %s WHERE id = %s",
+           admin_id, uid)
+
+
+def _plus(uid):
+    db.sql("UPDATE users SET subscription_type = 'plus', subscription_expires_at = now() + interval '30 days', "
+           "trial_ends_at = NULL WHERE id = %s", uid)
+
+
+def _notes(uid, ntype):
+    return db.sql("SELECT id FROM notifications WHERE user_id = %s AND type = %s", uid, ntype)
+
+
+def _book_of(uid):
+    return db.sql("SELECT id FROM books WHERE person_id = %s", uid)[0]["id"]
+
+
+def _roll_budget(book_id, label, ai=False):
+    """An auto-create budget of the book whose last day was yesterday; its id."""
+    bid = f"ua-roll-{label}-{uuid.uuid4().hex[:6]}"
+    today = datetime.now(UTC).date()
+    now = datetime.now(UTC)
+    db.budgets.insert_one({
+        "_id": bid, "book_id": book_id, "name": f"Roll {label}", "period": "custom", "currency": "usd",
+        "start_date": today - timedelta(days=7), "end_date": today - timedelta(days=1),
+        "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50, "spent_amount": 0,
+                              "percentage_used": 0, "is_exceeded": False}],
+        "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+        "status": "completed", "is_active": False, "auto_create_enabled": True, "auto_create_with_ai": ai,
+        "created_at": now, "updated_at": now})
+    return bid
+
+
+def _children(parent_id):
+    return db.sql("SELECT id FROM budgets WHERE parent_budget_id = %s", parent_id)
+
+
+def _ai_rows(user_id=None, book_id=None):
+    if book_id:
+        return db.sql("SELECT id FROM ai_usage WHERE book_id = %s", book_id)
+    return db.sql("SELECT id FROM ai_usage WHERE user_id = %s", user_id)
+
+
+def section_effects():
+    import httpx
+    from zoneinfo import ZoneInfo
+    import stubenv as se
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    title = f"ua-bc-{uuid.uuid4().hex[:8]}"
+    try:
+        ah, admin_id = _admin(c, "admin")
+        made_admins.append(admin_id)
+        utc = ZoneInfo("UTC")
+        today = datetime.now(UTC).date()
+        se.patch_loaded_modules()  # no real push; notices are still stored
+
+        # ---- goal reminders and the trial notice: the suspended person gets none, the twin gets one
+        sus, twin = _person(c, made_users, "esus"), _person(c, made_users, "etwin")
+        goal_ids = {}
+        for p in (sus, twin):
+            r = c.post("/api/goals", headers=p["h"], json={
+                "name": "Effects goal", "target_amount": 1000, "goal_type": "savings", "currency": "usd",
+                "target_date": (today + timedelta(days=7)).isoformat()})
+            goal_ids[p["id"]] = r.json().get("id") if r.status_code == 200 else None
+            _plus(p["id"])
+            db.sql("UPDATE users SET trial_ends_at = now() + interval '2 days', "
+                   "subscription_expires_at = now() + interval '2 days' WHERE id = %s", p["id"])
+        check(all(goal_ids.values()), "effects: both people made a goal", str(goal_ids))
+        _suspend_in_db(sus["id"], admin_id)
+
+        async def reminders():
+            import notification_service as ns
+            import subscription_service as ss
+            await ns.goal_deadline_reminders_for_person(sus["id"], today, utc)
+            await ns.goal_deadline_reminders_for_person(twin["id"], today, utc)
+            await ss.send_trial_reminders(datetime.now(UTC))
+        _backend_async(reminders)
+        check(len(_notes(twin["id"], "goal_approaching_date")) == 1,
+              "effects: the unsuspended twin gets the goal reminder", str(_notes(twin["id"], "goal_approaching_date")))
+        check(not _notes(sus["id"], "goal_approaching_date"), "effects: a suspended person gets no goal reminder")
+        check(len(_notes(twin["id"], "trial_ending_soon")) == 1, "effects: the twin gets the trial 'ends soon' notice")
+        check(not _notes(sus["id"], "trial_ending_soon"), "effects: a suspended person on trial gets no 'ends soon' notice")
+
+        # ---- broadcast and its stats
+        def stats():
+            return c.get("/api/admin/broadcast-stats", headers=ah).json()
+        db.sql("UPDATE users SET suspended_at = NULL, suspended_reason = NULL, suspended_by = NULL WHERE id = %s",
+               sus["id"])
+        before = stats()
+        _suspend_in_db(sus["id"], admin_id)
+        after = stats()
+        check(after["total_users"] == before["total_users"] - 1 and after["plus_users"] == before["plus_users"] - 1
+              and after["paid_users"] == before["paid_users"] - 1,
+              "effects: broadcast-stats leaves a suspended person out of every count", f"{before} -> {after}")
+        n_active = db.sql("SELECT count(*) AS n FROM users WHERE suspended_at IS NULL")[0]["n"]
+        check(after["total_users"] == n_active, "effects: broadcast-stats total is the unsuspended people",
+              f"{after['total_users']} vs {n_active}")
+        r = c.post("/api/admin/broadcast-notification", headers=ah, json={
+            "title": title, "message": "hello", "notification_type": "system_broadcast", "target_users": "all"})
+        check(r.status_code == 200, "effects: the broadcast is sent", f"{r.status_code} {r.text[:200]}")
+        rows = db.sql("SELECT user_id FROM notifications WHERE title = %s", title)
+        got = {x["user_id"] for x in rows}
+        check(twin["id"] in got and sus["id"] not in got, "effects: the broadcast reaches the twin, not the suspended person",
+              f"{len(got)} rows")
+        check(r.json().get("total_users") == n_active if r.status_code == 200 else False,
+              "effects: the broadcast total counts only unsuspended people", r.text[:200])
+
+        # ---- a suspended person's personal book: the weekly insight and AI budgets are skipped, data still rolls
+        db.sql("UPDATE users SET suspended_at = NULL, suspended_reason = NULL, suspended_by = NULL WHERE id = %s",
+               sus["id"])
+        s_book, t_book = _book_of(sus["id"]), _book_of(twin["id"])
+        for uid, book in ((sus["id"], s_book), (twin["id"], t_book)):
+            db.sql("DELETE FROM insights WHERE book_id = %s", book)
+        s_parent = _roll_budget(s_book, "sus", ai=True)
+        t_parent = _roll_budget(t_book, "twin", ai=True)
+        _suspend_in_db(sus["id"], admin_id)
+        db.sql("DELETE FROM ai_usage WHERE user_id = ANY(%s)", [sus["id"], twin["id"]])
+
+        async def personal_jobs():
+            import budget_service
+            import insights_service
+            for book in (s_book, t_book):
+                await insights_service.weekly_insight_for_book(book, today, utc)
+                await budget_service.budget_rollovers_for_book(book, today, utc)
+        _backend_async(personal_jobs)
+
+        def weekly(book):
+            return db.sql("SELECT id FROM insights WHERE book_id = %s AND insight_type = 'weekly'", book)
+        check(len(_children(s_parent)) == 1, "effects: the suspended person's budget still rolls over (data job)")
+        check(len(_children(t_parent)) == 1, "effects: the twin's budget rolls over too")
+        check(not weekly(s_book), "effects: no weekly insight is made for a suspended person's personal book")
+        check(len(weekly(t_book)) >= 1, "effects: the twin's weekly insight is made (the AI ran for them)")
+        check(not _ai_rows(user_id=sus["id"]), "effects: no AI usage is recorded for the suspended person",
+              str(_ai_rows(user_id=sus["id"])))
+        check(len(_ai_rows(user_id=twin["id"])) >= 1, "effects: the twin's AI work is recorded (the control)")
+        check(not _notes(sus["id"], "budget_auto_created") and not _notes(sus["id"], "weekly_insights_generated"),
+              "effects: the suspended person gets no budget or insight notice")
+        check(len(_notes(twin["id"], "budget_auto_created")) == 1, "effects: the twin gets the 'budget created' notice")
+
+        # ---- a family book owned by a suspended person: the work goes on, only the active member is told
+        owner, member = _person(c, made_users, "fowner"), _person(c, made_users, "fmember")
+        _plus(owner["id"])
+        r = c.post("/api/family", headers=owner["h"], json={"name": f"ua fam {uuid.uuid4().hex[:6]}"})
+        fid = ((r.json() if r.status_code == 200 else {}).get("family") or {}).get("id")
+        c.post("/api/family/invites", headers=owner["h"], json={"email": member["email"]})
+        inv = next((i for i in c.get("/api/family/invites/mine", headers=member["h"]).json().get("invites", [])), None)
+        r = c.post(f"/api/family/invites/{inv['id']}/accept", headers=member["h"]) if inv else r
+        f_book = (db.sql("SELECT id FROM books WHERE family_id = %s", fid) or [{}])[0].get("id") if fid else None
+        check(f_book is not None and r.status_code == 200, "effects: an owner and a member share a family",
+              f"{r.status_code} {r.text[:200]}")
+        if f_book:
+            f_parent = _roll_budget(f_book, "fam", ai=True)
+            now_id = f"ua-now-{uuid.uuid4().hex[:6]}"
+            ts = datetime.now(UTC)
+            db.budgets.insert_one({
+                "_id": now_id, "book_id": f_book, "name": "Starts today", "period": "custom", "currency": "usd",
+                "start_date": today, "end_date": today + timedelta(days=6),
+                "category_budgets": [{"main_category": "Food & Daily Living", "allocated_amount": 50,
+                                      "spent_amount": 0, "percentage_used": 0, "is_exceeded": False}],
+                "total_budget": 50, "total_spent": 0, "remaining_budget": 50, "percentage_used": 0,
+                "status": "active", "is_active": True, "auto_create_enabled": False, "auto_create_with_ai": False,
+                "started_notified": False, "created_at": ts, "updated_at": ts})
+            db.sql("DELETE FROM insights WHERE book_id = %s", f_book)
+            _suspend_in_db(owner["id"], admin_id)
+
+            async def family_jobs():
+                import budget_service
+                import insights_service
+                import notification_service as ns
+                await budget_service.budget_rollovers_for_book(f_book, today, utc)
+                await ns.budget_now_active_for_book(f_book, today, utc)
+                await insights_service.weekly_insight_for_book(f_book, today, utc)
+            _backend_async(family_jobs)
+            check(len(_children(f_parent)) == 1, "effects: a family book owned by a suspended person still rolls over")
+            check(len(_notes(member["id"], "budget_now_active")) == 1,
+                  "effects: the active member gets 'budget now active'", str(_notes(member["id"], "budget_now_active")))
+            check(len(_notes(member["id"], "budget_auto_created")) == 1,
+                  "effects: the active member gets 'budget created' for the rollover")
+            check(not _notes(owner["id"], "budget_now_active") and not _notes(owner["id"], "budget_auto_created"),
+                  "effects: the suspended owner gets neither notice")
+            check(len(weekly(f_book)) >= 1, "effects: the family's weekly insight is still made (never skipped)")
+            check(len(_notes(member["id"], "weekly_insights_generated")) == 1
+                  and not _notes(owner["id"], "weekly_insights_generated"),
+                  "effects: the family insight notice reaches the member only")
+    finally:
+        try:
+            db.sql("DELETE FROM notifications WHERE title = %s", title)
+            db.sql("DELETE FROM families WHERE id IN (SELECT family_id FROM family_members WHERE user_id = ANY(%s))",
+                   made_users)
+        finally:
+            _cleanup(made_users, made_admins)
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -606,7 +803,8 @@ def section_clean():
     check(n == 0 and m == 0, "clean: no throwaway users or admins are left", f"users {n}, admins {m}")
 
 
-SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery, "clean": section_clean}
+SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery,
+            "effects": section_effects, "clean": section_clean}
 
 
 def main():
