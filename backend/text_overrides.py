@@ -38,7 +38,8 @@ _warned: Set[Tuple[str, str, str]] = set()  # (key, lang, text) already logged, 
 
 # Texts that sit on one line (a header or a button label): a line break would break the email.
 _SINGLE_LINE = frozenset({"email_verify_subject", "email_reset_subject", "email_verify_button",
-                          "email_verify_heading", "email_reset_heading"})
+                          "email_verify_heading", "email_reset_heading",
+                          "email_changed_subject", "email_changed_heading"})
 # Bumped by every write (before the database call and after the cache changes): a load whose read overlapped a write
 # drops its possibly stale result.
 _write_gen = 0

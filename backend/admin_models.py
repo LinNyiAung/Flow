@@ -110,7 +110,7 @@ class UpdateUserSubscriptionRequest(BaseModel):
 
 class AdminActionLog(BaseModel):
     id: str
-    admin_id: str
+    admin_id: Optional[str] = None
     admin_email: str
     action: str
     target_user_id: Optional[str] = None

@@ -80,11 +80,15 @@ users = Table(
     Column("password_reset_locked_until", TS),
     Column("password_reset_token", Text),  # sha256 of the reset token
     Column("password_reset_token_expiry", TS),
+    Column("suspended_at", TS),  # set while an admin has the account suspended; NULL otherwise
+    Column("suspended_reason", Text),  # why (1-500 characters), shown to admins only
+    Column("suspended_by", Text),  # the admin id who suspended (no foreign key: admins can be deleted)
     Column("created_at", TS, nullable=False, server_default=func.now()),
     CheckConstraint("subscription_type IN ('free','plus','pro')", name="subscription_type"),
     CheckConstraint(f"default_currency IN {CURRENCIES}", name="default_currency"),
     CheckConstraint("language IN ('en','my')", name="language"),
     CheckConstraint("password_version >= 0", name="password_version"),
+    CheckConstraint("char_length(suspended_reason) <= 500", name="suspended_reason_len"),
 )
 Index("uq_users_lower_email", func.lower(users.c.email), unique=True)
 Index("ix_users_premium", users.c.subscription_type, users.c.subscription_expires_at)
@@ -630,7 +634,7 @@ admin_action_logs = Table(
     "admin_action_logs", metadata,
     Column("id", Text, primary_key=True),
     # No foreign keys: the audit trail outlives deleted admins and users.
-    Column("admin_id", Text, nullable=False),
+    Column("admin_id", Text),  # NULL: no admin row (a failed admin sign-in)
     Column("admin_email", Text, nullable=False),
     Column("action", Text, nullable=False),
     Column("target_user_id", Text),
@@ -639,6 +643,9 @@ admin_action_logs = Table(
     Column("timestamp", TS, nullable=False, server_default=func.now()),
 )
 Index("ix_admin_action_logs_timestamp", admin_action_logs.c.timestamp.desc())
+Index("ix_admin_action_logs_admin_email_ts", func.lower(admin_action_logs.c.admin_email),
+      admin_action_logs.c.timestamp.desc())
+Index("ix_admin_action_logs_action_ts", admin_action_logs.c.action, admin_action_logs.c.timestamp.desc())
 
 feedback = Table(
     "feedback", metadata,

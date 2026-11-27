@@ -182,11 +182,34 @@ async def consume_reset_attempt(user_id: str, now: datetime, max_attempts: int) 
 
 
 async def reset_password_with_token(user_id: str, token_hash: str, password_hash: str, changed_at: datetime) -> bool:
-    """Single use: succeeds only if the reset token is still the validated one."""
+    """Single use: succeeds only if the reset token is still the validated one. Completing a reset proves the person
+    reads the e-mail's inbox, so an unverified account is verified too (verified_at is kept when already verified)."""
     return await update_user(user_id, users.c.password_reset_token == token_hash,
                              password=password_hash, password_changed_at=changed_at,
                              password_version=users.c.password_version + 1,
+                             is_verified=True,
+                             verified_at=func.coalesce(users.c.verified_at, changed_at),
                              password_reset_token=None, password_reset_token_expiry=None) > 0
+
+
+async def suspend(user_id: str, reason: str, admin_id: str, now: datetime) -> bool:
+    """Suspend the account (one conditional UPDATE); False when it is already suspended or does not exist."""
+    return await update_user(user_id, users.c.suspended_at.is_(None), suspended_at=now,
+                             suspended_reason=reason, suspended_by=admin_id) > 0
+
+
+async def unsuspend(user_id: str) -> bool:
+    """Lift the suspension; False when the account is not suspended."""
+    return await update_user(user_id, users.c.suspended_at.isnot(None), suspended_at=None, suspended_reason=None,
+                             suspended_by=None) > 0
+
+
+async def sign_out_everywhere(user_id: str) -> None:
+    """End every session: bump password_version (every issued token stops working) and forget the push devices."""
+    from utils import password_changed_now  # utils imports this module
+
+    await update_user(user_id, password_version=users.c.password_version + 1, password_changed_at=password_changed_now())
+    await devices_db.remove_all(user_id)
 
 
 async def change_password(user_id: str, password_hash: str, changed_at: datetime) -> Optional[Dict[str, Any]]:

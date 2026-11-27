@@ -40,6 +40,7 @@ from models import (
     VerifyOTPRequest,
 )
 from config import settings
+import account_guard
 import app_control
 import tunables
 from plans.access import effective_plan, is_trial, user_language
@@ -248,7 +249,7 @@ async def resend_verification_email(request: ResendVerificationRequest, backgrou
         return generic
 
     user = await find_user_by_email(email)
-    if user and user.get("is_verified") is not True:
+    if user and user.get("is_verified") is not True and not account_guard.is_suspended(user):
         verification_token = secrets.token_urlsafe(32)
         await users_db.update_user(
             user["_id"],
@@ -282,6 +283,9 @@ async def login(user_credentials: UserLogin):
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
+    if account_guard.is_suspended(user):
+        raise account_guard.suspended_error(user)
+
     if not user.get("is_verified", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -312,8 +316,8 @@ async def request_password_reset_otp(request: ForgotPasswordRequest, background_
         return generic
 
     user = await find_user_by_email(email)
-    if not user:
-        return generic
+    if not user or account_guard.is_suspended(user):
+        return generic  # a suspended person gets no code (same answer, nothing sent)
 
     now = datetime.now(UTC)
     locked_until = ensure_utc_datetime(user.get("password_reset_locked_until"))

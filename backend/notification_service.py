@@ -180,6 +180,11 @@ NOTIFICATION_TRANSLATIONS = {
         "email_reset_heading": "Password Reset",
         "email_reset_intro": "Use the code below to reset your password. It expires in 10 minutes.",
         "email_reset_footer": "If you didn't request this, you can safely ignore this email.",
+        "account_suspended_msg": "This account is suspended. Please contact us.",
+        "email_changed_subject": "Your Toe Pwar sign-in email was changed",
+        "email_changed_heading": "Sign-in email changed",
+        "email_changed_intro": "Our support team changed the email you use to sign in to Toe Pwar. If you asked for this, you don't need to do anything. If you didn't, contact us right away.",
+        "email_changed_footer": "You're getting this because this address was the sign-in email of a Toe Pwar account.",
     },
     "my": {
         "goal_achieved_title": "ရည်မှန်းချက် အောင်မြင်သွားပါပြီ! 🥳",
@@ -326,6 +331,11 @@ NOTIFICATION_TRANSLATIONS = {
         "email_reset_heading": "စကားဝှက် ပြန်လည်သတ်မှတ်ခြင်း",
         "email_reset_intro": "စကားဝှက်ကို ပြန်လည်သတ်မှတ်ရန် အောက်ပါကုဒ်ကို အသုံးပြုပါ။ ကုဒ်သည် ၁၀ မိနစ်အတွင်း သက်တမ်းကုန်ပါမည်။",
         "email_reset_footer": "သင်မတောင်းဆိုခဲ့ပါက ဤအီးမေးလ်ကို စိတ်ချလက်ချ လျစ်လျူရှုနိုင်ပါတယ်။",
+        "account_suspended_msg": "ဤအကောင့်ကို ရပ်ဆိုင်းထားပါသည်။ ကျွန်ုပ်တို့ထံ ဆက်သွယ်ပေးပါ။",
+        "email_changed_subject": "တိုးပွား အကောင့်ဝင်သည့် အီးမေးလ် ပြောင်းလဲထားပါသည်",
+        "email_changed_heading": "အကောင့်ဝင်သည့် အီးမေးလ် ပြောင်းလဲပြီး",
+        "email_changed_intro": "တိုးပွား အကူအညီအဖွဲ့က သင် အကောင့်ဝင်ရာတွင် သုံးသော အီးမေးလ်ကို ပြောင်းလဲပေးထားပါသည်။ သင်ကိုယ်တိုင် တောင်းဆိုခဲ့ပါက ဘာမှ လုပ်ရန် မလိုပါ။ မတောင်းဆိုခဲ့ပါက ကျွန်ုပ်တို့ထံ ချက်ချင်း ဆက်သွယ်ပါ။",
+        "email_changed_footer": "ဤလိပ်စာသည် တိုးပွား အကောင့်တစ်ခု၏ အကောင့်ဝင်သည့် အီးမေးလ် ဖြစ်ခဲ့သောကြောင့် ဤအီးမေးလ်ကို ရရှိခြင်း ဖြစ်ပါသည်။",
     }
 }
 

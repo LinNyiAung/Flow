@@ -6,6 +6,7 @@ from typing import AsyncIterator, Iterable, Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import account_guard
 from ai_chatbot import financial_chatbot
 from plans.access import LOCKED, PlanError, effective_plan, user_language
 from plans.catalog import PAID_PLANS
@@ -139,6 +140,8 @@ async def get_current_user(request: Request, credentials: HTTPAuthorizationCrede
                 detail="Session expired, please log in again"
             )
 
+    if account_guard.is_suspended(user):
+        raise account_guard.suspended_error(user)
     if user.get("is_verified") is False:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
     if user.get("personal_book_id") is None:
