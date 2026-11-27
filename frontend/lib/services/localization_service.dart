@@ -1019,6 +1019,9 @@ class AppLocalizations {
       'weeklyInsightsReceiptScanningVoiceAiBudgets': 'Weekly insights, receipt scanning, voice entry and budget ideas from Ko Toe Pwar — on your own transactions.',
       'claiming': 'Claiming…',
       'claimOneMonthFree': 'Claim 1 month free',
+      'claimDaysFree': 'Claim {n} days free',
+      'daysFreeCaps': '{n} DAYS FREE',
+      'daysFreePlusAccess': 'You now have {n} days of free Plus access. Enjoy all features!',
       'noCardRequiredThenContactUs': 'No card required · then contact us to continue',
 
       // Localization sweep — budgets/goals batch
@@ -1347,7 +1350,7 @@ class AppLocalizations {
       'familyRemoveMember': 'Remove from family',
       'familyRemoveConfirmTitle': 'Remove {name}?',
       'familyRemoveConfirm': 'Their entries, and anything marked as for them, stay in the family book under their name.',
-      'familyInviteIntro': 'Use the email they signed up to Toe Pwar with. The invitation lasts 14 days.',
+      'familyInviteIntro': 'Use the email they signed up to Toe Pwar with. The invitation lasts {n} days.',
       'familyInviteThisIs': 'This is…',
       'familyInviteSomeoneNew': 'Someone new',
       'familyInviteLinkHint': 'Already in the family list? Pick their name, and the entries for them become theirs.',
@@ -2322,6 +2325,9 @@ class AppLocalizations {
       'weeklyInsightsReceiptScanningVoiceAiBudgets': 'အပတ်စဉ်သုံးသပ်ချက်များ၊ ဘောက်ချာစကင်ဖတ်ခြင်း၊ အသံဖြင့်ထည့်သွင်းခြင်းနှင့် ကိုတိုးပွား၏ ဘတ်ဂျက် အကြံပြုချက်များ — သင့်ကိုယ်ပိုင် ငွေစာရင်းများအပေါ်တွင်။',
       'claiming': 'ရယူနေသည်…',
       'claimOneMonthFree': '၁ လ အခမဲ့ ရယူရန်',
+      'claimDaysFree': '{n} ရက် အခမဲ့ ရယူရန်',
+      'daysFreeCaps': '{n} ရက် အခမဲ့',
+      'daysFreePlusAccess': 'သင့်တွင် ယခု {n} ရက် အခမဲ့ Plus အသုံးပြုခွင့် ရရှိပါပြီ။ လုပ်ဆောင်ချက်အားလုံးကို ခံစားလိုက်ပါ!',
       'noCardRequiredThenContactUs': 'ကတ်မလိုအပ်ပါ · ဆက်လက်လုပ်ဆောင်ရန် ကျွန်ုပ်တို့ကို ဆက်သွယ်ပါ',
 
       // Localization sweep — budgets/goals batch
@@ -2651,7 +2657,7 @@ class AppLocalizations {
       'familyRemoveMember': 'မိသားစုမှ ဖယ်ရှားရန်',
       'familyRemoveConfirmTitle': '{name} ကို ဖယ်ရှားမလား။',
       'familyRemoveConfirm': 'သူ့စာရင်းများနှင့် သူ့အတွက်ဟု မှတ်ထားသည်များ သူ့အမည်ဖြင့် မိသားစုစာရင်းထဲ ကျန်ရှိနေပါမယ်။',
-      'familyInviteIntro': 'သူ တိုးပွားမှာ စာရင်းသွင်းထားတဲ့ အီးမေးလ်ကို ထည့်ပါ။ ဖိတ်ကြားချက်က ၁၄ ရက် ခံပါတယ်။',
+      'familyInviteIntro': 'သူ တိုးပွားမှာ စာရင်းသွင်းထားတဲ့ အီးမေးလ်ကို ထည့်ပါ။ ဖိတ်ကြားချက်က {n} ရက် ခံပါတယ်။',
       'familyInviteThisIs': 'ဒီသူက…',
       'familyInviteSomeoneNew': 'လူသစ်',
       'familyInviteLinkHint': 'မိသားစုစာရင်းထဲ ရှိပြီးသားလား။ သူ့အမည်ကို ရွေးလိုက်ရင် သူ့အတွက် မှတ်ထားတဲ့ စာရင်းတွေ သူ့ဆီ ပါသွားပါမယ်။',
@@ -3687,6 +3693,23 @@ class AppLocalizations {
   String get weeklyInsightsReceiptScanningVoiceAiBudgets => translate('weeklyInsightsReceiptScanningVoiceAiBudgets');
   String get claiming => translate('claiming');
   String get claimOneMonthFree => translate('claimOneMonthFree');
+
+  /// A whole number for display: Myanmar digits in Myanmar, plain otherwise.
+  String _number(int n) {
+    if (locale.languageCode != 'my') return '$n';
+    const digits = '၀၁၂၃၄၅၆၇၈၉';
+    return '$n'.split('').map((c) => c == '-' ? c : digits[int.parse(c)]).join();
+  }
+
+  /// The trial length in capitals; the month wording at 30 days.
+  String trialFreeCaps(int days) =>
+      days == 30 ? oneMonthFreeCaps : translate('daysFreeCaps').replaceAll('{n}', _number(days));
+
+  String claimTrialFree(int days) =>
+      days == 30 ? claimOneMonthFree : translate('claimDaysFree').replaceAll('{n}', _number(days));
+
+  String trialFreeAccessGranted(int days) =>
+      days == 30 ? oneMonthFreePlusAccess : translate('daysFreePlusAccess').replaceAll('{n}', _number(days));
   String get noCardRequiredThenContactUs => translate('noCardRequiredThenContactUs');
 
   // Localization sweep — budgets/goals batch
@@ -4065,7 +4088,7 @@ class AppLocalizations {
   String get familyRemoveMember => translate('familyRemoveMember');
   String familyRemoveConfirmTitle(String name) => translate('familyRemoveConfirmTitle').replaceAll('{name}', name);
   String get familyRemoveConfirm => translate('familyRemoveConfirm');
-  String get familyInviteIntro => translate('familyInviteIntro');
+  String familyInviteIntroDays(int days) => translate('familyInviteIntro').replaceAll('{n}', _number(days));
   String get familyInviteThisIs => translate('familyInviteThisIs');
   String get familyInviteSomeoneNew => translate('familyInviteSomeoneNew');
   String get familyInviteLinkHint => translate('familyInviteLinkHint');

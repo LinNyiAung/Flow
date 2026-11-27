@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/models/app_config.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/screens/family/family_ui.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -85,7 +87,9 @@ class _FamilyInviteScreenState extends State<FamilyInviteScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           Text(
-            l.familyInviteIntro,
+            l.familyInviteIntroDays(
+              (AppControlProvider.maybeOf(context)?.config ?? AppConfig.open).inviteDays,
+            ),
             style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant, height: 1.5),
           ),
           const SizedBox(height: 16),

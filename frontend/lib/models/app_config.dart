@@ -64,6 +64,14 @@ class AppConfig {
 
   final Announcement? announcement;
 
+  /// How many days the free trial lasts (`numbers.trial_days`); 30 when the
+  /// server does not say.
+  final int trialDays;
+
+  /// How many days a family invitation lasts (`numbers.invite_days`); 14 when
+  /// the server does not say.
+  final int inviteDays;
+
   const AppConfig({
     required this.maintenanceOn,
     required this.maintenanceMessage,
@@ -71,7 +79,12 @@ class AppConfig {
     required this.canEnter,
     required this.paused,
     required this.announcement,
+    this.trialDays = 30,
+    this.inviteDays = 14,
   });
+
+  static int _days(dynamic value, int fallback) =>
+      value is int && value >= 1 && value <= 365 ? value : fallback;
 
   /// Nothing paused, no maintenance: also what the app assumes when the
   /// config cannot be read.
@@ -95,7 +108,11 @@ class AppConfig {
         if (key is String && value is String) paused[key] = value;
       });
     }
+    final numbersJson = json['numbers'];
+    final n = numbersJson is Map ? numbersJson : const {};
     return AppConfig(
+      trialDays: _days(n['trial_days'], 30),
+      inviteDays: _days(n['invite_days'], 14),
       maintenanceOn: m['on'] == true,
       maintenanceMessage: m['message'] is String ? m['message'] as String : '',
       backBy: parseInstantOrNull(m['back_by']),

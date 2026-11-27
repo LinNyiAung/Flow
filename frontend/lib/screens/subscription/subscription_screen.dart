@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/utils/date_format.dart';
+import 'package:frontend/models/app_config.dart';
 import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/models/user.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -132,7 +134,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                localizations.oneMonthFreePlusAccess,
+                localizations.trialFreeAccessGranted(_trialDays(context, listen: false)),
                 style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -307,6 +309,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  /// The trial length the server reports (30 when it does not say).
+  int _trialDays(BuildContext context, {bool listen = true}) =>
+      (AppControlProvider.maybeOf(context, listen: listen)?.config ?? AppConfig.open).trialDays;
+
   // ── "One month free" tonal hero ────────────────────────────────────────────
   Widget _buildOfferHero(BuildContext context, ColorScheme scheme) {
     final localizations = AppLocalizations.of(context);
@@ -321,7 +327,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            localizations.oneMonthFreeCaps,
+            localizations.trialFreeCaps(_trialDays(context)),
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.4, color: scheme.onPrimaryContainer),
           ),
           const SizedBox(height: 8),
@@ -348,7 +354,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
                       )
                     : const Icon(Icons.card_giftcard_rounded, size: 20),
-                label: Text(_isClaiming ? localizations.claiming : localizations.claimOneMonthFree),
+                label: Text(_isClaiming ? localizations.claiming : localizations.claimTrialFree(_trialDays(context))),
               ),
             ),
           ),
