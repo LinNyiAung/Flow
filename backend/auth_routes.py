@@ -6,8 +6,9 @@ import threading
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Depends
 from fastapi.concurrency import run_in_threadpool
@@ -81,19 +82,32 @@ class _SlidingWindowRateLimiter:
         self._hits: dict[str, deque] = {}
         self._lock = threading.Lock()
 
-    def allow(self, key: str) -> bool:
-        now = time.monotonic()
+    def check(self, key: str, now: Optional[float] = None) -> Optional[float]:
+        """None when allowed (the hit is recorded); else the seconds until every full rule has freed up (no hit)."""
+        return self.check_detail(key, now)[0]
+
+    def check_detail(self, key: str, now: Optional[float] = None) -> tuple[Optional[float], list[int]]:
+        """Like check, plus the windows of the rules that are full (empty when allowed)."""
+        now = time.monotonic() if now is None else now
         with self._lock:
             if len(self._hits) > 10_000:
                 self._purge(now)
             hits = self._hits.setdefault(key, deque())
             while hits and now - hits[0] >= self._max_window:
                 hits.popleft()
+            wait, full = 0.0, []
             for max_hits, window in self._rules:
-                if sum(1 for t in hits if now - t < window) >= max_hits:
-                    return False
+                inside = [t for t in hits if now - t < window]
+                if len(inside) >= max_hits:
+                    full.append(window)
+                    wait = max(wait, inside[len(inside) - max_hits] + window - now)
+            if full:
+                return max(wait, 0.0), full
             hits.append(now)
-            return True
+            return None, []
+
+    def allow(self, key: str) -> bool:
+        return self.check(key) is None
 
     def _purge(self, now: float) -> None:
         stale = [k for k, v in self._hits.items() if not v or now - v[-1] >= self._max_window]
@@ -306,23 +320,48 @@ async def request_password_reset_otp(request: ForgotPasswordRequest, background_
     Generate a secure 6-digit OTP (10-minute expiry) and e-mail it in the background.
     Always returns 200 with the same message to avoid enumeration. Silently
     rate-limited (1/minute, 5/hour per address) and suppressed while the account is
-    locked out. Re-requesting does NOT reset the failed-attempt counter inside the
-    30-minute window.
+    locked out or suspended (see issue_reset_code).
     """
     generic = {"message": "If that email is registered, you will receive an OTP shortly."}
     email = _normalize_email(request.email)
 
-    if not _otp_request_limiter.allow(email):
-        return generic
-
     user = await find_user_by_email(email)
-    if not user or account_guard.is_suspended(user):
-        return generic  # a suspended person gets no code (same answer, nothing sent)
+    if not user:
+        _otp_request_limiter.allow(email)  # unknown addresses use up the same budget: the answer never differs
+        return generic
+    await issue_reset_code(user, background_tasks)
+    return generic
+
+
+RECENT_WINDOW_S = 60  # the "one code a minute" rule of _otp_request_limiter
+
+
+@dataclass
+class ResetCodeResult:
+    sent: bool
+    reason: Literal["sent", "recent", "hourly_limit", "locked", "suspended"]
+    retry_at: Optional[datetime] = None
+
+
+async def issue_reset_code(user: dict, background_tasks: BackgroundTasks) -> ResetCodeResult:
+    """
+    Store a fresh reset code for `user` and schedule its e-mail, unless the person is suspended, locked out after
+    wrong codes, or has had a code too recently (1/minute, 5/hour per address). Used by the person's own request
+    and by the admin panel; the code leaves only in the e-mail. Re-requesting does NOT reset the failed-attempt
+    counter inside the 30-minute window.
+    """
+    if account_guard.is_suspended(user):
+        return ResetCodeResult(False, "suspended", None)  # a suspended person gets no code
 
     now = datetime.now(UTC)
     locked_until = ensure_utc_datetime(user.get("password_reset_locked_until"))
     if locked_until is not None and locked_until > now:
-        return generic  # locked out: silently do nothing
+        return ResetCodeResult(False, "locked", locked_until)
+
+    wait, full = _otp_request_limiter.check_detail(_normalize_email(user["email"]))
+    if wait is not None:
+        reason = "recent" if any(w <= RECENT_WINDOW_S for w in full) else "hourly_limit"
+        return ResetCodeResult(False, reason, now + timedelta(seconds=wait))
 
     otp = str(secrets.randbelow(900000) + 100000)
     set_fields = {
@@ -340,7 +379,7 @@ async def request_password_reset_otp(request: ForgotPasswordRequest, background_
     await users_db.update_user(user["_id"], **set_fields)
 
     background_tasks.add_task(send_otp_email, user["email"], otp, user_language(user))
-    return generic
+    return ResetCodeResult(True, "sent", None)
 
 
 # ── 2. Verify OTP ─────────────────────────────────────────────────────────────

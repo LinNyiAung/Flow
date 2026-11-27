@@ -123,6 +123,35 @@ def build_reset_email(receiver_email: str, otp: str, lang: str) -> EmailMessage:
     return msg
 
 
+def build_email_changed_email(old_email: str, lang: str) -> EmailMessage:
+    """Tells the old address that support changed the sign-in email. It never names the new address."""
+    msg = EmailMessage()
+    msg['Subject'] = _one_line(translate("email_changed_subject", lang))
+    msg['From'] = os.getenv("EMAIL_SENDER")
+    msg['To'] = old_email
+
+    heading = translate("email_changed_heading", lang)
+    intro = translate("email_changed_intro", lang)
+    footer = translate("email_changed_footer", lang)
+
+    msg.set_content(f"{heading}\n\n{intro}\n\n{footer}\n")
+    msg.add_alternative(_card("✉️", _heading(heading), _intro(intro), "",_footer(footer)), subtype='html')
+    return msg
+
+
+def send_email_changed_email(old_email: str, lang: str = "en") -> None:
+    """Sends the notice to the old address; a failure is logged, never raised (the change is already made)."""
+    try:
+        msg = build_email_changed_email(old_email, lang)
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(os.getenv("EMAIL_SENDER"), os.getenv("EMAIL_PASSWORD"))
+            server.send_message(msg)
+            print(f"✅ Email-changed notice sent to {old_email}")
+    except Exception as e:
+        print(f"❌ Failed to send the email-changed notice: {e}")
+
+
 def send_verification_email(receiver_email: str, verification_token: str):
     """Sends a verification email using Gmail."""
     sender_email = os.getenv("EMAIL_SENDER")

@@ -5,6 +5,7 @@ Sections (named on the command line, all by default):
     unsuspend as conditional writes; and a completed password reset verifies an unverified e-mail.
   actions -- the admin API on one person: roles, suspend / unsuspend, sign out, name and currency, a message, and
     the suspension in the detail and the list.
+  recovery -- an admin sends a reset code (and its limits), and a super admin corrects a sign-in email.
   clean -- no throwaway users or admins are left; keep this section last.
 """
 import asyncio
@@ -12,7 +13,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("E2E_FAKE_AI", "1")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -394,6 +395,210 @@ def section_actions():
         _cleanup(made_users, made_admins)
 
 
+# ----------------------------------------------------------------------------------------------------------- recovery
+def _smtp_to(email):
+    """The recorded SMTP messages sent to `email` (one string each)."""
+    out = []
+    if os.path.exists(OUTBOX):
+        for line in open(OUTBOX, encoding="utf-8"):
+            rec = json.loads(line)
+            body = " ".join(rec.get("args", []))
+            if rec.get("kind") == "smtp" and f"To: {email} " in body:
+                out.append(body.replace("\\n", "\n"))
+    return out
+
+
+def _wait_mails(email, n, seconds=6):
+    import time
+    end = time.time() + seconds
+    while time.time() < end and len(_smtp_to(email)) < n:
+        time.sleep(0.2)
+    return len(_smtp_to(email))
+
+
+def section_recovery():
+    import time
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    try:
+        ah, admin_id = _admin(c, "admin")
+        sh, super_id = _admin(c, "super_admin")
+        mh, mod_id = _admin(c, "moderator")
+        made_admins += [admin_id, super_id, mod_id]
+        p = _person(c, made_users, "rec", verified=False)
+        uid, email = p["id"], p["email"]
+        url = f"/api/admin/users/{uid}"
+
+        # reset code: roles and unknown id
+        check(c.post(url + "/reset-code", headers=mh).status_code == 403, "recovery: a moderator gets 403 on reset-code")
+        check(c.post(f"/api/admin/users/{uuid.uuid4()}/reset-code", headers=ah).status_code == 404,
+              "recovery: reset-code for an unknown id is 404")
+
+        # sent
+        before = len(_smtp_to(email))
+        r = c.post(url + "/reset-code", headers=ah)
+        check(r.status_code == 200 and r.json() == {"sent": True}, "recovery: reset-code is 200 {sent: true}",
+              f"{r.status_code} {r.text[:200]}")
+        check(_wait_mails(email, before + 1) == before + 1, "recovery: one mail went to the person")
+        logs = _logs(uid, "user_reset_code_sent")
+        check(len(logs) == 1 and logs[0]["details"] is None, "recovery: the send is logged once, without the code", str(logs))
+        otp = _latest_otp(email)
+        check(otp is not None and otp not in str(logs) and otp not in r.text,
+              "recovery: the mailed code exists and is in neither the answer nor the log")
+
+        # at once again: recent
+        r = c.post(url + "/reset-code", headers=ah)
+        d = _detail(r) or {}
+        ahead = None
+        if d.get("retry_at"):
+            ahead = (datetime.fromisoformat(d["retry_at"]) - datetime.now(UTC)).total_seconds()
+        check(r.status_code == 409 and d.get("code") == "reset_code_not_sent" and d.get("reason") == "recent"
+              and d.get("message") and ahead is not None and 40 <= ahead <= 61,
+              "recovery: asking again at once is 409 recent with retry_at about 60 s ahead", f"{r.status_code} {r.text[:300]}")
+        check(len(_logs(uid, "user_reset_code_sent")) == 1, "recovery: a refused send is not logged")
+
+        # the person's own request right after the admin's: generic 200, nothing sent
+        n = len(_smtp_to(email))
+        r = c.post("/api/auth/forgot-password/request-otp", json={"email": email})
+        time.sleep(1.5)
+        check(r.status_code == 200 and "If that email is registered" in r.json().get("message", "")
+              and len(_smtp_to(email)) == n,
+              "recovery: the person's own request right after gets the generic 200 and no mail",
+              f"{r.status_code} {n} -> {len(_smtp_to(email))}")
+
+        # the code from the admin send completes a reset (and verifies the account)
+        r = c.post("/api/auth/forgot-password/verify-otp", json={"email": email, "otp": otp})
+        token = r.json().get("reset_token") if r.status_code == 200 else None
+        check(token is not None, "recovery: the mailed code is accepted", f"{r.status_code} {r.text[:200]}")
+        r = c.post("/api/auth/forgot-password/reset-password",
+                   json={"email": email, "reset_token": token, "new_password": "newsecret2",
+                         "confirm_password": "newsecret2"})
+        check(r.status_code == 200, "recovery: the reset completes", f"{r.status_code} {r.text[:200]}")
+        check(c.post("/api/auth/login", json={"email": email, "password": "newsecret2"}).status_code == 200,
+              "recovery: the person signs in with the new password (unverified before, verified after)")
+
+        # locked
+        until = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=20)
+        db.sql("UPDATE users SET password_reset_locked_until = %s WHERE id = %s", until, uid)
+        r = c.post(url + "/reset-code", headers=ah)
+        d = _detail(r) or {}
+        got = datetime.fromisoformat(d["retry_at"]) if d.get("retry_at") else None
+        check(r.status_code == 409 and d.get("reason") == "locked" and got is not None
+              and abs((got - until).total_seconds()) < 1,
+              "recovery: a locked account is 409 locked with the lock time", f"{r.status_code} {r.text[:300]}")
+        db.sql("UPDATE users SET password_reset_locked_until = NULL WHERE id = %s", uid)
+
+        # suspended: nothing sent, retry_at null
+        s_user = _person(c, made_users, "recsusp")
+        db.sql("UPDATE users SET suspended_at = now(), suspended_reason = 'x', suspended_by = %s WHERE id = %s",
+               admin_id, s_user["id"])
+        n = len(_smtp_to(s_user["email"]))
+        r = c.post(f"/api/admin/users/{s_user['id']}/reset-code", headers=ah)
+        d = _detail(r) or {}
+        time.sleep(1)
+        check(r.status_code == 409 and d.get("reason") == "suspended" and d.get("retry_at") is None
+              and len(_smtp_to(s_user["email"])) == n, "recovery: a suspended person is 409 suspended, nothing sent",
+              f"{r.status_code} {r.text[:300]}")
+
+        # hourly limit (the limiter lives in the stub's process, so this runs in-process with a primed limiter)
+        async def hourly():
+            import collections
+            import time as _t
+            from fastapi import BackgroundTasks
+            import auth_routes
+            from sql import users as users_db
+            user = await users_db.get_user(uid)
+            now = _t.monotonic()
+            auth_routes._otp_request_limiter._hits[auth_routes._normalize_email(user["email"])] = collections.deque(
+                [now - 3000, now - 2000, now - 1000, now - 500, now - 100])
+            tasks = BackgroundTasks()
+            res = await auth_routes.issue_reset_code(user, tasks)
+            solo = auth_routes._SlidingWindowRateLimiter([(1, 60), (5, 3600)])
+            solo._hits["k"] = collections.deque([100.0])
+            return res, len(tasks.tasks), solo.check("k", now=130.0), solo.check("k", now=161.0), solo.check("k", now=162.0)
+        res, queued, w1, w2, w3 = _backend_async(hourly)
+        wait = (res.retry_at - datetime.now(UTC)).total_seconds() if res.retry_at else None
+        check(res.sent is False and res.reason == "hourly_limit" and queued == 0 and wait is not None
+              and 590 <= wait <= 601,
+              "recovery: five sends within the hour give hourly_limit (in-process), nothing queued", str((res, queued, wait)))
+        check(w1 is not None and abs(w1 - 30) < 0.01 and w2 is None and w3 is not None,
+              "recovery: limiter.check gives the seconds to wait, None (and records a hit) when allowed",
+              str((w1, w2, w3)))
+
+        # ---- email correction
+        e = _person(c, made_users, "mail")
+        other = _person(c, made_users, "other")
+        eurl = f"/api/admin/users/{e['id']}/email"
+        new_addr = f"{PREFIX}new-{uuid.uuid4().hex[:8]}@example.com"
+        for hdrs, what in ((ah, "an admin"), (mh, "a moderator")):
+            r = c.put(eurl, headers=hdrs, json={"email": new_addr})
+            check(r.status_code == 403, f"recovery: {what} gets 403 on the email correction", r.status_code)
+        check(db.sql("SELECT email FROM users WHERE id = %s", e["id"])[0]["email"] == e["email"],
+              "recovery: a refused correction changes nothing")
+        check(c.put(f"/api/admin/users/{uuid.uuid4()}/email", headers=sh, json={"email": new_addr}).status_code == 404,
+              "recovery: the correction for an unknown id is 404")
+        for bad in ({"email": "not-an-email"}, {"email": ""}, {}, {"email": new_addr, "name": "x"}):
+            r = c.put(eurl, headers=sh, json=bad)
+            check(r.status_code == 422, "recovery: a bad email body is 422", f"{r.status_code} {str(bad)[:40]}")
+        # taken, in another case: the DB holds lower-case, so put an upper-case twin in to test the index too
+        db.sql("UPDATE users SET email = %s WHERE id = %s", other["email"].replace("@example.com", "@Example.COM"),
+               other["id"])
+        mixed = other["email"]
+        r = c.put(eurl, headers=sh, json={"email": mixed})
+        d = _detail(r) or {}
+        check(r.status_code == 409 and d.get("code") == "email_taken" and d.get("message"),
+              "recovery: another account's address in other case is 409 email_taken", f"{r.status_code} {r.text[:200]}")
+        # unchanged
+        r = c.put(eurl, headers=sh, json={"email": e["email"].upper()})
+        check(r.status_code == 200 and r.json() == {"email": e["email"]} and not _logs(e["id"], "user_email_changed"),
+              "recovery: the same address (other case) is 200, no change, no log", f"{r.status_code} {r.text[:200]}")
+        check(c.get("/api/auth/me", headers=e["h"]).status_code == 200, "recovery: and the person stays signed in")
+
+        # the change
+        n_old = len(_smtp_to(e["email"]))
+        r = c.put(eurl, headers=sh, json={"email": "  " + new_addr.replace("example.com", "Example.COM").upper() + " "})
+        check(r.status_code == 200 and r.json() == {"email": new_addr},
+              "recovery: the correction is 200 with the stored address", f"{r.status_code} {r.text[:200]}")
+        check(db.sql("SELECT email FROM users WHERE id = %s", e["id"])[0]["email"] == new_addr,
+              "recovery: the address is stored lower-case and trimmed")
+        check(c.get("/api/auth/me", headers=e["h"]).status_code == 401, "recovery: the old token is 401")
+        check(_wait_mails(e["email"], n_old + 1) == n_old + 1, "recovery: one mail went to the OLD address")
+        mail = _smtp_to(e["email"])[-1]
+        check("Our support team changed the email you use to sign in to Toe Pwar" in mail and new_addr not in mail
+              and "Your Toe Pwar sign-in email was changed" in mail,
+              "recovery: the mail has the intro and never names the new address", mail[:300])
+        check(len(_smtp_to(new_addr)) == 0, "recovery: nothing went to the new address")
+        logs = _logs(e["id"], "user_email_changed")
+        check(len(logs) == 1 and logs[0]["details"] == f"{e['email']} -> {new_addr}",
+              "recovery: the change is logged old -> new", str(logs))
+        # the person recovers through Forgot password with the new address (unverified before, verified after)
+        db.sql("UPDATE users SET is_verified = false WHERE id = %s", e["id"])
+        c.post("/api/auth/forgot-password/request-otp", json={"email": new_addr})
+        _wait_mails(new_addr, 1)
+        otp = _latest_otp(new_addr)
+        r = c.post("/api/auth/forgot-password/verify-otp", json={"email": new_addr, "otp": otp or "000000"})
+        token = r.json().get("reset_token") if r.status_code == 200 else None
+        r = c.post("/api/auth/forgot-password/reset-password",
+                   json={"email": new_addr, "reset_token": token, "new_password": "newsecret3",
+                         "confirm_password": "newsecret3"})
+        check(r.status_code == 200, "recovery: Forgot password works with the new address", f"{r.status_code} {r.text[:200]}")
+        check(c.post("/api/auth/login", json={"email": new_addr, "password": "newsecret3"}).status_code == 200,
+              "recovery: the person signs in with the new address")
+        check(c.post("/api/auth/login", json={"email": e["email"], "password": "newsecret3"}).status_code == 401,
+              "recovery: the old address no longer signs in")
+
+        # a suspended person's email can be corrected, and the old address is still told
+        sa = f"{PREFIX}sus-{uuid.uuid4().hex[:8]}@example.com"
+        n_old = len(_smtp_to(s_user["email"]))
+        r = c.put(f"/api/admin/users/{s_user['id']}/email", headers=sh, json={"email": sa})
+        check(r.status_code == 200 and _wait_mails(s_user["email"], n_old + 1) == n_old + 1,
+              "recovery: a suspended person's email is corrected and the old address told",
+              f"{r.status_code} {r.text[:200]}")
+    finally:
+        _cleanup(made_users, made_admins)
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -401,7 +606,7 @@ def section_clean():
     check(n == 0 and m == 0, "clean: no throwaway users or admins are left", f"users {n}, admins {m}")
 
 
-SECTIONS = {"guard": section_guard, "actions": section_actions, "clean": section_clean}
+SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery, "clean": section_clean}
 
 
 def main():

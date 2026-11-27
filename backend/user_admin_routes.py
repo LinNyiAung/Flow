@@ -8,7 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, status
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 
@@ -16,9 +17,10 @@ import auth_routes
 from account_guard import is_suspended
 from admin_models import UserDetailResponse
 from admin_routes import build_user_detail
-from admin_utils import log_admin_action, require_admin_or_super
+from admin_utils import log_admin_action, require_admin_or_super, require_super_admin
 from firebase_service import send_push
-from models import Currency
+from email_service import send_email_changed_email
+from models import Currency, NormalizedEmail
 from sql import devices as devices_db
 from sql import notifications as notifications_db
 from sql import users as users_db
@@ -72,6 +74,11 @@ class ProfileBody(BaseModel):
         if self.name is None and self.default_currency is None:
             raise ValueError("send a name or a default_currency")
         return self
+
+
+class EmailBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: NormalizedEmail
 
 
 class MessageBody(BaseModel):
@@ -174,3 +181,46 @@ async def message_user(body: MessageBody, user_id: str = Path(...),
         logger.warning(f"Could not push the admin message: {e}")
     await _log(current_admin, "user_message_sent", user, body.title)
     return {"devices": sent}
+
+
+_NOT_SENT = {
+    "recent": "A code was sent less than a minute ago.",
+    "hourly_limit": "Too many codes this hour.",
+    "locked": "Too many wrong codes; the account is locked for now.",
+    "suspended": "This person is suspended.",
+}
+
+
+@admin_router.post("/{user_id}/reset-code")
+async def send_reset_code(background_tasks: BackgroundTasks, user_id: str = Path(...),
+                          current_admin: dict = Depends(require_admin_or_super)):
+    """E-mail the person a reset code (the same one "Forgot password" sends). The admin never sees it."""
+    user = await _person(user_id)
+    result = await auth_routes.issue_reset_code(user, background_tasks)
+    if not result.sent:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+            "code": "reset_code_not_sent", "reason": result.reason, "message": _NOT_SENT[result.reason],
+            "retry_at": result.retry_at.isoformat() if result.retry_at else None})
+    await _log(current_admin, "user_reset_code_sent", user)
+    return {"sent": True}
+
+
+@admin_router.put("/{user_id}/email")
+async def change_user_email(body: EmailBody, background_tasks: BackgroundTasks, user_id: str = Path(...),
+                            current_admin: dict = Depends(require_super_admin)):
+    """Correct the sign-in email (super admin). The person is signed out and the OLD address is told."""
+    user = await _person(user_id)
+    old, new = user["email"], body.email
+    if new == old:
+        return {"email": old}
+    taken = await users_db.get_user_by_email(new)
+    if taken and taken["_id"] != user_id:
+        raise _conflict("email_taken", "Another account uses this email.")
+    try:
+        await users_db.update_user(user_id, email=new)
+    except IntegrityError:
+        raise _conflict("email_taken", "Another account uses this email.")
+    await users_db.sign_out_everywhere(user_id)
+    background_tasks.add_task(send_email_changed_email, old, auth_routes.user_language(user))
+    await _log(current_admin, "user_email_changed", user, f"{old} -> {new}")
+    return {"email": new}
