@@ -546,11 +546,13 @@ async def run(t):
                   f"next_insight_at: {label}", f"{got} != {want}")
         import local_jobs
         jobs = {j.id: (j.at.hour, j.at.minute, j.weekday, j.day, j.subject) for j in local_jobs.LOCAL_JOBS}
-        check(jobs.get("weekly_insights") == (5, 0, 0, None, "book") and jobs.get("monthly_insights") == (6, 0, None, 1, "book")
-              and local_jobs.WEEKLY_INSIGHT_CRON is insight_schedule.WEEKLY_INSIGHT_CRON
-              and local_jobs.MONTHLY_INSIGHT_CRON is insight_schedule.MONTHLY_INSIGHT_CRON,
-              "next_insight_at: the local-time insight jobs are built from the same cron fields (Monday 05:00, the 1st "
-              "06:00, on the book's clock)", jobs)
+        wk, mo = insight_schedule.cron_for("weekly"), insight_schedule.cron_for("monthly")
+        check(jobs.get("weekly_insights") == (wk["hour"], wk["minute"], 0, None, "book")
+              and jobs.get("monthly_insights") == (mo["hour"], mo["minute"], None, mo["day"], "book")
+              and wk["day_of_week"] == "mon" and mo["day"] == 1
+              and (wk["hour"], wk["minute"], mo["hour"], mo["minute"]) == (5, 0, 6, 0),
+              "next_insight_at: the local-time insight jobs match cron_for (Monday 05:00, the 1st 06:00 by default, on "
+              "the book's clock)", jobs)
 
         def expect_next(kind):
             n = datetime.now(UTC).astimezone(tz)

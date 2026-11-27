@@ -7,6 +7,8 @@ Sections (named on the command line, all by default):
   public_config -- GET /api/app/config carries the trial and invite lengths.
   numbers -- the server uses the settings: trial length (over HTTP), the "ends soon" window, goal reminder days, budget
     ending soon, invite length and the two unusual-spending rules (in-process, with the module cache swapped and put back).
+  times -- the local-time jobs and the insight schedule follow the four time settings (in-process, cache swapped and
+    put back), and a job that already ran today doesn't run again when its time is moved.
   clean -- the real `tunables` row holds the same settings as when the run started (its version may have moved);
     keep this section last.
 In-process tests point sql.tunables.SETTINGS_KEY at a private key, so the stub server (which caches the real row) never
@@ -678,6 +680,104 @@ def section_numbers():
                     db.sql("DELETE FROM admins WHERE id = ANY(%s)", made_admins)
 
 
+# ------------------------------------------------------------------------------------------------------------ times
+def section_times():
+    from datetime import UTC, date, datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+    import local_jobs
+    import insight_schedule
+
+    jobs = {j.id: j for j in local_jobs.LOCAL_JOBS}
+    yg = ZoneInfo("Asia/Yangon")
+
+    def wall(h, m, d=date(2026, 11, 2)):  # 2026-11-02 is a Monday
+        return datetime(d.year, d.month, d.day, h, m)
+
+    # ---- reminders_time
+    with _with_values({"reminders_time": "10:30"}):
+        g = jobs["goal_deadline_reminders"]
+        check(not g.is_due(wall(10, 15)) and g.is_due(wall(10, 30)),
+              "times: reminders_time 10:30: the goal reminder job is not due at 10:15, due at 10:30")
+        check(all(jobs[k].at == time(10, 30) for k in ("budget_ending_reminders", "payment_reminders", "budget_now_active")),
+              "times: reminders_time moves the budget, payment and budget-now-active jobs too")
+        check(jobs["budget_rollovers"].at == time(0, 30) and jobs["recurring_transactions"].at == time(6, 0),
+              "times: budget_rollovers (00:30) and recurring_transactions (06:00) stay fixed")
+    check(jobs["goal_deadline_reminders"].at == time(9, 0), "times: without an override the reminders are at 09:00")
+
+    # ---- unusual_spending_time
+    with _with_values({"unusual_spending_time": "07:15"}):
+        u = jobs["unusual_spending"]
+        check(not u.is_due(wall(7, 0)) and u.is_due(wall(7, 15)), "times: unusual_spending_time 07:15: due at 07:15, not 07:00")
+    check(jobs["unusual_spending"].at == time(8, 0), "times: without an override unusual spending is at 08:00")
+
+    # ---- weekly_report_time
+    sunday_noon = datetime(2026, 11, 8, 12, 0, tzinfo=yg)
+    with _with_values({"weekly_report_time": "07:45"}):
+        nxt = insight_schedule.next_scheduled_insight_at("weekly", yg, sunday_noon)
+        check(nxt == datetime(2026, 11, 9, 7, 45, tzinfo=yg).astimezone(UTC),
+              "times: weekly_report_time 07:45: the next weekly insight is Monday 07:45 on the book's clock", nxt)
+        w = jobs["weekly_insights"]
+        check(w.is_due(wall(7, 45)) and not w.is_due(wall(7, 30)) and not w.is_due(wall(7, 45, date(2026, 11, 3))),
+              "times: the weekly job is due Monday 07:45, not Monday 07:30, not Tuesday")
+        check(insight_schedule.cron_for("weekly") is not insight_schedule.cron_for("weekly"),
+              "times: cron_for returns a fresh dict each call")
+    check(jobs["weekly_insights"].at == time(5, 0), "times: without an override the weekly insight is Monday 05:00")
+
+    # ---- monthly_report_time
+    with _with_values({"monthly_report_time": "02:00"}):
+        nxt = insight_schedule.next_scheduled_insight_at("monthly", yg, datetime(2026, 11, 20, 9, 0, tzinfo=yg))
+        check(nxt == datetime(2026, 12, 1, 2, 0, tzinfo=yg).astimezone(UTC),
+              "times: monthly_report_time 02:00: the next monthly insight is the 1st at 02:00", nxt)
+        m = jobs["monthly_insights"]
+        check(m.is_due(wall(2, 0, date(2026, 12, 1))) and not m.is_due(wall(2, 0, date(2026, 12, 2))),
+              "times: the monthly job is due on the 1st at 02:00 only")
+
+    # ---- a moved time doesn't run a job again the same local date
+    import httpx
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made = []
+    try:
+        person = _n_person(c, made, "moved")
+        subjects = [s for s in _backend_async(lambda: local_jobs.runs_db.person_subjects()) if s[0] == person["id"]]
+        if not subjects:
+            check(False, "times: setup: the new person is a person subject")
+            return
+        sid, zname = subjects[0]
+        from tz_utils import zone_for
+        tz = zone_for(zname)
+        ran = []
+
+        async def handler(subject_id, today, tzinfo_):
+            ran.append((subject_id, today))
+        job = local_jobs.LocalJob("tn_moved_time", time(9, 0), "person", handler, time_key="reminders_time")
+        d0 = datetime.now(UTC).astimezone(tz).date()  # today on the subject's clock (the tick prunes claims older than a week)
+        base = datetime(d0.year, d0.month, d0.day, 9, 0, tzinfo=tz).astimezone(UTC)
+
+        async def run():
+            sub = [(sid, zname)]
+            orig = local_jobs.runs_db.person_subjects
+
+            async def only_one():
+                return sub
+            local_jobs.runs_db.person_subjects = only_one
+            try:
+                with _with_values({"reminders_time": "09:00"}):
+                    first = (await local_jobs.run_due_local_jobs(base + timedelta(minutes=5), [job]))[job.id]
+                with _with_values({"reminders_time": "15:00"}):
+                    second = (await local_jobs.run_due_local_jobs(base + timedelta(hours=7), [job]))[job.id]
+                return first, second
+            finally:
+                local_jobs.runs_db.person_subjects = orig
+        first, second = _backend_async(run)
+        check((first, second) == (1, 0),
+              "times: a job that ran today does not run again when its time is moved later and passes", (first, second))
+    finally:
+        try:
+            db.sql("DELETE FROM local_job_runs WHERE job = %s", "tn_moved_time")
+        finally:
+            _n_cleanup(made)
+
+
 # ------------------------------------------------------------------------------------------------------------ clean
 def section_clean():
     # Saving through the API always bumps the version, so a row that did not exist comes back as {"version": N}: the
@@ -695,7 +795,7 @@ def section_clean():
 
 
 SECTIONS = {"store": section_store, "admin_api": section_admin_api, "public_config": section_public_config,
-            "numbers": section_numbers, "clean": section_clean}
+            "numbers": section_numbers, "times": section_times, "clean": section_clean}
 RUN_START = _stored()  # the row as it was before anything ran
 
 

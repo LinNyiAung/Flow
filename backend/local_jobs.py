@@ -25,9 +25,10 @@ from typing import Awaitable, Callable, Dict, List, Literal, Optional, Sequence
 
 import budget_service as bs
 import insights_service as ins
+import insight_schedule
 import notification_service as ns
 import recurring_transaction_service as rts
-from insight_schedule import MONTHLY_INSIGHT_CRON, WEEKLY_INSIGHT_CRON
+import tunables
 from sql import local_job_runs as runs_db
 from tz_utils import as_utc, local_now, utc_now, zone_for
 
@@ -42,13 +43,20 @@ _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 @dataclass
 class LocalJob:
     """A daily job run for each subject at `at` on the subject's clock; weekday (0 = Monday) or day (of the month)
-    limit it to that day."""
+    limit it to that day. `time_key` names the admin setting (tunables) that holds the job's time, read on every use
+    (never cached); `default_at` is the time without one, and the time of a job with no `time_key`."""
     id: str
-    at: time
+    default_at: time
     subject: Literal["person", "book"]
     handler: Callable[[str, date, tzinfo], Awaitable[None]]
     weekday: Optional[int] = None
     day: Optional[int] = None
+    time_key: Optional[str] = None
+
+    @property
+    def at(self) -> time:
+        """The local time the job is due from: the admin setting `time_key` now, else `default_at`."""
+        return tunables.time_of(self.time_key) if self.time_key else self.default_at
 
     def is_due(self, wall: datetime) -> bool:
         """True when the job is due on the subject's wall clock `wall` (naive local date and time)."""
@@ -59,22 +67,30 @@ class LocalJob:
         return wall.time() >= self.at
 
 
-def _cron_job(job_id: str, cron: dict, handler) -> LocalJob:
-    """A book job at the time and day of an insight cron (insight_schedule): the "Next insight" line reads the same."""
+def _cron_job(job_id: str, insight_type: str, time_key: str, handler) -> LocalJob:
+    """A book job on the day of an insight cron (insight_schedule) at the time setting `time_key`: the "Next insight"
+    line reads the same day and the same setting."""
+    cron = insight_schedule.cron_for(insight_type)
     weekday = _WEEKDAYS.index(cron["day_of_week"]) if "day_of_week" in cron else None
-    return LocalJob(job_id, time(cron["hour"], cron["minute"]), "book", handler, weekday=weekday, day=cron.get("day"))
+    return LocalJob(job_id, time(cron["hour"], cron["minute"]), "book", handler, weekday=weekday, day=cron.get("day"),
+                    time_key=time_key)
 
 
+# Times: the reminders at reminders_time (default 09:00), unusual spending at unusual_spending_time (08:00), the weekly
+# insight at weekly_report_time (Monday 05:00) and the monthly one at monthly_report_time (the 1st, 06:00) are admin
+# settings (tunables); budget rollovers (00:30) and recurring transactions (06:00) are fixed.
 LOCAL_JOBS: List[LocalJob] = [
-    LocalJob("goal_deadline_reminders", time(9, 0), "person", ns.goal_deadline_reminders_for_person),
-    LocalJob("budget_ending_reminders", time(9, 0), "person", ns.budget_ending_reminders_for_person),
-    LocalJob("payment_reminders", time(9, 0), "person", ns.payment_reminders_for_person),
-    LocalJob("unusual_spending", time(8, 0), "person", ns.unusual_spending_for_person),
-    LocalJob("budget_now_active", time(9, 0), "book", ns.budget_now_active_for_book),
+    LocalJob("goal_deadline_reminders", time(9, 0), "person", ns.goal_deadline_reminders_for_person,
+             time_key="reminders_time"),
+    LocalJob("budget_ending_reminders", time(9, 0), "person", ns.budget_ending_reminders_for_person,
+             time_key="reminders_time"),
+    LocalJob("payment_reminders", time(9, 0), "person", ns.payment_reminders_for_person, time_key="reminders_time"),
+    LocalJob("unusual_spending", time(8, 0), "person", ns.unusual_spending_for_person, time_key="unusual_spending_time"),
+    LocalJob("budget_now_active", time(9, 0), "book", ns.budget_now_active_for_book, time_key="reminders_time"),
     LocalJob("budget_rollovers", time(0, 30), "book", bs.budget_rollovers_for_book),
     LocalJob("recurring_transactions", time(6, 0), "book", rts.recurring_for_book),
-    _cron_job("weekly_insights", WEEKLY_INSIGHT_CRON, ins.weekly_insight_for_book),
-    _cron_job("monthly_insights", MONTHLY_INSIGHT_CRON, ins.monthly_insight_for_book),
+    _cron_job("weekly_insights", "weekly", "weekly_report_time", ins.weekly_insight_for_book),
+    _cron_job("monthly_insights", "monthly", "monthly_report_time", ins.monthly_insight_for_book),
 ]
 
 # The insight jobs call the AI and can run for minutes, so they have a tick of their own (scheduler.py): a slow insight

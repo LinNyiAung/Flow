@@ -27,8 +27,9 @@ def start_scheduler():
 
     # --- ADD JOBS ---
 
-    # The local-time jobs (local_jobs.LOCAL_JOBS: goal, budget and payment reminders at 09:00, unusual spending at
-    # 08:00, budget rollovers at 00:30, recurring transactions at 06:00, weekly and monthly insights), every 15 minutes
+    # The local-time jobs (local_jobs.LOCAL_JOBS: goal, budget and payment reminders, unusual spending, weekly and monthly
+    # insights at the admin-set job times (defaults 09:00, 08:00, Monday 05:00, the 1st 06:00; tunables, 15-minute
+    # steps), budget rollovers at 00:30, recurring transactions at 06:00), every 15 minutes
     # in UTC (every zone's offset is a multiple of 15 minutes). Each run is claimed per subject and local date, so a
     # late, missed or overlapping tick never runs one twice; one tick at a time, a missed one runs once.
     # The insight jobs call the AI and can run for minutes, so they tick on their own: a long insight run never delays
