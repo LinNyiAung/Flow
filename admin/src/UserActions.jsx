@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Ban, CheckCircle, LogOut, Mail, KeyRound, Send, Pencil, AlertCircle } from 'lucide-react';
 import {
@@ -54,6 +54,12 @@ const UserActions = (props) => {
   const [msgBody, setMsgBody] = useState('');
   const [msgType, setMsgType] = useState('system_broadcast');
 
+  // The result notice sits at the top; after an action from a lower section it would be out of view.
+  const noticeRef = useRef(null);
+  useEffect(() => {
+    if (notice && noticeRef.current) noticeRef.current.scrollIntoView({ block: 'nearest' });
+  }, [notice]);
+
   const ask = (c) => { setNotice(null); setConfirm(c); };
 
   // Runs the confirmed action; `after` clears drafts on success. Errors show in the notice line.
@@ -65,10 +71,16 @@ const UserActions = (props) => {
       const text = await c.run();
       setNotice({ ok: true, text });
       if (c.after) c.after();
-      onChanged();
+      try {
+        await onChanged();
+      } catch {
+        setNotice({ ok: false, text: 'Done, but the details could not be refreshed. Close and reopen this person.' });
+      }
     } catch (err) {
       setNotice({ ok: false, text: errorMessage(err, 'The action failed') });
-      if (err instanceof ApiError && err.status === 409) onChanged(); // the state moved on: show it
+      if (err instanceof ApiError && err.status === 409) { // the state moved on: show it
+        try { await onChanged(); } catch { /* the notice above stays */ }
+      }
     } finally {
       setBusy(false);
       setConfirm(null);
@@ -150,7 +162,10 @@ const UserActions = (props) => {
       const r = await messageUser(token, user.id, {
         title: msgTitle.trim(), message: msgBody.trim(), notification_type: msgType,
       });
-      return `Message sent to ${r?.devices ?? 0} ${r?.devices === 1 ? 'device' : 'devices'}.`;
+      const n = r?.devices ?? 0;
+      return n === 0
+        ? 'Message saved in the app; they have no device for a push right now.'
+        : `Message saved in the app; push sent to ${n} ${n === 1 ? 'device' : 'devices'}.`;
     },
     after: () => { setMsgTitle(''); setMsgBody(''); },
   });
@@ -183,7 +198,7 @@ const UserActions = (props) => {
       {!detailLoaded && user.suspended && <div className="text-xs text-red-300 mb-4">Suspended (loading details…)</div>}
 
       {notice && (
-        <div role={notice.ok ? 'status' : 'alert'}
+        <div ref={noticeRef} role={notice.ok ? 'status' : 'alert'}
           className={`mb-4 p-3 rounded-xl border text-xs flex items-start gap-2 break-words ${notice.ok ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/5 border-red-500/20 text-red-300'}`}>
           {notice.ok ? <CheckCircle size={14} className="flex-shrink-0 mt-px" /> : <AlertCircle size={14} className="flex-shrink-0 mt-px" />}
           <span className="flex-1 min-w-0">{notice.text}</span>

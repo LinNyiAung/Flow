@@ -519,8 +519,17 @@ def section_recovery():
             res = await auth_routes.issue_reset_code(user, tasks)
             solo = auth_routes._SlidingWindowRateLimiter([(1, 60), (5, 3600)])
             solo._hits["k"] = collections.deque([100.0])
-            return res, len(tasks.tasks), solo.check("k", now=130.0), solo.check("k", now=161.0), solo.check("k", now=162.0)
-        res, queued, w1, w2, w3 = _backend_async(hourly)
+            # both rules full (the fifth send was just now): the reason still follows the hour rule
+            auth_routes._otp_request_limiter._hits[auth_routes._normalize_email(user["email"])] = collections.deque(
+                [now - 3000, now - 2000, now - 1000, now - 500, now - 1])
+            res_both = await auth_routes.issue_reset_code(user, BackgroundTasks())
+            return (res, len(tasks.tasks), solo.check("k", now=130.0), solo.check("k", now=161.0),
+                    solo.check("k", now=162.0), res_both)
+        res, queued, w1, w2, w3, res_both = _backend_async(hourly)
+        wait_both = (res_both.retry_at - datetime.now(UTC)).total_seconds() if res_both.retry_at else None
+        check(res_both.sent is False and res_both.reason == "hourly_limit" and wait_both is not None
+              and 590 <= wait_both <= 601,
+              "recovery: hour and minute rules both full give hourly_limit, matching retry_at", str((res_both, wait_both)))
         wait = (res.retry_at - datetime.now(UTC)).total_seconds() if res.retry_at else None
         check(res.sent is False and res.reason == "hourly_limit" and queued == 0 and wait is not None
               and 590 <= wait <= 601,
@@ -558,6 +567,28 @@ def section_recovery():
               "recovery: the same address (other case) is 200, no change, no log", f"{r.status_code} {r.text[:200]}")
         check(c.get("/api/auth/me", headers=e["h"]).status_code == 200, "recovery: and the person stays signed in")
 
+        # a legacy mixed-case address re-entered in lower case: a no-op
+        lg = _person(c, made_users, "legacy")
+        mixed_addr = lg["email"].replace("ua-legacy", "BC-x").replace("@example.com", "@Example.com")
+        db.sql("UPDATE users SET email = %s WHERE id = %s", mixed_addr, lg["id"])
+        tok = c.post("/api/auth/login", json={"email": mixed_addr, "password": PW}).json().get("access_token")
+        lg["h"] = {"Authorization": f"Bearer {tok}"}
+        n_mail = _mails_to(mixed_addr)
+        r = c.put(f"/api/admin/users/{lg['id']}/email", headers=sh, json={"email": mixed_addr.lower()})
+        time.sleep(1.5)
+        check(r.status_code == 200 and not _logs(lg["id"], "user_email_changed") and _mails_to(mixed_addr) == n_mail
+              and db.sql("SELECT email FROM users WHERE id = %s", lg["id"])[0]["email"] == mixed_addr,
+              "recovery: a legacy mixed-case address re-entered in lower case is a no-op", f"{r.status_code} {r.text[:200]}")
+        check(c.get("/api/auth/me", headers=lg["h"]).status_code == 200,
+              "recovery: and that person is not signed out")
+
+        # a reset code issued before the correction does not work after it
+        r = c.post(f"/api/admin/users/{e['id']}/reset-code", headers=ah)
+        check(r.status_code == 200, "recovery: an admin sends a reset code to the old address", f"{r.status_code} {r.text[:200]}")
+        time.sleep(1.5)
+        old_code = _latest_otp(e["email"])
+        check(old_code is not None, "recovery: the old address got a code")
+
         # the change
         n_old = len(_smtp_to(e["email"]))
         r = c.put(eurl, headers=sh, json={"email": "  " + new_addr.replace("example.com", "Example.COM").upper() + " "})
@@ -575,6 +606,9 @@ def section_recovery():
         logs = _logs(e["id"], "user_email_changed")
         check(len(logs) == 1 and logs[0]["details"] == f"{e['email']} -> {new_addr}",
               "recovery: the change is logged old -> new", str(logs))
+        r = c.post("/api/auth/forgot-password/verify-otp", json={"email": new_addr, "otp": old_code or "000000"})
+        check(r.status_code == 400, "recovery: the code issued before the correction is 400 with the new address",
+              f"{r.status_code} {r.text[:200]}")
         # the person recovers through Forgot password with the new address (unverified before, verified after)
         db.sql("UPDATE users SET is_verified = false WHERE id = %s", e["id"])
         c.post("/api/auth/forgot-password/request-otp", json={"email": new_addr})
@@ -947,6 +981,33 @@ def section_grant():
         check(_end_of(w["id"]) == ("plus", None) and _row_of(c, ah, rid7)["status"] == "pending",
               "grant: the no-end-date refusal leaves the plan and the pending request alone")
 
+        # a plan change that fails after the request was closed puts the request back to pending (in-process)
+        x = _person(c, made_users, "gfail")
+        rid8 = _request(x["id"], "plus", "month")
+
+        async def failing_grant():
+            import plans_admin_routes as par
+
+            async def boom(*a, **k):
+                raise RuntimeError("plan change failed")
+            real = par.apply_plan
+            par.apply_plan = boom
+            try:
+                await par.grant_upgrade_request(request_id=rid8, body=None,
+                                                current_admin={"_id": admin_id, "email": "ua-x@example.com"})
+            except RuntimeError as exc:
+                return str(exc)
+            finally:
+                par.apply_plan = real
+            return None
+        err = _backend_async(failing_grant)
+        check(err == "plan change failed" and _row_of(c, ah, rid8)["status"] == "pending"
+              and _end_of(x["id"])[0] == "free",
+              "grant: a failed plan change re-raises and the request is pending again", str((err, _row_of(c, ah, rid8))))
+        r = c.post(f"/api/admin/upgrade-requests/{rid8}/grant", headers=ah, json={})
+        check(r.status_code == 200 and _end_of(x["id"])[0] == "plus", "grant: and it can be granted afterwards",
+              f"{r.status_code} {r.text[:200]}")
+
         # a handled request has no grant_until
         row = _row_of(c, ah, rid5)
         check(row and row["status"] == "done" and "grant_until" not in row,
@@ -1063,7 +1124,7 @@ def section_list():
                 for limit in (2, 6):
                     seen.clear()
                     got = await admin_routes.get_all_users(current_admin={}, skip=0, limit=limit, search=search,
-                                                           subscription_type=None, sort="newest", status=None)
+                                                           subscription_type=None, sort="newest", status_filter=None)
                     out[limit] = (len(seen), len(got))
                 return out
             finally:
@@ -1199,6 +1260,11 @@ def section_logs():
               and s_email in j.get("admin_emails", [])
               and len(set(j["actions"])) == len(j["actions"]) and len(set(j["admin_emails"])) == len(j["admin_emails"]),
               "logs: /logs/filters lists distinct actions and admin emails", r.text[:200])
+        check(ghost not in j.get("admin_emails", []) and lock_email not in j.get("admin_emails", []),
+              "logs: failed sign-in addresses of no admin stay out of the admin dropdown", r.text[:300])
+        listed = get("limit=100&admin_email=" + quote(ghost)).json()
+        check(len(listed) == 1 and listed[0]["action"] == "admin_login_failed",
+              "logs: the unknown-address failure row is still listed by /logs", str(listed)[:200])
 
         # roles
         for who, h in (("moderator", mh), ("admin", ah)):

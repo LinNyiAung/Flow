@@ -91,6 +91,7 @@ async def list_logs(skip: int, limit: int, admin_email: Optional[str] = None, ac
 
 async def log_filter_choices() -> Dict[str, List[str]]:
     actions = await fetch_all(select(admin_action_logs.c.action).distinct().order_by(admin_action_logs.c.action))
+    # Only real admins: the address of a failed sign-in by nobody (admin_id null) stays out of the dropdown.
     emails = await fetch_all(select(func.lower(admin_action_logs.c.admin_email).label("email")).distinct()
-                             .order_by("email"))
+                             .where(admin_action_logs.c.admin_id.is_not(None)).order_by("email"))
     return {"actions": [r["action"] for r in actions], "admin_emails": [r["email"] for r in emails]}

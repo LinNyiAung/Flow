@@ -1276,13 +1276,12 @@ const Dashboard = ({ token, admin, onLogout, onUpdateAdmin, onTokenRotated }) =>
   };
 
   // After a person action: re-read the detail for the open modal and refresh that person's list row.
+  // Rejects when the reload fails: UserActions tells the admin to close and reopen the person.
   const refreshUser = async (userId) => {
-    try {
-      const detail = await api.getUser(token, userId);
-      const merged = { ...detail, suspended: !!detail.suspension };
-      setSelectedUser((cur) => (cur && cur.id === userId ? { ...cur, ...merged } : cur));
-      setUsersState((prev) => ({ ...prev, items: prev.items.map((u) => (u.id === userId ? { ...u, ...merged } : u)) }));
-    } catch { /* the modal keeps what it shows; the next reload corrects it */ }
+    const detail = await api.getUser(token, userId);
+    const merged = { ...detail, suspended: !!detail.suspension };
+    setSelectedUser((cur) => (cur && cur.id === userId ? { ...cur, ...merged } : cur));
+    setUsersState((prev) => ({ ...prev, items: prev.items.map((u) => (u.id === userId ? { ...u, ...merged } : u)) }));
   };
 
   // Open a user's detail panel from elsewhere (the upgrade requests list) by id.

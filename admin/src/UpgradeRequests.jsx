@@ -82,9 +82,9 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
       // 409: someone else (or a plan change) already handled it. 404: the request or its user is gone.
       // Either way the list is reloaded below and shows what is true now.
       if (err instanceof ApiError && err.status === 409) {
-        setNotice('That request was already handled, so the list has been refreshed.');
+        setNotice({ error: true, text: 'That request was already handled, so the list has been refreshed.' });
       } else if (err instanceof ApiError && err.status === 404) {
-        setNotice('That request no longer exists, so the list has been refreshed.');
+        setNotice({ error: true, text: 'That request no longer exists, so the list has been refreshed.' });
       } else {
         alert(errorMessage(err, 'Failed to update the request'));
       }
@@ -109,11 +109,11 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
     setGrantBusy(true);
     try {
       await grantUpgradeRequest(token, item.id, end.toISOString());
-      setNotice(`Granted ${planLabel(item.requested_plan)} to ${item.name || item.email} until ${fmtDate(end.toISOString())}.`);
+      setNotice({ error: false, text: `Granted ${planLabel(item.requested_plan)} to ${item.name || item.email} until ${fmtDate(end.toISOString())}.` });
       setGrant(null);
     } catch (err) {
       // 409 (already handled, would downgrade, no end date): the message says what to do. 404: gone.
-      setNotice(errorMessage(err, 'Failed to grant the plan'));
+      setNotice({ error: true, text: errorMessage(err, 'Failed to grant the plan') });
       setGrant(null);
     } finally {
       setGrantBusy(false);
@@ -129,14 +129,15 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
       <div className="mb-6 md:mb-8 mt-2 md:mt-0">
         <h1 className="text-3xl md:text-4xl font-bold mb-2 bg-gradient-to-br from-slate-100 to-slate-400 bg-clip-text text-transparent">Upgrade Requests</h1>
         <p className="text-slate-400 font-medium text-sm md:text-base">
-          Users asking for Plus or Pro. Set their plan from the user panel, then it is marked done by itself{writable ? '' : ' (read-only)'}.
+          Users asking for Plus or Pro. Grant the requested plan in one click, or set their plan from the user panel and the request is marked done by itself{writable ? '' : ' (read-only)'}.
         </p>
       </div>
 
       {notice && (
-        <div role="status" className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-start justify-between gap-3">
-          <span>{notice}</span>
-          <button onClick={() => setNotice(null)} aria-label="Dismiss note" className="text-amber-300/70 hover:text-amber-300"><X size={14} /></button>
+        <div role={notice.error ? 'alert' : 'status'}
+          className={`mb-4 px-4 py-3 rounded-xl border text-sm flex items-start justify-between gap-3 ${notice.error ? 'bg-red-500/5 border-red-500/20 text-red-300' : 'bg-amber-500/10 border-amber-500/20 text-amber-300'}`}>
+          <span>{notice.text}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss note" className={notice.error ? 'text-red-300/70 hover:text-red-300' : 'text-amber-300/70 hover:text-amber-300'}><X size={14} /></button>
         </div>
       )}
 
@@ -267,7 +268,7 @@ const UpgradeRequests = ({ token, adminRole, onOpenUser, onChanged, refreshSigna
               <div>{grant.item.name || 'This person'} ({grant.item.email}) gets {planLabel(grant.item.requested_plan)}
                 {grant.item.is_renewal ? ' (renewal)' : ''} and the request is marked done.</div>
               <label className="block text-xs text-slate-400" htmlFor="grant-until">Plan ends at the end of</label>
-              <input id="grant-until" type="date" value={grant.date}
+              <input id="grant-until" type="date" value={grant.date} min={toLocalDateInput(new Date())}
                 onChange={(e) => setGrant({ ...grant, date: e.target.value, error: null })}
                 className="w-full px-4 py-3 bg-slate-800/50 border border-slate-600/30 rounded-xl text-slate-100 text-sm outline-none focus:border-blue-500" />
               {grant.error && <div role="alert" className="text-xs text-red-400">{grant.error}</div>}

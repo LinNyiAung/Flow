@@ -66,6 +66,13 @@ async def mark(request_id: str, status: str, admin_id: str, now: datetime) -> Op
     return row_to_doc(await write_returning(stmt))
 
 
+async def reopen(request_id: str) -> Optional[Dict[str, Any]]:
+    """Back to pending (a grant whose plan change failed after the request was closed); clears who and when."""
+    stmt = (update(upgrade_requests).where(_ur.id == request_id)
+            .values(status="pending", handled_at=None, handled_by=None).returning(*upgrade_requests.c))
+    return row_to_doc(await write_returning(stmt))
+
+
 async def mark_user_done_if_covered(user_id: str, covered_plans: Sequence[str], admin_id: str,
                                     now: datetime) -> Optional[Dict[str, Any]]:
     """The user's pending request -> done, but only when it asks for one of `covered_plans` (the plans the user's new

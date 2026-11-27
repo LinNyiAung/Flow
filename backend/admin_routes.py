@@ -571,14 +571,14 @@ async def get_all_users(
     search: Optional[str] = Query(None),
     subscription_type: Optional[SubscriptionType] = Query(None),
     sort: Literal["newest", "oldest", "last_active", "ai_cost"] = Query("newest"),
-    status: Optional[Literal["active", "suspended"]] = Query(None)
+    status_filter: Optional[Literal["active", "suspended"]] = Query(None, alias="status")
 ):
     """Get all users with pagination, filters and a sort. The counts, last activity, devices and AI cost come with the
     rows (one query), whatever the page size."""
     # The plan filter, like the badge, is about the plan a user has now (an expired Plus is Free).
     now = datetime.now(UTC)
     users = await users_db.admin_list(search, subscription_type.value if subscription_type else None, skip, limit, now,
-                                      sort, status)
+                                      sort, status_filter)
 
     user_list = []
     for user in users:

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional
 
-from sqlalchemy import case, delete, exists, func, select, update
+from sqlalchemy import case, delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from sql.db import execute, fetch_all, fetch_value, transaction
@@ -105,17 +105,6 @@ async def claim_sign_in_reminders(now: datetime) -> List[dict]:
 async def delete_stale(now: datetime, days: int = 60) -> int:
     """Deletes the devices not seen for more than `days` days; returns the count."""
     return await execute(delete(d).where(d.c.last_seen_at < now - timedelta(days=days)))
-
-
-async def count_for(user_ids: Iterable[str]) -> dict:
-    """{user_id: number of device rows} for these people in one query (a person with no device is absent)."""
-    ids = list(dict.fromkeys(user_ids))
-    counts: dict = {}
-    for chunk in _chunks(ids):
-        rows = await fetch_all(select(d.c.user_id, func.count().label("n")).where(d.c.user_id.in_(chunk))
-                               .group_by(d.c.user_id))
-        counts.update({r["user_id"]: r["n"] for r in rows})
-    return counts
 
 
 async def list_for(user_id: str) -> List[dict]:

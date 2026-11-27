@@ -211,13 +211,18 @@ async def change_user_email(body: EmailBody, background_tasks: BackgroundTasks, 
     """Correct the sign-in email (super admin). The person is signed out and the OLD address is told."""
     user = await _person(user_id)
     old, new = user["email"], body.email
-    if new == old:
+    if new == (old or "").strip().lower():
         return {"email": old}
     taken = await users_db.get_user_by_email(new)
     if taken and taken["_id"] != user_id:
         raise _conflict("email_taken", "Another account uses this email.")
     try:
-        await users_db.update_user(user_id, email=new)
+        # A reset code or token issued before the correction must not finish a reset for the new address
+        # (the lockout time is kept so a lockout still holds).
+        await users_db.update_user(
+            user_id, email=new, password_reset_otp=None, password_reset_otp_expiry=None,
+            password_reset_token=None, password_reset_token_expiry=None,
+            password_reset_attempts=None, password_reset_attempts_since=None)
     except IntegrityError:
         raise _conflict("email_taken", "Another account uses this email.")
     await users_db.sign_out_everywhere(user_id)

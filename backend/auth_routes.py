@@ -360,7 +360,8 @@ async def issue_reset_code(user: dict, background_tasks: BackgroundTasks) -> Res
 
     wait, full = _otp_request_limiter.check_detail(_normalize_email(user["email"]))
     if wait is not None:
-        reason = "recent" if any(w <= RECENT_WINDOW_S for w in full) else "hourly_limit"
+        # the hour rule wins when both are full: its (longer) wait is what retry_at shows
+        reason = "hourly_limit" if any(w > RECENT_WINDOW_S for w in full) else "recent"
         return ResetCodeResult(False, reason, now + timedelta(seconds=wait))
 
     otp = str(secrets.randbelow(900000) + 100000)

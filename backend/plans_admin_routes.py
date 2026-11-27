@@ -330,7 +330,15 @@ async def grant_upgrade_request(request_id: str = Path(...), body: Optional[Gran
     row = await requests_db.mark(request_id, "done", current_admin["_id"], now)
     if row is None:
         raise _already_handled()
-    await apply_plan(current_admin, user, request["plan"], expires_at)
+    try:
+        await apply_plan(current_admin, user, request["plan"], expires_at)
+    except Exception:
+        # The plan did not change: put the request back so it can be granted again, then report the real error.
+        try:
+            await requests_db.reopen(request_id)
+        except Exception:
+            pass
+        raise
     await log_admin_action(
         admin_id=current_admin["_id"],
         admin_email=current_admin["email"],
