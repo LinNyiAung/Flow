@@ -190,6 +190,13 @@ export const aiUsageDetailPath = (row) => {
   return null;
 };
 
+// ─── Numbers & times ──────────────────────────────────────────────────────────
+/** { settings: [{key, kind, group, label, note, default, min, max, value, changed}], version } */
+export const getTunables = (token) => apiRequest('/api/admin/tunables', { token });
+
+/** body: { values: {key: value}, version }. Same shape as getTunables. 422 detail {code, errors: {key: message}}; 409 detail {code, message}. */
+export const updateTunables = (token, body) => apiRequest('/api/admin/tunables', { token, method: 'PUT', body });
+
 // ─── Upgrade requests ─────────────────────────────────────────────────────────
 /**
  * status: 'pending' (default) | 'done' | 'dismissed'. Resolves to
