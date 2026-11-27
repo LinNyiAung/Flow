@@ -63,7 +63,7 @@ def start_scheduler():
         coalesce=True,
     )
 
-    # Remind Plus-trial users 3 days before the trial ends and on its last day, hourly. Each
+    # Remind Plus-trial users the "ends soon" number of days (an admin setting, 3 by default) before the trial ends and on its last day, hourly. Each
     # reminder is claimed in the database first, so it goes out at most once however often this runs.
     scheduler.add_job(
         send_trial_reminders,
@@ -75,7 +75,7 @@ def start_scheduler():
         coalesce=True,
     )
 
-    # Remind paying Plus / Pro users whose plan has an end date, 3 days before it ends and on its last day, on the
+    # Remind paying Plus / Pro users whose plan has an end date, the "ends soon" number of days (admin setting) before it ends and on its last day, on the
     # same hourly schedule. Each reminder is claimed in the database for that end date first, so it goes out at most
     # once per end date however often this runs (an admin extension to a new end date re-arms it).
     scheduler.add_job(

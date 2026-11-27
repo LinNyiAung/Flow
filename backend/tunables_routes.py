@@ -62,16 +62,13 @@ async def put_tunables(body: SettingsBody, current_admin: dict = Depends(require
     if not isinstance(version, int) or isinstance(version, bool) or version < 0:
         raise _invalid({"version": "The version must be a whole number, 0 or more"})
     try:
-        full = tunables.validate(body.values)
-        current = {s["key"]: s["value"] for s in tunables.catalogue()}
-        if full == current:
-            return _state()  # nothing to change: no new version, no log line
         result = await tunables.save(body.values, version, current_admin["_id"])
     except tunables.SettingsInvalid as e:
         raise _invalid(e.errors)
     except tunables.SettingsConflict:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail={"code": "settings_conflict", "message": CONFLICT_MESSAGE})
-    await log_admin_action(admin_id=current_admin["_id"], admin_email=current_admin["email"],
-                           action="tunables_update", details=_details(result["changes"]))
+    if result["changes"]:  # nothing changed at the current version: no new version, no log line
+        await log_admin_action(admin_id=current_admin["_id"], admin_email=current_admin["email"],
+                               action="tunables_update", details=_details(result["changes"]))
     return _state()

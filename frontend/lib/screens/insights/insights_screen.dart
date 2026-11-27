@@ -5,9 +5,11 @@ import 'package:frontend/utils/date_format.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
+import 'package:frontend/models/app_config.dart';
 import 'package:frontend/models/budget.dart';
 import 'package:frontend/models/plan_status.dart';
 import 'package:frontend/models/transaction.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/notification_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
@@ -878,7 +880,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 FilledButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/subscription'),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                  label: Text(localizations.tryOneMonthFree),
+                  label: Text(localizations.tryTrialFree(
+                      (AppControlProvider.maybeOf(context)?.config ?? AppConfig.open).trialDays)),
                 ),
                 const SizedBox(height: 10),
                 Text(

@@ -72,8 +72,9 @@ def _cron_job(job_id: str, insight_type: str, time_key: str, handler) -> LocalJo
     line reads the same day and the same setting."""
     cron = insight_schedule.cron_for(insight_type)
     weekday = _WEEKDAYS.index(cron["day_of_week"]) if "day_of_week" in cron else None
-    return LocalJob(job_id, time(cron["hour"], cron["minute"]), "book", handler, weekday=weekday, day=cron.get("day"),
-                    time_key=time_key)
+    default_at = next(s.default for s in tunables.CATALOGUE if s.key == time_key)  # the catalogue's default, "HH:MM"
+    return LocalJob(job_id, time(int(default_at[:2]), int(default_at[3:])), "book", handler, weekday=weekday,
+                    day=cron.get("day"), time_key=time_key)
 
 
 # Times: the reminders at reminders_time (default 09:00), unusual spending at unusual_spending_time (08:00), the weekly

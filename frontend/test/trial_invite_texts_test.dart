@@ -44,6 +44,8 @@ void main() {
       expect(en.trialFreeCaps(45), '45 DAYS FREE');
       expect(en.claimTrialFree(30), 'Claim 1 month free');
       expect(en.claimTrialFree(45), 'Claim 45 days free');
+      expect(en.tryTrialFree(30), 'Try one month free');
+      expect(en.tryTrialFree(45), 'Try 45 days free');
       expect(en.trialFreeAccessGranted(30), contains('1 month'));
       expect(en.trialFreeAccessGranted(45), contains('45 days'));
       expect(en.familyInviteIntroDays(14), endsWith('The invitation lasts 14 days.'));
@@ -51,6 +53,7 @@ void main() {
 
     test('Myanmar uses Myanmar digits', () {
       expect(my.claimTrialFree(45), '၄၅ ရက် အခမဲ့ ရယူရန်');
+      expect(my.tryTrialFree(45), '၄၅ ရက် အခမဲ့ စမ်းသုံးကြည့်ပါ');
       expect(my.trialFreeCaps(45), '၄၅ ရက် အခမဲ့');
       expect(my.trialFreeAccessGranted(45), contains('၄၅ ရက်'));
       expect(my.familyInviteIntroDays(14), endsWith('၁၄ ရက် ခံပါတယ်။'));

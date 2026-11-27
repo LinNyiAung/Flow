@@ -154,4 +154,5 @@ check is done in SQL, whether the readers take the value per call or per job run
 
 ## Deploy
 
-No migration. Ship the server first (the app falls back without it). The app texts need an app release.
+No migration. Needs Postgres 16 or later (the settings save uses `IS JSON`); production is PostgreSQL 16 on Render.
+Ship the server first (the app falls back without it). The app texts need an app release.

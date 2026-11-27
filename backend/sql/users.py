@@ -207,7 +207,8 @@ async def set_plan(user_id: str, plan: str, expires_at: Optional[datetime]) -> i
     return await update_user(user_id, subscription_type=plan, subscription_expires_at=expires_at, trial_ends_at=None)
 
 
-# Which column records that a trial reminder went out ("3d": ends within 3 days, "last": within the last day).
+# Which column records that a trial reminder went out ("3d": the "ends soon" reminder, sent within the admin-set
+# number of days before the end; "last": within the last day).
 _REMINDER_COLUMNS = {"3d": "trial_reminder_3d_at", "last": "trial_reminder_last_at"}
 
 
@@ -222,8 +223,8 @@ async def claim_trial_reminder(user_id: str, kind: str, trial_ends_at: datetime,
                              column.is_(None), **{column.name: now}) > 0
 
 
-# Which column records the plan end date a paid-plan reminder went out for ("3d": ends within 3 days, "last": within
-# the last day).
+# Which column records the plan end date a paid-plan reminder went out for ("3d": the "ends soon" reminder, within the
+# admin-set number of days before the end; "last": within the last day).
 _PLAN_REMINDER_COLUMNS = {"3d": "plan_reminder_3d_for", "last": "plan_reminder_last_for"}
 
 

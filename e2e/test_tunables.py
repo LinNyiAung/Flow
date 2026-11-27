@@ -185,6 +185,37 @@ def section_store():
         _set_raw(None, E2E_KEY)
         await tn.load()
         res["none"] = (tn.get("trial_days"), tn.version())
+
+        # a save is built from the stored row, never from a stale cache: the row moved to version 2 (trial_days 45)
+        # behind this process's back, while the cache still says version 1 with nothing set
+        _set_raw(json.dumps({"version": 1}), E2E_KEY)
+        await tn.load()
+        _set_raw(json.dumps({"version": 2, "trial_days": 45}), E2E_KEY)
+        r = await tn.save({"invite_days": 20}, 2, "t")
+        res["fresh"] = (r["version"], r["changes"], json.loads(_stored(E2E_KEY)), tn.get("trial_days"), tn.version())
+        # the cache stale at version 1 while the row is at version 2: a save at 1 conflicts and reloads the cache
+        _set_raw(json.dumps({"version": 1}), E2E_KEY)
+        await tn.load()
+        _set_raw(json.dumps({"version": 2, "trial_days": 45}), E2E_KEY)
+        before = tn.version()
+        try:
+            await tn.save({"invite_days": 20}, 1, "t")
+            stale = None
+        except tn.SettingsConflict:
+            stale = "conflict"
+        res["stale"] = (before, stale, tn.version(), tn.get("trial_days"), json.loads(_stored(E2E_KEY)))
+        # the same values at an old version is a conflict, at the current one a no-op (nothing written)
+        _set_raw(json.dumps({"version": 2, "trial_days": 45}), E2E_KEY)
+        await tn.load()
+        noop = await tn.save({"trial_days": 45}, 2, "t")
+        res["noop"] = (noop, _stored(E2E_KEY))
+        # a huge number is a validation error, and a stored one loads as the default
+        res["huge"] = _errors(tn, {"large_expense_multiple": 10 ** 400})
+        _set_raw(json.dumps({"version": 1, "large_expense_multiple": 10 ** 400, "invite_days": 20}), E2E_KEY)
+        await tn.load()
+        res["huge_stored"] = (tn.get("large_expense_multiple"), tn.get("invite_days"))
+        _set_raw(None, E2E_KEY)
+        await tn.load()
         return res
 
     try:
@@ -273,6 +304,19 @@ def section_store():
         check(got[0] == (trial, 0) and got[1] == "conflict" and got[2] and got[3] == 1 and got[4] == want_row,
               f"store: a stored row that is {name} is version 0: save at 0 replaces it, at 3 conflicts", got)
     check(res["none"] == (30, 0), "store: nothing stored is version 0 and the defaults")
+    fr = res["fresh"]
+    check(fr[0] == 3 and fr[1] == [("invite_days", 14, 20)] and fr[2] == {"version": 3, "trial_days": 45, "invite_days": 20}
+          and fr[3] == 45 and fr[4] == 3,
+          "store: a save at the right version keeps another admin's change a stale cache doesn't know about", fr)
+    st = res["stale"]
+    check(st == (1, "conflict", 2, 45, {"version": 2, "trial_days": 45}),
+          "store: a save at an old version conflicts, and the cache reloads to the stored version", st)
+    check(res["noop"] == ({"changes": [], "version": 2}, json.dumps({"version": 2, "trial_days": 45})),
+          "store: a save that changes nothing at the current version writes nothing", res["noop"])
+    check(res["huge"] is not None and "large_expense_multiple" in res["huge"],
+          "store: a huge number is a validation error, not an exception", res["huge"])
+    check(res["huge_stored"] == (3, 20), "store: a stored huge number loads as the default", res["huge_stored"])
+    check(all(s.note.strip() for s in tn.CATALOGUE), "store: every setting has a note")
     check(_stored(E2E_KEY) is None, "store: the private key is cleaned up")
     check(_stored() == original, "store: the real tunables row is untouched")
 
@@ -349,6 +393,10 @@ def section_admin_api():
         check(r.status_code == 200 and body.get("version") == v + 1 and n2 == n_logs,
               "admin_api: a save that changes nothing is 200, keeps the version and logs nothing",
               f"{r.status_code} {r.text[:200]} {n2} {n_logs}")
+
+        r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 45}, "version": v})
+        check(r.status_code == 409, "admin_api: the same values at an old version is 409, not a quiet 200",
+              f"{r.status_code} {r.text[:200]}")
 
         cur = v + 1
         r = c.put("/api/admin/tunables", headers=ah, json={"values": {"trial_days": 3, "invite_days": 0}, "version": cur})

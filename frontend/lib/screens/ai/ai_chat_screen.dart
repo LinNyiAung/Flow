@@ -7,8 +7,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:frontend/models/app_config.dart';
 import 'package:frontend/models/family.dart';
 import 'package:frontend/models/plan_status.dart';
+import 'package:frontend/providers/app_control_provider.dart';
 import 'package:frontend/providers/family_provider.dart';
 import 'package:frontend/providers/plan_provider.dart';
 import 'package:frontend/services/localization_service.dart';
@@ -893,7 +895,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                 FilledButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/subscription'),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                  label: Text(localizations.tryOneMonthFree),
+                  label: Text(localizations.tryTrialFree(
+                      (AppControlProvider.maybeOf(context)?.config ?? AppConfig.open).trialDays)),
                 ),
                 const SizedBox(height: 10),
                 Center(

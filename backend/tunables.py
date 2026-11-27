@@ -38,32 +38,40 @@ _AMOUNT_CAP = {"mmk": 100_000_000, "usd": 100_000, "thb": 2_000_000}
 
 CATALOGUE: Tuple[Setting, ...] = (
     Setting("trial_days", "days", 30, "Trial and plans", "Free trial length (days)",
-            "Trials claimed after the change; running trials keep their end date.", 7, 90),
+            "Length of a free trial claimed after the change; trials already running keep their end date.", 7, 90),
     Setting("ends_soon_days", "days", 3, "Trial and plans", 'Trial / renewal "ends soon" reminder (days before)',
-            'One value for both. Must be less than the trial length. The "last day" reminder stays at 1 day.', 2, 14),
+            'How many days before a trial or paid plan ends the "ends soon" reminder goes out; the "last day" reminder '
+            "stays at 1 day. Applies from the next hourly run; a reminder already sent isn't sent again.", 2, 14),
     Setting("goal_reminder_days", "day_list", [14, 7, 3, 1], "Reminders", "Goal reminder days (days before the target date)",
-            "1 to 4 different days, each 1 to 60.", 1, 60),
-    Setting("budget_ending_soon_days", "days", 3, "Reminders", 'Budget "ending soon" (days before the end)', "", 1, 14),
+            "Days before a goal's target date when a reminder is sent. Applies from the next reminder run.", 1, 60),
+    Setting("budget_ending_soon_days", "days", 3, "Reminders", 'Budget "ending soon" (days before the end)',
+            "Days before a budget period ends when the \"ending soon\" notice is sent. Applies from the next reminder run.",
+            1, 14),
     Setting("large_expense_multiple", "number", 3, "Unusual spending", "Large expense: times the person's average",
-            "Rule 1 of unusual spending (one big expense).", 1.5, 10),
+            "One expense counts as large when it is this many times the person's average expense (and at least the "
+            "minimum below). Applies to new expenses.", 1.5, 10),
     Setting("large_expense_min", "amounts", {"mmk": 100000, "usd": 100, "thb": 2000}, "Unusual spending",
             "Large expense: minimum amount, per currency",
-            "The floor of rule 1. With no spending history yet, the bar is 1.5 times this minimum.", None, _AMOUNT_CAP),
+            "The smallest amount that can count as a large expense, per currency. With no spending history yet, the bar "
+            "is 1.5 times this. Applies to new expenses.", None, _AMOUNT_CAP),
     Setting("unusual_week_multiple", "number", 1.5, "Unusual spending", "Unusual week: times the usual weekly amount",
-            "Rule 2 (one category's week).", 1.1, 5),
+            "A category's week counts as unusual when its spending is this many times its usual weekly amount. Applies "
+            "from the next daily check.", 1.1, 5),
     Setting("unusual_week_min_diff", "amounts", {"mmk": 50000, "usd": 50, "thb": 1000}, "Unusual spending",
-            "Unusual week: minimum difference, per currency", "", None, _AMOUNT_CAP),
+            "Unusual week: minimum difference, per currency",
+            "And the week must be at least this much above usual, per currency. Applies from the next daily check.",
+            None, _AMOUNT_CAP),
     Setting("invite_days", "days", 14, "Family", "Family invite validity (days)",
-            "New invites only; sent invites keep their expiry.", 1, 60),
+            "How long a new family invitation stays open; invitations already sent keep their expiry.", 1, 60),
     Setting("reminders_time", "time", "09:00", "Job times", "Reminders time",
-            "Goal deadline, budget ending, payment reminders and \"budget now active\". On the person's own clock.",
-            "07:00", "21:00"),
+            "Local time of goal, budget and payment reminders, and of \"budget now active\". A change applies today if "
+            "that time hasn't passed yet; nothing runs twice in a day.", "07:00", "21:00"),
     Setting("unusual_spending_time", "time", "08:00", "Job times", "Unusual spending check time",
-            "On the person's own clock.", "07:00", "21:00"),
+            "Local time of the daily unusual-spending check. Same rule: nothing runs twice in a day.", "07:00", "21:00"),
     Setting("weekly_report_time", "time", "05:00", "Job times", "Weekly report time",
-            "Time only; the report stays on Monday. On the person's own clock.", "01:00", "23:00"),
+            "Monday's local time for the weekly report. The app's \"Next insight\" follows it.", "01:00", "23:00"),
     Setting("monthly_report_time", "time", "06:00", "Job times", "Monthly report time",
-            "Time only; the report stays on the 1st. On the person's own clock.", "01:00", "23:00"),
+            "Local time on the 1st for the monthly report. The app's \"Next insight\" follows it.", "01:00", "23:00"),
 )
 _BY_KEY: Dict[str, Setting] = {s.key: s for s in CATALOGUE}
 
@@ -85,7 +93,12 @@ def _whole(value: Any) -> bool:
 
 
 def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int too large for a float
+        return False
 
 
 def _minutes(text: str) -> int:
@@ -200,12 +213,12 @@ async def load() -> None:
     _values, _version = values, version
 
 
-def validate(values: Mapping[str, Any]) -> dict:
-    """The full effective set after merging `values` over the current effective values. SettingsInvalid carries every
-    field error at once (plus the cross-field one under ends_soon_days)."""
+def validate(values: Mapping[str, Any], base: Optional[Mapping[str, Any]] = None) -> dict:
+    """The full effective set after merging `values` over `base` (default: this process's current effective values).
+    SettingsInvalid carries every field error at once (plus the cross-field one under ends_soon_days)."""
     if not isinstance(values, Mapping):
         raise SettingsInvalid({"settings": "The settings must be an object"})
-    merged = _effective()
+    merged = copy.deepcopy(dict(base)) if base is not None else _effective()
     errors: Dict[str, str] = {}
     for key, value in values.items():
         s = _BY_KEY.get(key)
@@ -228,10 +241,19 @@ def validate(values: Mapping[str, Any]) -> dict:
 async def save(values: Mapping[str, Any], expected_version: int, admin_id: str) -> dict:
     """Validate and store `values` (merged over the current ones) if the stored record is still at `expected_version`.
     Returns {"changes": [(key, old, new), ...], "version": int}. SettingsInvalid or SettingsConflict; nothing is written
-    then."""
+    then. The base is the STORED row, never this process's cache (which may be up to 60 s old): a save made at the right
+    version can't write back old values for other keys. When nothing differs, nothing is written and "changes" is []."""
     global _write_gen, _values, _version
-    full = validate(values)
-    old = _effective()
+    stored_values, stored_version = _parse_stored(await tunables_db.read())
+    if stored_version != expected_version:
+        await load()
+        raise SettingsConflict()
+    old = {s.key: copy.deepcopy(stored_values.get(s.key, s.default)) for s in CATALOGUE}
+    full = validate(values, old)
+    changes = [(s.key, old[s.key], full[s.key]) for s in CATALOGUE if old[s.key] != full[s.key]]
+    if not changes:
+        await load()
+        return {"changes": [], "version": stored_version}
     record: Dict[str, Any] = {"version": expected_version + 1}
     new_values = {}
     for s in CATALOGUE:
@@ -240,10 +262,10 @@ async def save(values: Mapping[str, Any], expected_version: int, admin_id: str) 
             new_values[s.key] = full[s.key]
     _write_gen += 1
     if not await tunables_db.write_if_version(json.dumps(record, ensure_ascii=False), expected_version):
+        await load()
         raise SettingsConflict()
     _values, _version = new_values, expected_version + 1
     _write_gen += 1
-    changes = [(s.key, old[s.key], full[s.key]) for s in CATALOGUE if old[s.key] != full[s.key]]
     logger.info("Tunable settings saved by admin %s (version %s)", admin_id, _version)
     return {"changes": changes, "version": _version}
 

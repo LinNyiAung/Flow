@@ -1020,6 +1020,7 @@ class AppLocalizations {
       'claiming': 'Claiming…',
       'claimOneMonthFree': 'Claim 1 month free',
       'claimDaysFree': 'Claim {n} days free',
+      'tryDaysFree': 'Try {n} days free',
       'daysFreeCaps': '{n} DAYS FREE',
       'daysFreePlusAccess': 'You now have {n} days of free Plus access. Enjoy all features!',
       'noCardRequiredThenContactUs': 'No card required · then contact us to continue',
@@ -2326,6 +2327,7 @@ class AppLocalizations {
       'claiming': 'ရယူနေသည်…',
       'claimOneMonthFree': '၁ လ အခမဲ့ ရယူရန်',
       'claimDaysFree': '{n} ရက် အခမဲ့ ရယူရန်',
+      'tryDaysFree': '{n} ရက် အခမဲ့ စမ်းသုံးကြည့်ပါ',
       'daysFreeCaps': '{n} ရက် အခမဲ့',
       'daysFreePlusAccess': 'သင့်တွင် ယခု {n} ရက် အခမဲ့ Plus အသုံးပြုခွင့် ရရှိပါပြီ။ လုပ်ဆောင်ချက်အားလုံးကို ခံစားလိုက်ပါ!',
       'noCardRequiredThenContactUs': 'ကတ်မလိုအပ်ပါ · ဆက်လက်လုပ်ဆောင်ရန် ကျွန်ုပ်တို့ကို ဆက်သွယ်ပါ',
@@ -3704,6 +3706,9 @@ class AppLocalizations {
   /// The trial length in capitals; the month wording at 30 days.
   String trialFreeCaps(int days) =>
       days == 30 ? oneMonthFreeCaps : translate('daysFreeCaps').replaceAll('{n}', _number(days));
+
+  String tryTrialFree(int days) =>
+      days == 30 ? tryOneMonthFree : translate('tryDaysFree').replaceAll('{n}', _number(days));
 
   String claimTrialFree(int days) =>
       days == 30 ? claimOneMonthFree : translate('claimDaysFree').replaceAll('{n}', _number(days));

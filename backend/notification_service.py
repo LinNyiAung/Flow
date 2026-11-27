@@ -935,14 +935,16 @@ async def analyze_unusual_spending(book_id: str, tz: Optional[tzinfo] = None):
 
         weeks_in_last_month = 4
 
+        week_multiple = tunables.get("unusual_week_multiple")
+        min_diff = tunables.amount_for("unusual_week_min_diff", currency)
+
         for category, this_week_amount in this_week_by_category.items():
             if category not in last_month_by_category:
                 continue
 
             weekly_avg = last_month_by_category[category] / weeks_in_last_month
-            min_diff = tunables.amount_for("unusual_week_min_diff", currency)
 
-            if this_week_amount > weekly_avg * tunables.get("unusual_week_multiple") and this_week_amount - weekly_avg > min_diff:
+            if this_week_amount > weekly_avg * week_multiple and this_week_amount - weekly_avg > min_diff:
                 # [FIX] Added await
                 existing = await notifications_db.exists(
                     person_id, "unusual_spending", goal_name=category, currency=currency, since=recent_notification_cutoff

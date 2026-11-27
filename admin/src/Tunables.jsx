@@ -25,6 +25,7 @@ const Tunables = ({ token, adminRole, ...props }) => {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [showServer, setShowServer] = useState(false); // after a Reload with edits: show the server's values beside them
 
   const fetchAll = useCallback(async () => {
     try {
@@ -67,10 +68,12 @@ const Tunables = ({ token, adminRole, ...props }) => {
   const setDraft = (key, value) => {
     setDrafts((d) => ({ ...d, [key]: value }));
     setServerErrors((e) => {
-      if (!(key in e)) return e;
-      const { [key]: _gone, ...rest } = e;
-      return rest;
+      // the cross-field rule ties these two: a message under either one is stale once either is edited
+      const gone = key === 'trial_days' || key === 'ends_soon_days' ? ['trial_days', 'ends_soon_days'] : [key];
+      if (!gone.some((k) => k in e)) return e;
+      return Object.fromEntries(Object.entries(e).filter(([k]) => !gone.includes(k)));
     });
+    setSaveError(null);
     setSaved(false);
   };
 
@@ -85,6 +88,7 @@ const Tunables = ({ token, adminRole, ...props }) => {
       setVersion(data.version);
       setDrafts({});
       setConflict(null);
+      setShowServer(false);
       setSaved(true);
     } catch (err) {
       const d = detailOf(err);
@@ -111,13 +115,15 @@ const Tunables = ({ token, adminRole, ...props }) => {
     else {
       setSaveError(null);
       setServerErrors({});
+      setShowServer(true);
       setConflict((c) => (c ? { ...c, reloaded: true } : c));
     }
   };
 
-  const reloadAll = () => {
+  const reloadAll = async () => {
     setLoading(true);
-    fetchAll();
+    const failed = await fetchAll();
+    if (!failed) setShowServer(true);
   };
 
   if (loading && settings.length === 0) {
@@ -176,7 +182,7 @@ const Tunables = ({ token, adminRole, ...props }) => {
               <TunableField key={r.s.key} setting={r.s} draft={r.draft} disabled={!writable || busy}
                 onChange={(v) => setDraft(r.s.key, v)}
                 error={(r.s.key in drafts && r.parsed.error) || serverErrors[r.s.key] || null}
-                serverNow={conflict?.reloaded && r.edited ? formatValue(r.s, r.s.value) : null}
+                serverNow={showServer && r.edited ? formatValue(r.s, r.s.value) : null}
                 changed={r.changed} canReset={writable && r.changed}
                 onUseDefault={() => setDraft(r.s.key, toDraft(r.s, r.s.default))} />
             ))}
