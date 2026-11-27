@@ -1079,6 +1079,138 @@ def section_list():
         _cleanup(made_users, made_admins)
 
 
+# -------------------------------------------------------------------------------------------------------------- logs
+def _alogs(**where):
+    cond, args = [], []
+    for k, v in where.items():
+        cond.append(f"{k} = %s")
+        args.append(v)
+    return db.sql("SELECT * FROM admin_action_logs WHERE " + " AND ".join(cond) + " ORDER BY timestamp, id", *args)
+
+
+def section_logs():
+    import httpx
+    from urllib.parse import quote
+    c = httpx.Client(base_url=BASE, timeout=60)
+    made_users, made_admins = [], []
+    fb_ids = []
+    try:
+        sh, sid = _admin(c, "super_admin")
+        ah, aid = _admin(c, "admin")
+        mh, mid = _admin(c, "moderator")
+        made_admins += [sid, aid, mid]
+        s_email = db.sql("SELECT email FROM admins WHERE id = %s", sid)[0]["email"]
+        a_email = db.sql("SELECT email FROM admins WHERE id = %s", aid)[0]["email"]
+
+        # sign-in
+        rows = _alogs(admin_email=s_email, action="admin_login")
+        check(len(rows) == 1 and rows[0]["admin_id"] == sid, "logs: a good admin sign-in is logged", str(rows))
+        r = c.post("/api/admin/login", json={"email": a_email, "password": "totally-wrong-pw"})
+        rows = _alogs(admin_email=a_email, action="admin_login_failed")
+        check(r.status_code == 401 and len(rows) == 1 and rows[0]["admin_id"] == aid
+              and "totally-wrong-pw" not in (rows[0]["details"] or ""),
+              "logs: a wrong password is logged without the password", str(rows))
+        r = c.post("/api/admin/login", json={"email": a_email.upper(), "password": "ua-admin-pass-1"})
+        check(r.status_code == 200 and len(_alogs(admin_email=a_email, action="admin_login")) == 2,
+              "logs: a sign-in is logged under the lower-cased address", str(r.status_code))
+
+        ghost = f"{PREFIX}ghost-{uuid.uuid4().hex[:8]}@example.com"
+        r = c.post("/api/admin/login", json={"email": ghost.upper(), "password": "nope-nope-1"})
+        rows = _alogs(admin_email=ghost, action="admin_login_failed")
+        check(r.status_code == 401 and len(rows) == 1 and rows[0]["admin_id"] is None
+              and "nope-nope-1" not in (rows[0]["details"] or ""),
+              "logs: an unknown address is logged with no admin id", f"{r.status_code} {rows}")
+
+        # lockout: the 5th failure starts it (one row), the 6th is refused and adds nothing
+        import admin_routes
+        n = admin_routes.ADMIN_MAX_FAILED_LOGINS
+        lock_email = f"{PREFIX}lock-{uuid.uuid4().hex[:8]}@example.com"
+        codes = [c.post("/api/admin/login", json={"email": lock_email, "password": "bad-pass-1"}).status_code
+                 for _ in range(n)]
+        failed = len(_alogs(admin_email=lock_email, action="admin_login_failed"))
+        locked = len(_alogs(admin_email=lock_email, action="admin_locked_out"))
+        r6 = c.post("/api/admin/login", json={"email": lock_email, "password": "bad-pass-1"})
+        total = db.sql("SELECT count(*) AS n FROM admin_action_logs WHERE admin_email = %s", lock_email)[0]["n"]
+        check(codes == [401] * n and failed == n and locked == 1 and r6.status_code == 429 and total == n + 1,
+              "logs: the lockout is logged once and a refused attempt adds no row",
+              f"{codes} failed {failed} locked {locked} 6th {r6.status_code} total {total}")
+
+        # feedback
+        p = _person(c, made_users, "fb")
+        fid = str(uuid.uuid4())
+        fb_ids.append(fid)
+        db.sql("INSERT INTO feedback (id, user_id, user_email, user_name, category, message, status) "
+               "VALUES (%s, %s, %s, 'fb', 'general', 'hello there', 'pending')", fid, p["id"], p["email"])
+        r = c.put(f"/api/admin/feedback/{fid}/status?status_update=resolved", headers=ah)
+        rows = _alogs(action="feedback_status_changed", target_user_id=p["id"])
+        check(r.status_code == 200 and len(rows) == 1 and rows[0]["details"] == "pending -> resolved"
+              and rows[0]["admin_email"] == a_email and rows[0]["target_user_email"] == p["email"],
+              "logs: a feedback status change is logged with old -> new", str(rows))
+        r = c.put(f"/api/admin/feedback/{fid}/status?status_update=resolved", headers=ah)
+        check(r.status_code == 200 and len(_alogs(action="feedback_status_changed", target_user_id=p["id"])) == 1,
+              "logs: the same status again logs nothing")
+        r = c.delete(f"/api/admin/feedback/{fid}", headers=sh)
+        rows = _alogs(action="feedback_deleted", target_user_id=p["id"])
+        check(r.status_code == 200 and len(rows) == 1 and rows[0]["target_user_email"] == p["email"],
+              "logs: a feedback delete is logged", str(rows))
+        r = c.delete(f"/api/admin/feedback/{fid}", headers=sh)
+        check(r.status_code == 404 and len(_alogs(action="feedback_deleted", target_user_id=p["id"])) == 1,
+              "logs: deleting a missing feedback logs nothing")
+
+        # filters
+        def get(q, h=sh):
+            return c.get("/api/admin/logs?" + q, headers=h)
+
+        r = get("limit=100&action=feedback_deleted&user_email=" + quote(p["email"][:12]))
+        check(r.status_code == 200 and [x["action"] for x in r.json()] == ["feedback_deleted"],
+              "logs: filter by action and a user-email part", r.text[:200])
+        r = get("limit=100&admin_email=" + quote(s_email.upper()))
+        acts = {x["action"] for x in r.json()} if r.status_code == 200 else None
+        check(r.status_code == 200 and acts == {"admin_login", "feedback_deleted"}
+              and all(x["admin_email"] == s_email for x in r.json()),
+              "logs: filter by admin email, other case", str(acts))
+        r = get("limit=100&user_email=" + quote(p["email"].upper()))
+        check(r.status_code == 200 and {x["action"] for x in r.json()} == {"feedback_status_changed", "feedback_deleted"},
+              "logs: user email is a case-insensitive substring", r.text[:200])
+        for odd in ("%", "_", "\\", "'", '"', "%25", "nosuch-" + uuid.uuid4().hex):
+            r = get("limit=100&user_email=" + quote(odd))
+            hits = ([x for x in r.json() if odd not in (x["target_user_email"] or "").lower()]
+                    if r.status_code == 200 else None)
+            check(r.status_code == 200 and hits == [], f"logs: user_email {odd!r} matches only a literal text",
+                  f"{r.status_code} {str(hits)[:150]}")
+        r = get("action=no_such_action")
+        check(r.status_code == 200 and r.json() == [], "logs: an unknown action returns nothing")
+        for q in ("user_email=" + "a" * 300, "admin_email=" + "a" * 300, "action=" + "a" * 300):
+            check(get(q).status_code == 422, "logs: a 300-character filter is a 422 " + q.split("=")[0])
+
+        # paging: the second newest
+        everything = get("limit=100&admin_email=" + quote(a_email)).json()
+        page = get("skip=1&limit=1&admin_email=" + quote(a_email)).json()
+        check(len(everything) >= 2 and len(page) == 1 and page[0]["id"] == everything[1]["id"],
+              "logs: skip=1&limit=1 returns the second newest", str(page)[:150])
+        ts = [x["timestamp"] for x in everything]
+        check(ts == sorted(ts, reverse=True), "logs: newest first")
+
+        # filter choices
+        r = c.get("/api/admin/logs/filters", headers=sh)
+        j = r.json() if r.status_code == 200 else {}
+        check(r.status_code == 200 and {"admin_login", "admin_login_failed", "admin_locked_out",
+                                        "feedback_status_changed", "feedback_deleted"} <= set(j.get("actions", []))
+              and s_email in j.get("admin_emails", [])
+              and len(set(j["actions"])) == len(j["actions"]) and len(set(j["admin_emails"])) == len(j["admin_emails"]),
+              "logs: /logs/filters lists distinct actions and admin emails", r.text[:200])
+
+        # roles
+        for who, h in (("moderator", mh), ("admin", ah)):
+            codes = [c.get(u, headers=h).status_code for u in ("/api/admin/logs", "/api/admin/logs/filters")]
+            check(codes == [403, 403], f"logs: a {who} is refused the log pages", str(codes))
+    finally:
+        if fb_ids:
+            db.sql("DELETE FROM feedback WHERE id = ANY(%s)", fb_ids)
+        _cleanup(made_users, made_admins)
+        db.sql("DELETE FROM admin_action_logs WHERE admin_email LIKE %s", PREFIX + "%")
+
+
 # -------------------------------------------------------------------------------------------------------------- clean
 def section_clean():
     n = db.sql("SELECT count(*) AS n FROM users WHERE email LIKE %s", PREFIX + "%")[0]["n"]
@@ -1087,7 +1219,7 @@ def section_clean():
 
 
 SECTIONS = {"guard": section_guard, "actions": section_actions, "recovery": section_recovery,
-            "effects": section_effects, "grant": section_grant, "list": section_list, "clean": section_clean}
+            "effects": section_effects, "grant": section_grant, "list": section_list, "logs": section_logs, "clean": section_clean}
 
 
 def main():

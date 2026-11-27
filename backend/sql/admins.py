@@ -64,7 +64,7 @@ async def update_profile(admin_id: str, fields: Dict[str, Any], bump_version: bo
     await execute(update(admins).where(admins.c.id == admin_id).values(**values))
 
 
-async def log_action(admin_id: str, admin_email: str, action: str, target_user_id: Optional[str] = None,
+async def log_action(admin_id: Optional[str], admin_email: str, action: str, target_user_id: Optional[str] = None,
                      target_user_email: Optional[str] = None, details: Optional[str] = None) -> None:
     await execute(insert(admin_action_logs).values(
         id=str(uuid.uuid4()), admin_id=admin_id, admin_email=admin_email, action=action,
@@ -73,8 +73,24 @@ async def log_action(admin_id: str, admin_email: str, action: str, target_user_i
     ))
 
 
-async def list_logs(skip: int, limit: int) -> List[Dict[str, Any]]:
-    stmt = (select(admin_action_logs)
-            .order_by(admin_action_logs.c.timestamp.desc(), admin_action_logs.c.id)
+async def list_logs(skip: int, limit: int, admin_email: Optional[str] = None, action: Optional[str] = None,
+                    user_email: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Newest first. admin_email and action are exact (the e-mail ignoring case); user_email is a case-insensitive
+    substring, matched with strpos so a percent sign, underscore or backslash in it means itself."""
+    stmt = select(admin_action_logs)
+    if admin_email:
+        stmt = stmt.where(func.lower(admin_action_logs.c.admin_email) == admin_email.lower())
+    if action:
+        stmt = stmt.where(admin_action_logs.c.action == action)
+    if user_email:
+        stmt = stmt.where(func.strpos(func.lower(admin_action_logs.c.target_user_email), user_email.lower()) > 0)
+    stmt = (stmt.order_by(admin_action_logs.c.timestamp.desc(), admin_action_logs.c.id)
             .offset(skip).limit(limit))
     return rows_to_docs(await fetch_all(stmt))
+
+
+async def log_filter_choices() -> Dict[str, List[str]]:
+    actions = await fetch_all(select(admin_action_logs.c.action).distinct().order_by(admin_action_logs.c.action))
+    emails = await fetch_all(select(func.lower(admin_action_logs.c.admin_email).label("email")).distinct()
+                             .order_by("email"))
+    return {"actions": [r["action"] for r in actions], "admin_emails": [r["email"] for r in emails]}

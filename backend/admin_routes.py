@@ -254,7 +254,9 @@ def _admin_is_locked(key: _LockKey) -> bool:
         return False
 
 
-def _admin_record_failure(key: _LockKey) -> None:
+def _admin_record_failure(key: _LockKey) -> bool:
+    """Count a failed sign-in; True exactly when this one starts the lockout."""
+    started = False
     now = time.monotonic()
     with _admin_lockout_lock:
         attempts = [t for t in _admin_failed_logins.pop(key, []) if now - t < ADMIN_LOCKOUT_SECONDS]
@@ -262,6 +264,7 @@ def _admin_record_failure(key: _LockKey) -> None:
         if len(attempts) >= ADMIN_MAX_FAILED_LOGINS:
             _admin_locked_until.pop(key, None)
             _admin_locked_until[key] = now + ADMIN_LOCKOUT_SECONDS
+            started = True
         else:
             _admin_failed_logins[key] = attempts  # re-inserted -> newest
         if (
@@ -270,6 +273,7 @@ def _admin_record_failure(key: _LockKey) -> None:
             or len(_admin_failed_logins) % 256 == 0
         ):
             _admin_purge_locked(now)
+    return started
 
 
 def _admin_clear_failures(key: _LockKey) -> None:
@@ -298,7 +302,13 @@ async def admin_login(credentials: AdminLogin, request: Request):
         or not admin.get("password")
         or not await run_in_threadpool(verify_password, credentials.password, admin["password"])
     ):
-        _admin_record_failure(lock_key)
+        locked_now = _admin_record_failure(lock_key)
+        who = admin["_id"] if admin else None
+        await log_admin_action(who, lock_key[0], "admin_login_failed",
+                               details="wrong password" if admin else "unknown address")
+        if locked_now:
+            await log_admin_action(who, lock_key[0], "admin_locked_out",
+                                   details=f"{ADMIN_MAX_FAILED_LOGINS} failed sign-ins")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
@@ -308,6 +318,7 @@ async def admin_login(credentials: AdminLogin, request: Request):
 
     login_time = datetime.now(UTC)
     await admins_db.set_last_login(admin["_id"], login_time)
+    await log_admin_action(admin["_id"], lock_key[0], "admin_login")
 
     access_token = create_admin_access_token(
         data=admin_token_claims(admin),
@@ -1332,10 +1343,16 @@ async def get_transaction_extraction_ai_usage_stats(
 async def get_admin_logs(
     current_admin: dict = Depends(require_super_admin),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100)
+    limit: int = Query(50, ge=1, le=100),
+    admin_email: Optional[str] = Query(None, max_length=200),
+    action: Optional[str] = Query(None, max_length=200),
+    user_email: Optional[str] = Query(None, max_length=200),
 ):
-    """Get admin action logs (super admin only)"""
-    logs = await admins_db.list_logs(skip, limit)
+    """Get admin action logs, newest first (super admin only). admin_email and action are exact, user_email is a
+    case-insensitive part of the person's address."""
+    logs = await admins_db.list_logs(
+        skip, limit,
+        (admin_email or "").strip() or None, (action or "").strip() or None, (user_email or "").strip() or None)
 
     return [
         AdminActionLog(
@@ -1350,6 +1367,12 @@ async def get_admin_logs(
         )
         for log in logs
     ]
+
+
+@router.get("/logs/filters")
+async def get_admin_log_filters(current_admin: dict = Depends(require_super_admin)):
+    """The actions and admin e-mails that appear in the log (for the filter menus)"""
+    return await admins_db.log_filter_choices()
 
 
 # ==================== FEEDBACK MANAGEMENT ====================
@@ -1403,12 +1426,16 @@ async def update_feedback_status(
     current_admin: dict = Depends(require_admin_or_super)
 ):
     """Update feedback status"""
+    row = await feedback_db.get_feedback(feedback_id)
     # Matched rows: setting the same status again is a no-op, not a 404
     if await feedback_db.set_status(feedback_id, status_update) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"
         )
+    if row and row.get("status") != status_update:
+        await log_admin_action(current_admin["_id"], current_admin["email"], "feedback_status_changed",
+                               row.get("user_id"), row.get("user_email"), f"{row.get('status')} -> {status_update}")
 
     return {"message": "Feedback status updated"}
 
@@ -1418,10 +1445,14 @@ async def delete_feedback(
     current_admin: dict = Depends(require_super_admin)
 ):
     """Delete feedback (Super Admin only)"""
+    row = await feedback_db.get_feedback(feedback_id)
     if await feedback_db.delete_feedback(feedback_id) == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Feedback not found"
         )
+    if row:
+        await log_admin_action(current_admin["_id"], current_admin["email"], "feedback_deleted",
+                               row.get("user_id"), row.get("user_email"))
 
     return {"message": "Feedback deleted successfully"}

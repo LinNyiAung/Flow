@@ -36,6 +36,11 @@ async def stats() -> Dict[str, Any]:
     return row or {"total": 0, "pending": 0, "reviewed": 0, "resolved": 0, "average_rating": None}
 
 
+async def get_feedback(feedback_id: str) -> Optional[Dict[str, Any]]:
+    rows = rows_to_docs(await fetch_all(select(feedback).where(feedback.c.id == feedback_id)))
+    return rows[0] if rows else None
+
+
 async def set_status(feedback_id: str, status: str) -> int:
     """Row count of matched feedback (setting the same status again still counts)."""
     return await execute(update(feedback).where(feedback.c.id == feedback_id).values(status=status))

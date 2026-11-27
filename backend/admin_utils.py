@@ -163,7 +163,7 @@ def require_moderator_or_above(admin: dict = Depends(get_current_admin)):
 
 
 async def log_admin_action(
-    admin_id: str,
+    admin_id: Optional[str],
     admin_email: str,
     action: str,
     target_user_id: Optional[str] = None,
